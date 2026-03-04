@@ -1,0 +1,19 @@
+{
+  "name": "webrtc-demo-client",
+  "version": "1.0.0",
+  "description": "WebRTC P2P console client with native C++ bindings (Linux)",
+  "main": "client.js",
+  "scripts": {
+    "install": "echo Skipping native build. Run ./build.sh manually.",
+    "start": "node client.js",
+    "build": "./build.sh",
+    "clean": "rm -rf build/Release"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.1.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  }
+}
