@@ -139,9 +139,9 @@ echo "Linking webrtc_addon.node ..."
   src/addon.o \
   src/peer_connection_wrapper.o \
   -Wl,--whole-archive \
-  "$WEBRTC_SRC/out/x64_release/obj/libwebrtc.a" \
+  "$WEBRTC_SRC/out/release_x64/obj/libwebrtc.a" \
   -Wl,--no-whole-archive \
-  "$WEBRTC_SRC/out/x64_release/obj/buildtools/third_party/libc++/libc++/"*.o \
+  "$WEBRTC_SRC/out/release_x64/obj/buildtools/third_party/libc++/libc++/"*.o \
   -lX11 \
   -lpthread \
   -ldl \

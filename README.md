@@ -58,11 +58,11 @@ sudo ./build/install-build-deps.sh --no-prompt
 
 ```bash
 cd src
-gn gen out/x64_release --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
-ninja -C out/x64_release
+gn gen out/release_x64 --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
+ninja -C out/release_x64 webrtc
 ```
 
-This produces `out/x64_release/obj/libwebrtc.a`.
+This produces `out/release_x64/obj/libwebrtc.a`.
 
 ### 5. Install dependencies and build the demo
 

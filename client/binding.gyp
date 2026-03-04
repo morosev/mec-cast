@@ -23,7 +23,7 @@
           "OS=='linux'",
           {
             "libraries": [
-              "<(module_root_dir)/../../webrtc/src/out/x64_release/obj/libwebrtc.a",
+              "<(module_root_dir)/../../webrtc/src/out/release_x64/obj/libwebrtc.a",
               "-lX11",
               "-lpthread",
               "-ldl",

@@ -1,6 +1,5 @@
 # Build artifacts
 client/build/
-client/src/*.o
 
 # Dependencies
 client/node_modules/
@@ -8,9 +7,6 @@ server/node_modules/
 
 # Logs
 client/log/
-
-# OS
-.DS_Store
 
 # WebRTC source and tools (checked out separately)
 webrtc/
