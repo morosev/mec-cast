@@ -121,10 +121,43 @@ npm start
 | `help` | Show available commands |
 | `quit` | Exit the client |
 
+## Client Configuration
+
+The client can be configured via `client/client-config.json` to automate
+connection and call setup. All properties are optional — when omitted or set to
+defaults, the client behaves as a fully manual interactive console.
+
+```json
+{
+  "server_address": "ws://localhost:8080",
+  "username": "alice",
+  "auto_connect": true,
+  "auto_answer": true
+}
+```
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `server_address` | string | `"ws://localhost:8080"` | WebSocket URL of the signaling server |
+| `username` | string | `""` | Name to register with on the server |
+| `auto_connect` | bool | `false` | Connect to the server automatically on startup |
+| `auto_answer` | bool | `false` | Automatically answer incoming calls |
+
+**Validation rules:**
+- `auto_connect` requires both `server_address` and `username` to be set.
+
+When the config file is absent, the client starts in fully manual mode.
+
 ## Logging
 
-WebRTC internal logs are written to `client/log/<username>_webrtc.log`,
-overwritten on each session.
+All screen output and errors are mirrored to log files, recreated on each
+application start:
+
+- **Client:** `client/log/client.log`
+- **Server:** `server/log/server.log`
+
+WebRTC native-layer logs are written separately to
+`client/log/<username>_webrtc.log`.
 
 ## Example Session
 

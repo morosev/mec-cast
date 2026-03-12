@@ -1,4 +1,32 @@
 const WebSocket = require("ws");
+const path = require("path");
+const fs = require("fs");
+
+// --- File logging ---
+const LOG_DIR = path.join(__dirname, "log");
+fs.mkdirSync(LOG_DIR, { recursive: true });
+const logStream = fs.createWriteStream(path.join(LOG_DIR, "server.log"), {
+  flags: "w",
+});
+
+const origLog = console.log.bind(console);
+const origError = console.error.bind(console);
+
+function timestamp() {
+  return new Date().toISOString();
+}
+
+console.log = (...args) => {
+  origLog(...args);
+  logStream.write(`[${timestamp()}] ${args.join(" ")}\n`);
+};
+
+console.error = (...args) => {
+  origError(...args);
+  logStream.write(`[${timestamp()}] ERROR: ${args.join(" ")}\n`);
+};
+
+process.on("exit", () => logStream.end());
 
 const PORT = 8080;
 const wss = new WebSocket.Server({ port: PORT });

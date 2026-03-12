@@ -7,6 +7,7 @@ server/node_modules/
 
 # Logs
 client/log/
+server/log/
 
 # WebRTC source and tools (checked out separately)
 webrtc/

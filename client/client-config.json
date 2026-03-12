@@ -1,0 +1,6 @@
+{
+  "server_address": "ws://localhost:8080",
+  "username": "",
+  "auto_connect": false,
+  "auto_answer": true
+}

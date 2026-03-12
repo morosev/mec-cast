@@ -1,5 +1,33 @@
 const readline = require("readline");
+const path = require("path");
+const fs = require("fs");
 const WebSocket = require("ws");
+
+// --- File logging ---
+const LOG_DIR = path.join(__dirname, "log");
+fs.mkdirSync(LOG_DIR, { recursive: true });
+const logStream = fs.createWriteStream(path.join(LOG_DIR, "client.log"), {
+  flags: "w",
+});
+
+const origLog = console.log.bind(console);
+const origError = console.error.bind(console);
+
+function timestamp() {
+  return new Date().toISOString();
+}
+
+console.log = (...args) => {
+  origLog(...args);
+  logStream.write(`[${timestamp()}] ${args.join(" ")}\n`);
+};
+
+console.error = (...args) => {
+  origError(...args);
+  logStream.write(`[${timestamp()}] ERROR: ${args.join(" ")}\n`);
+};
+
+process.on("exit", () => logStream.end());
 
 let addon;
 try {
@@ -8,6 +36,35 @@ try {
   console.error("Native addon not found. Build it first with: ./build.sh");
   console.error(e.message);
   process.exit(1);
+}
+
+// --- Config ---
+const CONFIG_PATH = path.join(__dirname, "client-config.json");
+let config = {};
+
+function loadConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) return;
+  try {
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+  } catch (e) {
+    console.error(`Failed to parse ${CONFIG_PATH}: ${e.message}`);
+    process.exit(1);
+  }
+
+  if (config.auto_connect) {
+    if (!config.server_address) {
+      console.error(
+        "Config error: auto_connect requires server_address to be set."
+      );
+      process.exit(1);
+    }
+    if (!config.username) {
+      console.error(
+        "Config error: auto_connect requires username to be set."
+      );
+      process.exit(1);
+    }
+  }
 }
 
 // --- State ---
@@ -143,8 +200,13 @@ function handleSignalingMessage(msg) {
 
     case "offer":
       log(`Incoming call from "${remotePeer || "peer"}"!`);
-      log('Type "answer" to accept the call.');
       pendingOffer = msg;
+      if (config.auto_answer) {
+        log("Auto-answering call...");
+        handleCommand("answer");
+      } else {
+        log('Type "answer" to accept the call.');
+      }
       break;
 
     case "answer":
@@ -177,6 +239,29 @@ function handleSignalingMessage(msg) {
 
 let pendingOffer = null;
 
+// --- Connection helper ---
+
+function doConnect(name, server) {
+  myName = name;
+  ws = new WebSocket(server);
+  ws.on("open", () => {
+    sendSignal({ type: "register", name: myName });
+  });
+  ws.on("message", (data) => {
+    try {
+      handleSignalingMessage(JSON.parse(data));
+    } catch {}
+  });
+  ws.on("close", () => {
+    log("Disconnected from server.");
+    ws = null;
+  });
+  ws.on("error", (err) => {
+    log(`Connection error: ${err.message}`);
+    ws = null;
+  });
+}
+
 // --- Commands ---
 
 function handleCommand(input) {
@@ -189,30 +274,13 @@ function handleCommand(input) {
         log("Already connected. Disconnect first.");
         break;
       }
-      const name = parts[1];
-      const server = parts[2] || "ws://localhost:8080";
+      const name = parts[1] || config.username;
+      const server = parts[2] || config.server_address || "ws://localhost:8080";
       if (!name) {
         log("Usage: connect <yourname> [server_url]");
         break;
       }
-      myName = name;
-      ws = new WebSocket(server);
-      ws.on("open", () => {
-        sendSignal({ type: "register", name: myName });
-      });
-      ws.on("message", (data) => {
-        try {
-          handleSignalingMessage(JSON.parse(data));
-        } catch {}
-      });
-      ws.on("close", () => {
-        log("Disconnected from server.");
-        ws = null;
-      });
-      ws.on("error", (err) => {
-        log(`Connection error: ${err.message}`);
-        ws = null;
-      });
+      doConnect(name, server);
       break;
     }
 
@@ -367,6 +435,15 @@ function endCall() {
 }
 
 // --- Main ---
+loadConfig();
 console.log("=== WebRTC Demo Client (Linux) ===");
 console.log('Type "help" for available commands.\n');
+
+if (config.auto_connect) {
+  console.log(
+    `Auto-connecting to ${config.server_address} as "${config.username}"...`
+  );
+  doConnect(config.username, config.server_address);
+}
+
 prompt();
