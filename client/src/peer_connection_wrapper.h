@@ -20,6 +20,7 @@ class PeerConnectionWrapper
   Napi::Value PollEvents(const Napi::CallbackInfo& info);
   Napi::Value GetAudioInfo(const Napi::CallbackInfo& info);
   Napi::Value GetVideoInfo(const Napi::CallbackInfo& info);
+  Napi::Value GetStats(const Napi::CallbackInfo& info);
 
  private:
   WebrtcPeer* peer_ = nullptr;

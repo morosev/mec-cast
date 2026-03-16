@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <condition_variable>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -54,6 +56,9 @@
 #include "rtc_base/thread.h"
 #include "rtc_base/logging.h"
 #include "third_party/libyuv/include/libyuv.h"
+#include "api/stats/rtc_stats_collector_callback.h"
+#include "api/stats/rtcstats_objects.h"
+#include "api/stats/rtc_stats_report.h"
 
 // Now safe to include X11 — undefine conflicting macros afterwards
 #include <X11/Xlib.h>
@@ -757,6 +762,129 @@ int webrtc_add_ice_candidate(WebrtcPeer* peer, const char* sdp_mid,
   }
   peer->pc->AddIceCandidate(c.get());
   return 0;
+}
+
+// --- Stats collector callback (blocks until stats are delivered) ---
+class BlockingStatsCollector : public webrtc::RTCStatsCollectorCallback {
+ public:
+  static webrtc::scoped_refptr<BlockingStatsCollector> Create() {
+    return webrtc::make_ref_counted<BlockingStatsCollector>();
+  }
+  void OnStatsDelivered(
+      const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    report_ = report;
+    ready_ = true;
+    cv_.notify_one();
+  }
+  webrtc::scoped_refptr<const webrtc::RTCStatsReport> WaitForReport(
+      int timeout_ms = 2000) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                 [this] { return ready_; });
+    return report_;
+  }
+ private:
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  bool ready_ = false;
+  webrtc::scoped_refptr<const webrtc::RTCStatsReport> report_;
+};
+
+char* webrtc_get_stats(WebrtcPeer* peer) {
+  if (!peer || !peer->pc) return strdup("{}");
+
+  auto collector = BlockingStatsCollector::Create();
+  peer->pc->GetStats(collector.get());
+  auto report = collector->WaitForReport();
+  if (!report) return strdup("{}");
+
+  // Collect codec map: id -> mime_type
+  std::map<std::string, std::string> codecs;
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCCodecStats::kType) {
+      const auto& cs = stat.cast_to<webrtc::RTCCodecStats>();
+      if (cs.mime_type.has_value()) {
+        codecs[stat.id()] = *cs.mime_type;
+      }
+    }
+  }
+
+  // Candidate pair (RTT)
+  double rtt_ms = -1;
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCIceCandidatePairStats::kType) {
+      const auto& cp = stat.cast_to<webrtc::RTCIceCandidatePairStats>();
+      if (cp.nominated.has_value() && *cp.nominated &&
+          cp.current_round_trip_time.has_value()) {
+        rtt_ms = *cp.current_round_trip_time * 1000.0;
+      }
+    }
+  }
+
+  // Inbound RTP (receive side)
+  std::ostringstream oss;
+  oss << "{\"rtt_ms\":" << rtt_ms;
+
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCInboundRtpStreamStats::kType) {
+      const auto& in = stat.cast_to<webrtc::RTCInboundRtpStreamStats>();
+      std::string kind = in.kind.has_value() ? *in.kind : "";
+      std::string prefix = (kind == "video") ? "in_video" : "in_audio";
+
+      if (in.bytes_received.has_value())
+        oss << ",\"" << prefix << "_bytes_received\":" << *in.bytes_received;
+      if (in.packets_lost.has_value())
+        oss << ",\"" << prefix << "_packets_lost\":" << *in.packets_lost;
+      if (in.jitter.has_value())
+        oss << ",\"" << prefix << "_jitter\":" << *in.jitter;
+
+      if (kind == "video") {
+        if (in.frame_width.has_value())
+          oss << ",\"in_video_width\":" << *in.frame_width;
+        if (in.frame_height.has_value())
+          oss << ",\"in_video_height\":" << *in.frame_height;
+        if (in.frames_per_second.has_value())
+          oss << ",\"in_video_fps\":" << *in.frames_per_second;
+      }
+
+      if (in.codec_id.has_value()) {
+        auto it = codecs.find(*in.codec_id);
+        if (it != codecs.end())
+          oss << ",\"" << prefix << "_codec\":\"" << it->second << "\"";
+      }
+    }
+  }
+
+  // Outbound RTP (send side)
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCOutboundRtpStreamStats::kType) {
+      const auto& out = stat.cast_to<webrtc::RTCOutboundRtpStreamStats>();
+      std::string kind = out.kind.has_value() ? *out.kind : "";
+      std::string prefix = (kind == "video") ? "out_video" : "out_audio";
+
+      if (out.bytes_sent.has_value())
+        oss << ",\"" << prefix << "_bytes_sent\":" << *out.bytes_sent;
+
+      if (kind == "video") {
+        if (out.frame_width.has_value())
+          oss << ",\"out_video_width\":" << *out.frame_width;
+        if (out.frame_height.has_value())
+          oss << ",\"out_video_height\":" << *out.frame_height;
+        if (out.frames_per_second.has_value())
+          oss << ",\"out_video_fps\":" << *out.frames_per_second;
+      }
+
+      if (out.codec_id.has_value()) {
+        auto it = codecs.find(*out.codec_id);
+        if (it != codecs.end())
+          oss << ",\"" << prefix << "_codec\":\"" << it->second << "\"";
+      }
+    }
+  }
+
+  oss << "}";
+  return strdup(oss.str().c_str());
 }
 
 void webrtc_close(WebrtcPeer* peer) {

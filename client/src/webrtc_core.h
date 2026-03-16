@@ -25,6 +25,7 @@ void webrtc_destroy(WebrtcPeer* peer);
 // Diagnostics — returns a JSON string (caller must free with free())
 char* webrtc_get_audio_info(WebrtcPeer* peer);
 char* webrtc_get_video_info(WebrtcPeer* peer);
+char* webrtc_get_stats(WebrtcPeer* peer);
 
 // Operations
 int webrtc_create_offer(WebrtcPeer* peer);

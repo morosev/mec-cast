@@ -29,6 +29,19 @@ console.error = (...args) => {
 
 process.on("exit", () => logStream.end());
 
+const LOG_FILE = path.join(LOG_DIR, "client.log");
+
+process.on("uncaughtException", (err) => {
+  const msg = `[${timestamp()}] FATAL: ${err.stack || err.message}\n`;
+  origError(msg.trim());
+  try { fs.appendFileSync(LOG_FILE, msg); } catch {}
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error(`Unhandled rejection: ${reason}`);
+});
+
 let addon;
 try {
   addon = require("./build/Release/webrtc_addon");
@@ -73,6 +86,15 @@ let pc = null;
 let myName = null;
 let remotePeer = null;
 let inCall = false;
+let heartbeatTimer = null;
+let heartbeatCheckTimer = null;
+let lastPong = 0;
+let statsTimer = null;
+let prevStats = null;
+let prevStatsTime = 0;
+const HEARTBEAT_INTERVAL = 10000;
+const HEARTBEAT_TIMEOUT = 30000;
+const STATS_INTERVAL = 2000;
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -143,6 +165,10 @@ function handlePeerEvent(evt) {
       log(`Connection state: ${data.state}`);
       if (data.state === "connected") {
         log("P2P connection established!");
+        if (config.auto_stats_on && !statsTimer) {
+          startStats();
+          log("Stats display auto-enabled.");
+        }
       } else if (data.state === "failed" || data.state === "disconnected") {
         log("P2P connection lost.");
       }
@@ -231,6 +257,10 @@ function handleSignalingMessage(msg) {
       endCall();
       break;
 
+    case "pong":
+      lastPong = Date.now();
+      break;
+
     case "error":
       log(`Server error: ${msg.message}`);
       break;
@@ -239,6 +269,136 @@ function handleSignalingMessage(msg) {
 
 let pendingOffer = null;
 
+// --- Stats display ---
+
+function formatBitrate(bytes, prevBytes, elapsedSec) {
+  if (prevBytes === undefined || elapsedSec <= 0) return "—";
+  const bps = ((bytes - prevBytes) * 8) / elapsedSec;
+  if (bps >= 1000000) return (bps / 1000000).toFixed(1) + " Mbps";
+  if (bps >= 1000) return (bps / 1000).toFixed(0) + " kbps";
+  return bps.toFixed(0) + " bps";
+}
+
+function pad(str, len) {
+  return str.length >= len ? str : str + " ".repeat(len - str.length);
+}
+
+function startStats() {
+  if (statsTimer) return;
+  prevStats = null;
+  prevStatsTime = 0;
+  statsTimer = setInterval(() => {
+    if (!pc || !inCall) return;
+    let raw;
+    try {
+      raw = JSON.parse(pc.getStats());
+    } catch {
+      return;
+    }
+    const now = Date.now();
+    const elapsed = prevStatsTime ? (now - prevStatsTime) / 1000 : 0;
+    if (!prevStats) {
+      prevStats = raw;
+      prevStatsTime = now;
+      return;
+    }
+
+    const lines = [];
+
+    // Common
+    const rtt = raw.rtt_ms >= 0 ? `${Math.round(raw.rtt_ms)} ms` : "—";
+    const vCodec = (raw.out_video_codec || raw.in_video_codec || "").split("/").pop() || "";
+    const aCodec = (raw.out_audio_codec || raw.in_audio_codec || "").split("/").pop() || "";
+    const codecs = [vCodec, aCodec].filter(Boolean).join(", ") || "—";
+    lines.push(`  RTT: ${rtt}  Codecs: ${codecs}`);
+
+    // Video send
+    if (raw.out_video_bytes_sent !== undefined) {
+      const br = formatBitrate(raw.out_video_bytes_sent, prevStats.out_video_bytes_sent, elapsed);
+      const res = (raw.out_video_width && raw.out_video_height)
+        ? `${raw.out_video_width}x${raw.out_video_height}` : "—";
+      const fps = raw.out_video_fps !== undefined ? `${Math.round(raw.out_video_fps)} fps` : "—";
+      lines.push(`  Video ↑  ${pad(br, 10)} ${pad(res, 10)} ${fps}`);
+    }
+
+    // Video receive
+    if (raw.in_video_bytes_received !== undefined) {
+      const br = formatBitrate(raw.in_video_bytes_received, prevStats.in_video_bytes_received, elapsed);
+      const res = (raw.in_video_width && raw.in_video_height)
+        ? `${raw.in_video_width}x${raw.in_video_height}` : "—";
+      const fps = raw.in_video_fps !== undefined ? `${Math.round(raw.in_video_fps)} fps` : "—";
+      const loss = raw.in_video_packets_lost !== undefined ? `Loss: ${raw.in_video_packets_lost}` : "";
+      const jitter = raw.in_video_jitter !== undefined
+        ? `Jitter: ${(raw.in_video_jitter * 1000).toFixed(0)} ms` : "";
+      lines.push(`  Video ↓  ${pad(br, 10)} ${pad(res, 10)} ${pad(fps, 8)} ${pad(loss, 10)} ${jitter}`);
+    }
+
+    // Audio send
+    if (raw.out_audio_bytes_sent !== undefined) {
+      const br = formatBitrate(raw.out_audio_bytes_sent, prevStats.out_audio_bytes_sent, elapsed);
+      lines.push(`  Audio ↑  ${br}`);
+    }
+
+    // Audio receive
+    if (raw.in_audio_bytes_received !== undefined) {
+      const br = formatBitrate(raw.in_audio_bytes_received, prevStats.in_audio_bytes_received, elapsed);
+      const loss = raw.in_audio_packets_lost !== undefined ? `Loss: ${raw.in_audio_packets_lost}` : "";
+      const jitter = raw.in_audio_jitter !== undefined
+        ? `Jitter: ${(raw.in_audio_jitter * 1000).toFixed(0)} ms` : "";
+      lines.push(`  Audio ↓  ${pad(br, 10)} ${" ".repeat(19)} ${pad(loss, 10)} ${jitter}`);
+    }
+
+    log("┌─ STATS ─────────────────────────────────────────────────────────");
+    for (const l of lines) log(l);
+    log("└────────────────────────────────────────────────────────────────");
+
+    prevStats = raw;
+    prevStatsTime = now;
+  }, STATS_INTERVAL);
+}
+
+function stopStats() {
+  if (statsTimer) {
+    clearInterval(statsTimer);
+    statsTimer = null;
+  }
+  prevStats = null;
+  prevStatsTime = 0;
+}
+
+// --- Heartbeat ---
+
+function startHeartbeat() {
+  lastPong = Date.now();
+  heartbeatTimer = setInterval(() => {
+    sendSignal({ type: "ping" });
+  }, HEARTBEAT_INTERVAL);
+  heartbeatCheckTimer = setInterval(() => {
+    if (Date.now() - lastPong > HEARTBEAT_TIMEOUT) {
+      log("Server heartbeat timeout — connection lost.");
+      stopHeartbeat();
+      if (inCall) endCall();
+      if (ws) {
+        ws.terminate();
+        ws = null;
+      }
+      myName = null;
+      remotePeer = null;
+    }
+  }, HEARTBEAT_INTERVAL);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  if (heartbeatCheckTimer) {
+    clearInterval(heartbeatCheckTimer);
+    heartbeatCheckTimer = null;
+  }
+}
+
 // --- Connection helper ---
 
 function doConnect(name, server) {
@@ -246,6 +406,7 @@ function doConnect(name, server) {
   ws = new WebSocket(server);
   ws.on("open", () => {
     sendSignal({ type: "register", name: myName });
+    startHeartbeat();
   });
   ws.on("message", (data) => {
     try {
@@ -253,10 +414,12 @@ function doConnect(name, server) {
     } catch {}
   });
   ws.on("close", () => {
+    stopHeartbeat();
     log("Disconnected from server.");
     ws = null;
   });
   ws.on("error", (err) => {
+    stopHeartbeat();
     log(`Connection error: ${err.message}`);
     ws = null;
   });
@@ -344,6 +507,7 @@ function handleCommand(input) {
         sendSignal({ type: "hangup" });
         endCall();
       }
+      stopHeartbeat();
       ws.close();
       ws = null;
       myName = null;
@@ -390,6 +554,24 @@ function handleCommand(input) {
       break;
     }
 
+    case "stats": {
+      const arg = parts[1]?.toLowerCase();
+      if (arg === "on") {
+        if (!pc || !inCall) {
+          log("Not in a call. Start a call first.");
+        } else {
+          startStats();
+          log("Stats display enabled (every 2s). Type 'stats off' to stop.");
+        }
+      } else if (arg === "off") {
+        stopStats();
+        log("Stats display disabled.");
+      } else {
+        log("Usage: stats on | stats off");
+      }
+      break;
+    }
+
     case "help": {
       console.log(`
 Commands:
@@ -399,6 +581,7 @@ Commands:
   end                      - End the current call
   disconnect               - Disconnect from server
   status                   - Show current status
+  stats on|off             - Toggle live WebRTC stats display (every 2s)
   audioinfo                - Show audio device diagnostics
   videoinfo                - Show video track diagnostics
   quit                     - Exit
@@ -411,6 +594,7 @@ Commands:
         sendSignal({ type: "hangup" });
         endCall();
       }
+      stopHeartbeat();
       if (ws) ws.close();
       stopPolling();
       rl.close();
@@ -427,6 +611,7 @@ Commands:
 function endCall() {
   inCall = false;
   stopPolling();
+  stopStats();
   if (pc) {
     pc.close();
     pc = null;

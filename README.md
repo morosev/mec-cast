@@ -116,6 +116,7 @@ npm start
 | `end` | End the current call |
 | `disconnect` | Disconnect from server |
 | `status` | Show current connection status |
+| `stats on\|off` | Toggle live WebRTC stats display (every 2s) |
 | `audioinfo` | Show audio track diagnostics |
 | `videoinfo` | Show video track diagnostics |
 | `help` | Show available commands |
@@ -142,6 +143,7 @@ defaults, the client behaves as a fully manual interactive console.
 | `username` | string | `""` | Name to register with on the server |
 | `auto_connect` | bool | `false` | Connect to the server automatically on startup |
 | `auto_answer` | bool | `false` | Automatically answer incoming calls |
+| `auto_stats_on` | bool | `false` | Enable live stats display when a call connects |
 
 **Validation rules:**
 - `auto_connect` requires both `server_address` and `username` to be set.
@@ -216,6 +218,17 @@ All messages are JSON over WebSocket:
 | `{ type: "answer", sdp }` | Client → Server → Client | SDP answer |
 | `{ type: "ice_candidate", candidate }` | Client → Server → Client | ICE candidate |
 | `{ type: "hangup" }` | Client → Server → Client | End call |
+| `{ type: "ping" }` | Client → Server | Heartbeat ping (every 10s) |
+| `{ type: "pong" }` | Server → Client | Heartbeat pong response |
+
+### Keep-Alive / Heartbeat
+
+The client sends a `ping` message to the server every **10 seconds**. The server
+responds with a `pong`. If the server receives no ping from a client within
+30 seconds (3 missed intervals), it considers the client dead, removes it, and
+notifies the remaining peer via `peer_left`. If the client receives no pong
+within 30 seconds, it logs a timeout notification and transitions to the
+disconnected state.
 
 ## License
 

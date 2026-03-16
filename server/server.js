@@ -28,11 +28,26 @@ console.error = (...args) => {
 
 process.on("exit", () => logStream.end());
 
+const LOG_FILE = path.join(LOG_DIR, "server.log");
+
+process.on("uncaughtException", (err) => {
+  const msg = `[${timestamp()}] FATAL: ${err.stack || err.message}\n`;
+  origError(msg.trim());
+  try { fs.appendFileSync(LOG_FILE, msg); } catch {}
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error(`Unhandled rejection: ${reason}`);
+});
+
 const PORT = 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-// Track connected peers: Map<ws, { name: string }>
+// Track connected peers: Map<ws, { name: string, lastPing: number }>
 const peers = new Map();
+const HEARTBEAT_INTERVAL = 10000;
+const HEARTBEAT_TIMEOUT = 30000;
 
 function log(msg) {
   console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
@@ -76,7 +91,7 @@ wss.on("connection", (ws) => {
           ws.close();
           return;
         }
-        peers.set(ws, { name: msg.name });
+        peers.set(ws, { name: msg.name, lastPing: Date.now() });
         log(`User connected: "${msg.name}" (${peers.size}/2 peers)`);
         ws.send(JSON.stringify({ type: "registered", name: msg.name }));
 
@@ -107,6 +122,17 @@ wss.on("connection", (ws) => {
         }
         break;
       }
+
+      case "ping": {
+        const peer = peers.get(ws);
+        if (peer) {
+          peer.lastPing = Date.now();
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "pong" }));
+        }
+        break;
+      }
     }
   });
 
@@ -128,3 +154,18 @@ wss.on("connection", (ws) => {
 
 log(`Signaling server listening on ws://localhost:${PORT}`);
 log("Waiting for peers to connect (max 2)...");
+
+// Heartbeat: detect clients that stopped sending pings
+setInterval(() => {
+  const now = Date.now();
+  for (const [ws, peer] of peers) {
+    if (now - peer.lastPing > HEARTBEAT_TIMEOUT) {
+      log(
+        `Heartbeat timeout for "${peer.name}" — removing client.`
+      );
+      peers.delete(ws);
+      ws.terminate();
+      broadcast(ws, { type: "peer_left", name: peer.name });
+    }
+  }
+}, HEARTBEAT_INTERVAL);

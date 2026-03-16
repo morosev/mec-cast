@@ -20,6 +20,7 @@ Napi::Object PeerConnectionWrapper::Init(Napi::Env env,
           InstanceMethod("pollEvents", &PeerConnectionWrapper::PollEvents),
           InstanceMethod("getAudioInfo", &PeerConnectionWrapper::GetAudioInfo),
           InstanceMethod("getVideoInfo", &PeerConnectionWrapper::GetVideoInfo),
+          InstanceMethod("getStats", &PeerConnectionWrapper::GetStats),
       });
   exports.Set("PeerConnection", func);
   return exports;
@@ -138,6 +139,15 @@ Napi::Value PeerConnectionWrapper::GetVideoInfo(const Napi::CallbackInfo& info) 
   Napi::Env env = info.Env();
   if (!peer_) return Napi::String::New(env, "{}");
   char* json = webrtc_get_video_info(peer_);
+  Napi::String result = Napi::String::New(env, json ? json : "{}");
+  if (json) free(json);
+  return result;
+}
+
+Napi::Value PeerConnectionWrapper::GetStats(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!peer_) return Napi::String::New(env, "{}");
+  char* json = webrtc_get_stats(peer_);
   Napi::String result = Napi::String::New(env, json ? json : "{}");
   if (json) free(json);
   return result;
