@@ -133,7 +133,8 @@ defaults, the client behaves as a fully manual interactive console.
   "server_address": "ws://localhost:8080",
   "username": "alice",
   "auto_connect": true,
-  "auto_answer": true
+  "auto_answer": true,
+  "auto_stats_on": false
 }
 ```
 
