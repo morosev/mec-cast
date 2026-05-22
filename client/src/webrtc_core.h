@@ -17,9 +17,10 @@ typedef struct {
 } WebrtcEvent;
 
 // Lifecycle
-// role: 0 = caller (sends audio+video), 1 = callee (receives audio+video)
+// send_audio: 1 = capture and send microphone audio, 0 = receive only
+// send_video: 1 = capture and send camera video, 0 = receive only
 // username: used for log file name (log/<username>_webrtc.log)
-WebrtcPeer* webrtc_create(int role, const char* username);
+WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username);
 void webrtc_destroy(WebrtcPeer* peer);
 
 // Diagnostics — returns a JSON string (caller must free with free())

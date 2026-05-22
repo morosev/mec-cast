@@ -32,15 +32,37 @@ Napi::Object PeerConnectionWrapper::Init(Napi::Env env,
 
 PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
     : Napi::ObjectWrap<PeerConnectionWrapper>(info) {
-  int role = 0;  // default: caller (sends audio+video)
+  int send_audio = 1;
+  int send_video = 1;
   std::string username = "unknown";
-  if (info.Length() > 0 && info[0].IsNumber()) {
-    role = info[0].As<Napi::Number>().Int32Value();
+
+  if (info.Length() > 0 && info[0].IsObject()) {
+    // New API: PeerConnection({ send_audio, send_video, username })
+    Napi::Object opts = info[0].As<Napi::Object>();
+    if (opts.Has("send_audio") && opts.Get("send_audio").IsBoolean()) {
+      send_audio = opts.Get("send_audio").As<Napi::Boolean>().Value() ? 1 : 0;
+    }
+    if (opts.Has("send_video") && opts.Get("send_video").IsBoolean()) {
+      send_video = opts.Get("send_video").As<Napi::Boolean>().Value() ? 1 : 0;
+    }
+    if (opts.Has("username") && opts.Get("username").IsString()) {
+      username = opts.Get("username").As<Napi::String>().Utf8Value();
+    }
+  } else {
+    // Legacy API: PeerConnection(role, username)
+    if (info.Length() > 0 && info[0].IsNumber()) {
+      int role = info[0].As<Napi::Number>().Int32Value();
+      if (role == 1) {
+        send_audio = 0;
+        send_video = 0;
+      }
+    }
+    if (info.Length() > 1 && info[1].IsString()) {
+      username = info[1].As<Napi::String>().Utf8Value();
+    }
   }
-  if (info.Length() > 1 && info[1].IsString()) {
-    username = info[1].As<Napi::String>().Utf8Value();
-  }
-  peer_ = webrtc_create(role, username.c_str());
+
+  peer_ = webrtc_create(send_audio, send_video, username.c_str());
   if (!peer_) {
     Napi::Error::New(info.Env(), "Failed to initialize PeerConnection")
         .ThrowAsJavaScriptException();

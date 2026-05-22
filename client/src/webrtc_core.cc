@@ -367,7 +367,8 @@ struct WebrtcPeer : public webrtc::PeerConnectionObserver {
   std::unique_ptr<webrtc::Thread> signaling_thread;
   std::mutex events_mutex;
   std::queue<InternalEvent> events;
-  int role = 0;
+  int send_audio = 1;
+  int send_video = 1;
 
   // Video state
   webrtc::scoped_refptr<CapturerTrackSource> video_source;
@@ -465,9 +466,9 @@ struct WebrtcPeer : public webrtc::PeerConnectionObserver {
 
 extern "C" {
 
-WebrtcPeer* webrtc_create(int role, const char* username) {
-  DEMO_LOG("webrtc_create(role=%d, user=%s) starting...", role,
-           username ? username : "(null)");
+WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) {
+  DEMO_LOG("webrtc_create(send_audio=%d, send_video=%d, user=%s) starting...",
+           send_audio, send_video, username ? username : "(null)");
 
   // Initialize delay measurement infrastructure (once)
   static bool delay_initialized = false;
@@ -485,7 +486,8 @@ WebrtcPeer* webrtc_create(int role, const char* username) {
   }
 
   auto* peer = new WebrtcPeer();
-  peer->role = role;
+  peer->send_audio = send_audio;
+  peer->send_video = send_video;
 
   // Set up logging
   mkdir("log", 0755);
@@ -550,7 +552,7 @@ WebrtcPeer* webrtc_create(int role, const char* username) {
 
   // Both sides add an audio track for proper SDP negotiation
   webrtc::AudioOptions audio_opts;
-  if (role == 1) {
+  if (!peer->send_audio) {
     audio_opts.echo_cancellation = false;
   }
   auto audio_source = peer->factory->CreateAudioSource(audio_opts);
@@ -564,9 +566,9 @@ WebrtcPeer* webrtc_create(int role, const char* username) {
     DEMO_LOG("ERROR: CreateAudioTrack returned null");
   } else {
     DEMO_LOG("AudioTrack created OK, enabled=%d", audio_track->enabled());
-    if (role == 1) {
+    if (!peer->send_audio) {
       audio_track->set_enabled(false);
-      DEMO_LOG("Callee: audio track muted (receive only)");
+      DEMO_LOG("Audio track muted (receive only)");
     }
   }
   auto add_result = peer->pc->AddTrack(audio_track, {"stream_id"});
@@ -576,8 +578,8 @@ WebrtcPeer* webrtc_create(int role, const char* username) {
     DEMO_LOG("AddTrack audio OK");
   }
 
-  // Video track — caller captures camera, callee is receive-only
-  if (role == 0) {
+  // Video track — only added if send_video is enabled
+  if (peer->send_video) {
     peer->video_source = CapturerTrackSource::Create();
     if (peer->video_source) {
       auto video_track = peer->factory->CreateVideoTrack(
@@ -595,7 +597,7 @@ WebrtcPeer* webrtc_create(int role, const char* username) {
       DEMO_LOG("WARNING: No video capture device, skipping video");
     }
   } else {
-    DEMO_LOG("Callee: no local video track (receive only)");
+    DEMO_LOG("Video send disabled (receive only)");
   }
 
   DEMO_LOG("webrtc_create done");

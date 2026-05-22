@@ -578,7 +578,11 @@ function handleCommand(input) {
         log("Already in a call. Use 'end' to hang up first.");
         break;
       }
-      pc = new addon.PeerConnection(0, myName);
+      pc = new addon.PeerConnection({
+        send_audio: config.send_audio !== false,
+        send_video: config.send_video !== false,
+        username: myName,
+      });
       inCall = true;
       startPolling();
       pc.createOffer();
@@ -595,7 +599,11 @@ function handleCommand(input) {
         log("No incoming call to answer.");
         break;
       }
-      pc = new addon.PeerConnection(1, myName);
+      pc = new addon.PeerConnection({
+        send_audio: config.send_audio !== false,
+        send_video: config.send_video !== false,
+        username: myName,
+      });
       inCall = true;
       startPolling();
       pc.setRemoteDescription("offer", pendingOffer.sdp);
@@ -749,8 +757,8 @@ function handleCommand(input) {
       console.log(`
 Commands:
   connect <name> [server]  - Connect to signaling server (default: ws://localhost:8080)
-  call                     - Start a call (you send audio + video)
-  answer                   - Answer an incoming call (you see/hear caller)
+  call                     - Start a call with the remote peer
+  answer                   - Answer an incoming call
   end                      - End the current call
   disconnect               - Disconnect from server
   status                   - Show current status
@@ -763,6 +771,10 @@ Commands:
   audioinfo                - Show audio device diagnostics
   videoinfo                - Show video track diagnostics
   quit                     - Exit
+
+Media config (client-config.json):
+  send_audio: true|false   - Send microphone audio (default: true)
+  send_video: true|false   - Send camera video (default: true)
 `);
       break;
     }

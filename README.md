@@ -1,9 +1,9 @@
 # WebRTC P2P Demo (Linux)
 
-A simple WebRTC peer-to-peer **one-way audio + video** call demo with a Node.js
-signaling server and console clients using native C++ WebRTC bindings. The caller
-captures audio from the microphone and video from the camera; the callee plays
-audio through speakers and displays video in an X11 window.
+A simple WebRTC peer-to-peer **bidirectional audio + video** call demo with a Node.js
+signaling server and console clients using native C++ WebRTC bindings. Each client
+can independently send or receive audio and video, controlled via configuration.
+Video is displayed in an X11 window.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ audio through speakers and displays video in an X11 window.
 │ + C++)   ├────────────────────┤          ├────────────────────┤  + C++)  │
 └────┬─────┘                    └──────────┘                    └────┬─────┘
      │                                                               │
-     │              P2P Audio + Video (after ICE)                    │
+     │            P2P Bidirectional Audio + Video (after ICE)         │
      └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,7 +159,9 @@ defaults, the client behaves as a fully manual interactive console.
   "username": "alice",
   "auto_connect": true,
   "auto_answer": true,
-  "auto_stats_on": false
+  "auto_stats_on": false,
+  "send_audio": true,
+  "send_video": true
 }
 ```
 
@@ -170,6 +172,8 @@ defaults, the client behaves as a fully manual interactive console.
 | `auto_connect` | bool | `false` | Connect to the server automatically on startup |
 | `auto_answer` | bool | `false` | Automatically answer incoming calls |
 | `auto_stats_on` | bool | `false` | Enable live stats display when a call connects |
+| `send_audio` | bool | `true` | Capture and send microphone audio |
+| `send_video` | bool | `true` | Capture and send camera video |
 
 **Validation rules:**
 - `auto_connect` requires both `server_address` and `username` to be set.
