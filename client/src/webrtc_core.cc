@@ -6,6 +6,10 @@
 
 #include "webrtc_core.h"
 
+#include "delay_clock.h"
+#include "delay_measurement.h"
+#include "ptp_monitor.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -233,6 +237,11 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
   }
 
   void OnFrame(const webrtc::VideoFrame& frame) override {
+    // Record render timestamp for delay measurement
+    uint64_t render_ts = GetDelayClock().NowNs();
+    uint32_t rtp_ts = frame.timestamp();
+    GetDelayMeasurement().RecordRender(static_cast<uint64_t>(rtp_ts), render_ts);
+
     auto buffer = frame.video_frame_buffer()->ToI420();
     int w = buffer->width();
     int h = buffer->height();
@@ -459,6 +468,21 @@ extern "C" {
 WebrtcPeer* webrtc_create(int role, const char* username) {
   DEMO_LOG("webrtc_create(role=%d, user=%s) starting...", role,
            username ? username : "(null)");
+
+  // Initialize delay measurement infrastructure (once)
+  static bool delay_initialized = false;
+  if (!delay_initialized) {
+    ClockConfig clk_cfg;
+    clk_cfg.source = ClockSource::kAuto;
+    InitDelayClock(clk_cfg);
+    InitPtpMonitor(clk_cfg.phc_device);
+    GetPtpMonitor().Start(1000);
+    InitDelayMeasurement(DelayMeasurementConfig());
+    delay_initialized = true;
+    DEMO_LOG("Delay measurement initialized (clock=%d, PTP=%s)",
+             static_cast<int>(GetDelayClock().ActiveSource()),
+             GetDelayClock().HasPTP() ? "yes" : "no");
+  }
 
   auto* peer = new WebrtcPeer();
   peer->role = role;
@@ -885,6 +909,47 @@ char* webrtc_get_stats(WebrtcPeer* peer) {
 
   oss << "}";
   return strdup(oss.str().c_str());
+}
+
+// --- Delay measurement API ---
+
+char* webrtc_get_delay_report(WebrtcPeer* peer) {
+  (void)peer;
+  std::string json = GetDelayMeasurement().ToJson();
+  return strdup(json.c_str());
+}
+
+char* webrtc_get_ptp_status(WebrtcPeer* peer) {
+  (void)peer;
+  std::string json = GetPtpMonitor().ToJson();
+  return strdup(json.c_str());
+}
+
+int webrtc_configure_delay(WebrtcPeer* peer, const char* config_json) {
+  (void)peer;
+  DelayMeasurementConfig config;
+  std::string js(config_json);
+
+  auto pos = js.find("\"enabled\"");
+  if (pos != std::string::npos) {
+    config.enabled = (js.find("true", pos) < js.find("false", pos));
+  }
+
+  pos = js.find("\"ring_buffer_size\"");
+  if (pos != std::string::npos) {
+    pos = js.find(":", pos);
+    if (pos != std::string::npos) {
+      config.ring_buffer_size = atoi(js.c_str() + pos + 1);
+    }
+  }
+
+  GetDelayMeasurement().Configure(config);
+  return 0;
+}
+
+void webrtc_reset_delay_stats(WebrtcPeer* peer) {
+  (void)peer;
+  GetDelayMeasurement().Reset();
 }
 
 void webrtc_close(WebrtcPeer* peer) {

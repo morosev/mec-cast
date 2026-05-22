@@ -90,6 +90,8 @@ let heartbeatTimer = null;
 let heartbeatCheckTimer = null;
 let lastPong = 0;
 let statsTimer = null;
+let delayTimer = null;
+let delayCsvStream = null;
 let prevStats = null;
 let prevStatsTime = 0;
 const HEARTBEAT_INTERVAL = 10000;
@@ -261,6 +263,26 @@ function handleSignalingMessage(msg) {
       lastPong = Date.now();
       break;
 
+    case "clock_sync_request": {
+      // Respond with our timestamp for NTP-style offset estimation
+      const t2 = Date.now() * 1000000; // Convert ms to ns (approximate)
+      sendSignal({
+        type: "clock_sync_response",
+        t1_ns: msg.t1_ns,
+        t2_ns: t2,
+        t3_ns: Date.now() * 1000000
+      });
+      break;
+    }
+
+    case "clock_sync_response": {
+      const t4 = Date.now() * 1000000;
+      const offset = ((msg.t2_ns - msg.t1_ns) + (msg.t3_ns - t4)) / 2;
+      const rtt = (t4 - msg.t1_ns) - (msg.t3_ns - msg.t2_ns);
+      log(`Clock sync: offset=${(offset/1000000).toFixed(3)}ms, RTT=${(rtt/1000000).toFixed(3)}ms`);
+      break;
+    }
+
     case "error":
       log(`Server error: ${msg.message}`);
       break;
@@ -364,6 +386,102 @@ function stopStats() {
   }
   prevStats = null;
   prevStatsTime = 0;
+}
+
+// --- Delay measurement display ---
+
+const DELAY_INTERVAL = 2000;
+
+function formatNs(ns) {
+  if (ns === 0 || ns === undefined) return "—";
+  const abs = Math.abs(ns);
+  if (abs >= 1000000000) return (ns / 1000000000).toFixed(3) + " s";
+  if (abs >= 1000000) return (ns / 1000000).toFixed(2) + " ms";
+  if (abs >= 1000) return (ns / 1000).toFixed(1) + " µs";
+  return ns + " ns";
+}
+
+function formatStatLine(name, stat) {
+  if (!stat || stat.count === 0) return `  ${name}: — (no data)`;
+  return `  ${name}: ${formatNs(stat.last_ns)} ` +
+    `(avg: ${formatNs(Math.round(stat.avg_ns))}, ` +
+    `min: ${formatNs(stat.min_ns)}, ` +
+    `max: ${formatNs(stat.max_ns)}, ` +
+    `p99: ${formatNs(stat.p99_ns)}, ` +
+    `n=${stat.count})`;
+}
+
+function startDelay() {
+  if (delayTimer) return;
+  delayTimer = setInterval(() => {
+    if (!pc || !inCall) return;
+    let report;
+    try {
+      report = JSON.parse(pc.getDelayReport());
+    } catch {
+      return;
+    }
+    if (!report || !report.total_frames) return;
+
+    const lines = [];
+    lines.push(`  Frames: ${report.total_frames} | PTP Sync: ${report.ptp_reliable ? "✓ RELIABLE" : "✗ UNRELIABLE"}`);
+    lines.push("");
+    if (report.network) lines.push(formatStatLine("Network (one-way)", report.network));
+    if (report.glass_to_glass) lines.push(formatStatLine("Glass-to-glass   ", report.glass_to_glass));
+    if (report.encoding) lines.push(formatStatLine("Encoding         ", report.encoding));
+    if (report.decoding) lines.push(formatStatLine("Decoding         ", report.decoding));
+    if (report.jitter_buffer) lines.push(formatStatLine("Jitter buffer    ", report.jitter_buffer));
+    if (report.sender_pipeline) lines.push(formatStatLine("Sender pipeline  ", report.sender_pipeline));
+    if (report.receiver_pipeline) lines.push(formatStatLine("Receiver pipeline", report.receiver_pipeline));
+
+    if (report.latest) {
+      lines.push("");
+      lines.push("  Latest frame:");
+      lines.push(`    Network: ${formatNs(report.latest.network_ns)} | G2G: ${formatNs(report.latest.glass_to_glass_ns)}`);
+      lines.push(`    Encode: ${formatNs(report.latest.encoding_ns)} | Decode: ${formatNs(report.latest.decoding_ns)}`);
+      lines.push(`    Jitter buf: ${formatNs(report.latest.jitter_buffer_ns)}`);
+    }
+
+    log("┌─ DELAY REPORT ──────────────────────────────────────────────────");
+    for (const l of lines) log(l);
+    log("└─────────────────────────────────────────────────────────────────");
+
+    // Write to CSV if logging is active
+    if (delayCsvStream && report.latest) {
+      const r = report.latest;
+      delayCsvStream.write(
+        `${Date.now()},${r.frame_id},${r.network_ns},${r.glass_to_glass_ns},` +
+        `${r.encoding_ns},${r.decoding_ns},${r.jitter_buffer_ns},` +
+        `${r.sender_pipeline_ns},${r.receiver_pipeline_ns}\n`
+      );
+    }
+  }, DELAY_INTERVAL);
+}
+
+function stopDelay() {
+  if (delayTimer) {
+    clearInterval(delayTimer);
+    delayTimer = null;
+  }
+}
+
+function startDelayCsv(filename) {
+  const csvPath = path.join(LOG_DIR, filename || "delay_report.csv");
+  delayCsvStream = fs.createWriteStream(csvPath, { flags: "w" });
+  delayCsvStream.write(
+    "timestamp_ms,frame_id,network_ns,glass_to_glass_ns," +
+    "encoding_ns,decoding_ns,jitter_buffer_ns," +
+    "sender_pipeline_ns,receiver_pipeline_ns\n"
+  );
+  log(`Delay CSV logging started: ${csvPath}`);
+}
+
+function stopDelayCsv() {
+  if (delayCsvStream) {
+    delayCsvStream.end();
+    delayCsvStream = null;
+    log("Delay CSV logging stopped.");
+  }
 }
 
 // --- Heartbeat ---
@@ -572,6 +690,61 @@ function handleCommand(input) {
       break;
     }
 
+    case "delay": {
+      const arg = parts[1]?.toLowerCase();
+      if (arg === "on") {
+        if (!pc || !inCall) {
+          log("Not in a call. Start a call first.");
+        } else {
+          startDelay();
+          log("Delay reporting enabled (every 2s). Type 'delay off' to stop.");
+        }
+      } else if (arg === "off") {
+        stopDelay();
+        stopDelayCsv();
+        log("Delay reporting disabled.");
+      } else if (arg === "report") {
+        if (!pc) {
+          log("No active PeerConnection.");
+        } else {
+          try {
+            const report = JSON.parse(pc.getDelayReport());
+            log("Delay report:\n" + JSON.stringify(report, null, 2));
+          } catch (e) {
+            log("Failed to get delay report: " + e.message);
+          }
+        }
+      } else if (arg === "log") {
+        const filename = parts[2] || "delay_report.csv";
+        startDelayCsv(filename);
+        if (!delayTimer) {
+          startDelay();
+          log("Delay reporting also enabled for CSV logging.");
+        }
+      } else if (arg === "reset") {
+        if (pc) {
+          pc.resetDelayStats();
+          log("Delay statistics reset.");
+        } else {
+          log("No active PeerConnection.");
+        }
+      } else if (arg === "ptp") {
+        if (!pc) {
+          log("No active PeerConnection.");
+        } else {
+          try {
+            const ptp = JSON.parse(pc.getPtpStatus());
+            log("PTP status:\n" + JSON.stringify(ptp, null, 2));
+          } catch (e) {
+            log("Failed to get PTP status: " + e.message);
+          }
+        }
+      } else {
+        log("Usage: delay on|off|report|log [file]|reset|ptp");
+      }
+      break;
+    }
+
     case "help": {
       console.log(`
 Commands:
@@ -582,6 +755,11 @@ Commands:
   disconnect               - Disconnect from server
   status                   - Show current status
   stats on|off             - Toggle live WebRTC stats display (every 2s)
+  delay on|off             - Toggle nanosecond delay reporting (every 2s)
+  delay report             - Show one-shot delay measurement snapshot
+  delay log [file]         - Start logging delay data to CSV file
+  delay reset              - Reset delay statistics
+  delay ptp                - Show PTP sync status
   audioinfo                - Show audio device diagnostics
   videoinfo                - Show video track diagnostics
   quit                     - Exit
@@ -612,6 +790,8 @@ function endCall() {
   inCall = false;
   stopPolling();
   stopStats();
+  stopDelay();
+  stopDelayCsv();
   if (pc) {
     pc.close();
     pc = null;

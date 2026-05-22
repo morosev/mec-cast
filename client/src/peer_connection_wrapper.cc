@@ -21,6 +21,10 @@ Napi::Object PeerConnectionWrapper::Init(Napi::Env env,
           InstanceMethod("getAudioInfo", &PeerConnectionWrapper::GetAudioInfo),
           InstanceMethod("getVideoInfo", &PeerConnectionWrapper::GetVideoInfo),
           InstanceMethod("getStats", &PeerConnectionWrapper::GetStats),
+          InstanceMethod("getDelayReport", &PeerConnectionWrapper::GetDelayReport),
+          InstanceMethod("getPtpStatus", &PeerConnectionWrapper::GetPtpStatus),
+          InstanceMethod("configureDelay", &PeerConnectionWrapper::ConfigureDelay),
+          InstanceMethod("resetDelayStats", &PeerConnectionWrapper::ResetDelayStats),
       });
   exports.Set("PeerConnection", func);
   return exports;
@@ -151,4 +155,39 @@ Napi::Value PeerConnectionWrapper::GetStats(const Napi::CallbackInfo& info) {
   Napi::String result = Napi::String::New(env, json ? json : "{}");
   if (json) free(json);
   return result;
+}
+
+Napi::Value PeerConnectionWrapper::GetDelayReport(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!peer_) return Napi::String::New(env, "{}");
+  char* json = webrtc_get_delay_report(peer_);
+  Napi::String result = Napi::String::New(env, json ? json : "{}");
+  if (json) free(json);
+  return result;
+}
+
+Napi::Value PeerConnectionWrapper::GetPtpStatus(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!peer_) return Napi::String::New(env, "{}");
+  char* json = webrtc_get_ptp_status(peer_);
+  Napi::String result = Napi::String::New(env, json ? json : "{}");
+  if (json) free(json);
+  return result;
+}
+
+Napi::Value PeerConnectionWrapper::ConfigureDelay(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "Expected (config_json)")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  std::string config_json = info[0].As<Napi::String>().Utf8Value();
+  int ret = peer_ ? webrtc_configure_delay(peer_, config_json.c_str()) : -1;
+  return Napi::Number::New(env, ret);
+}
+
+Napi::Value PeerConnectionWrapper::ResetDelayStats(const Napi::CallbackInfo& info) {
+  if (peer_) webrtc_reset_delay_stats(peer_);
+  return info.Env().Undefined();
 }

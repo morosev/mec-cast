@@ -64,7 +64,27 @@ ninja -C out/release_x64 webrtc
 
 This produces `out/release_x64/obj/libwebrtc.a`.
 
-### 5. Install dependencies and build the demo
+### 5. Apply the send-timestamp-ns patch
+
+The delay measurement system requires a custom RTP header extension in WebRTC.
+Apply the provided patch before building:
+
+```bash
+cd webrtc/src
+git apply ../../webrtc-send-timestamp-ns.patch
+```
+
+Then rebuild WebRTC:
+
+```bash
+ninja -C out/release_x64 webrtc
+```
+
+The patch adds a `SendTimestampNsExtension` class that carries an 8-byte
+nanosecond timestamp in every RTP packet, enabling one-way delay measurement
+with PTP-synchronized clocks.
+
+### 6. Install dependencies and build the demo
 
 ```bash
 # Server
@@ -117,6 +137,11 @@ npm start
 | `disconnect` | Disconnect from server |
 | `status` | Show current connection status |
 | `stats on\|off` | Toggle live WebRTC stats display (every 2s) |
+| `delay on\|off` | Toggle nanosecond delay reporting (every 2s) |
+| `delay report` | Show one-shot delay measurement snapshot |
+| `delay log [file]` | Start logging delay data to CSV file |
+| `delay reset` | Reset delay statistics |
+| `delay ptp` | Show PTP synchronization status |
 | `audioinfo` | Show audio track diagnostics |
 | `videoinfo` | Show video track diagnostics |
 | `help` | Show available commands |
@@ -150,6 +175,80 @@ defaults, the client behaves as a fully manual interactive console.
 - `auto_connect` requires both `server_address` and `username` to be set.
 
 When the config file is absent, the client starts in fully manual mode.
+
+## Nanosecond Delay Measurement (PTP)
+
+The system includes precise delay measurement using **PTP (IEEE 1588) synchronized
+clocks**. This enables nanosecond-resolution one-way delay measurement between
+sender and receiver in a 5G testbed environment.
+
+### Delay Metrics
+
+| Metric | Description |
+|--------|-------------|
+| **Network (one-way)** | RTP packet transit time (requires PTP sync) |
+| **Glass-to-glass** | Camera capture → display render (end-to-end) |
+| **Encoding** | Time spent in the video encoder |
+| **Decoding** | Time spent in the video decoder |
+| **Jitter buffer** | Time waiting in the receiver jitter buffer |
+| **Sender pipeline** | Capture → RTP send |
+| **Receiver pipeline** | RTP receive → render |
+
+### PTP Requirements
+
+For accurate one-way delay measurement, both nodes must have PTP-synchronized
+clocks. The system uses the PTP Hardware Clock (PHC) exposed at `/dev/ptp0`.
+
+**Hardware needed:**
+- NIC with IEEE 1588 hardware timestamping support (e.g., Intel i210, i225,
+  X710, or Mellanox ConnectX)
+- PTP Grandmaster clock or GPS-disciplined time source on the network
+- (For best results in 5G testbed) Dedicated PTP infrastructure with hardware
+  timestamping throughout
+
+**Software setup:**
+
+1. Install `linuxptp`:
+   ```bash
+   sudo apt install linuxptp
+   ```
+
+2. Start PTP synchronization on your NIC (e.g., `eth0`):
+   ```bash
+   sudo ptp4l -i eth0 -m -2
+   ```
+
+3. Discipline the system clock from the PTP Hardware Clock:
+   ```bash
+   sudo phc2sys -s /dev/ptp0 -c CLOCK_REALTIME -O 0 -m
+   ```
+
+4. Verify synchronization (offset should be <1µs):
+   ```bash
+   # Watch ptp4l output for "master offset" values
+   # Watch phc2sys output for "offset" values
+   ```
+
+**Expected accuracy:**
+
+| Setup | Accuracy |
+|-------|----------|
+| PTP with HW timestamping (same switch) | 10–100 ns |
+| PTP with HW timestamping (multiple hops) | 100–500 ns |
+| PTP with SW timestamping | 1–10 µs |
+| No PTP (software NTP fallback) | 1–5 ms |
+
+**Fallback behavior:** If no PTP hardware is detected (`/dev/ptp0` not available),
+the system falls back to `CLOCK_REALTIME`. A signaling-based NTP estimation is
+also available for development without PTP hardware (accuracy ~1-5ms).
+
+### Custom RTP Header Extension
+
+A custom 8-byte RTP header extension (`send-timestamp-ns`) carries the sender's
+nanosecond timestamp in every RTP packet. This allows the receiver to compute
+true one-way network delay when clocks are PTP-synchronized.
+
+Extension URI: `http://www.mec-cast.org/experiments/rtp-hdrext/send-timestamp-ns`
 
 ## Logging
 
@@ -221,6 +320,8 @@ All messages are JSON over WebSocket:
 | `{ type: "hangup" }` | Client → Server → Client | End call |
 | `{ type: "ping" }` | Client → Server | Heartbeat ping (every 10s) |
 | `{ type: "pong" }` | Server → Client | Heartbeat pong response |
+| `{ type: "clock_sync_request", t1_ns }` | Client → Server → Client | NTP-style clock sync request |
+| `{ type: "clock_sync_response", t1_ns, t2_ns, t3_ns }` | Client → Server → Client | Clock sync response |
 
 ### Keep-Alive / Heartbeat
 

@@ -112,7 +112,9 @@ wss.on("connection", (ws) => {
       case "offer":
       case "answer":
       case "ice_candidate":
-      case "hangup": {
+      case "hangup":
+      case "clock_sync_request":
+      case "clock_sync_response": {
         const peer = peers.get(ws);
         if (!peer) return;
         const other = getOtherPeer(ws);

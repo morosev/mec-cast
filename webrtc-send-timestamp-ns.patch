@@ -1,0 +1,118 @@
+diff --git a/api/rtp_parameters.cc b/api/rtp_parameters.cc
+index 291ea2a69a..90f4da0316 100644
+--- a/api/rtp_parameters.cc
++++ b/api/rtp_parameters.cc
+@@ -247,7 +247,8 @@ bool RtpExtension::IsSupportedForVideo(absl::string_view uri) {
+          uri == RtpExtension::kRepairedRidUri ||
+          uri == RtpExtension::kVideoLayersAllocationUri ||
+          uri == RtpExtension::kVideoFrameTrackingIdUri ||
+-         uri == RtpExtension::kCorruptionDetectionUri;
++         uri == RtpExtension::kCorruptionDetectionUri ||
++         uri == RtpExtension::kSendTimestampNsUri;
+ }
+ 
+ bool RtpExtension::IsEncryptionSupported(absl::string_view uri) {
+diff --git a/api/rtp_parameters.h b/api/rtp_parameters.h
+index 88a8df3ac1..0eaabe9f16 100644
+--- a/api/rtp_parameters.h
++++ b/api/rtp_parameters.h
+@@ -498,6 +498,11 @@ struct RTC_EXPORT RtpExtension {
+   static constexpr char kCorruptionDetectionUri[] =
+       "http://www.webrtc.org/experiments/rtp-hdrext/corruption-detection";
+ 
++  // Header extension for nanosecond send timestamp (PTP-synced clocks).
++  // Carries 8 bytes: uint64 nanoseconds since Unix epoch at RTP send time.
++  static constexpr char kSendTimestampNsUri[] =
++      "http://www.mec-cast.org/experiments/rtp-hdrext/send-timestamp-ns";
++
+   // Inclusive min and max IDs for two-byte header extensions and one-byte
+   // header extensions, per RFC8285 Section 4.2-4.3.
+   static constexpr int kMinId = 1;
+diff --git a/modules/rtp_rtcp/include/rtp_rtcp_defines.h b/modules/rtp_rtcp/include/rtp_rtcp_defines.h
+index fac8d06ea9..5eafbb146d 100644
+--- a/modules/rtp_rtcp/include/rtp_rtcp_defines.h
++++ b/modules/rtp_rtcp/include/rtp_rtcp_defines.h
+@@ -82,6 +82,7 @@ enum RTPExtensionType : int {
+   kRtpExtensionColorSpace,
+   kRtpExtensionVideoFrameTrackingId,
+   kRtpExtensionCorruptionDetection,
++  kRtpExtensionSendTimestampNs,
+   kRtpExtensionNumberOfExtensions  // Must be the last entity in the enum.
+ };
+ 
+diff --git a/modules/rtp_rtcp/source/rtp_header_extension_map.cc b/modules/rtp_rtcp/source/rtp_header_extension_map.cc
+index 1a468a405a..98f3c03a0f 100644
+--- a/modules/rtp_rtcp/source/rtp_header_extension_map.cc
++++ b/modules/rtp_rtcp/source/rtp_header_extension_map.cc
+@@ -60,6 +60,7 @@ constexpr ExtensionInfo kExtensions[] = {
+     CreateExtensionInfo<InbandComfortNoiseExtension>(),
+     CreateExtensionInfo<VideoFrameTrackingIdExtension>(),
+     CreateExtensionInfo<CorruptionDetectionExtension>(),
++    CreateExtensionInfo<SendTimestampNsExtension>(),
+ };
+ 
+ // Because of kRtpExtensionNone, NumberOfExtension is 1 bigger than the actual
+diff --git a/modules/rtp_rtcp/source/rtp_header_extensions.cc b/modules/rtp_rtcp/source/rtp_header_extensions.cc
+index 15884c814a..c180fc179e 100644
+--- a/modules/rtp_rtcp/source/rtp_header_extensions.cc
++++ b/modules/rtp_rtcp/source/rtp_header_extensions.cc
+@@ -836,4 +836,31 @@ bool VideoFrameTrackingIdExtension::Write(std::span<uint8_t> data,
+   return true;
+ }
+ 
++// SendTimestampNsExtension
++//
++// Carries nanoseconds since Unix epoch at RTP send time.
++// Requires PTP-synchronized clocks for meaningful one-way delay measurement.
++bool SendTimestampNsExtension::Parse(std::span<const uint8_t> data,
++                                     uint64_t* timestamp_ns) {
++  if (data.size() != kValueSizeBytes) {
++    return false;
++  }
++  *timestamp_ns =
++      (static_cast<uint64_t>(ByteReader<uint32_t>::ReadBigEndian(data.data()))
++       << 32) |
++      static_cast<uint64_t>(
++          ByteReader<uint32_t>::ReadBigEndian(data.data() + 4));
++  return true;
++}
++
++bool SendTimestampNsExtension::Write(std::span<uint8_t> data,
++                                     uint64_t timestamp_ns) {
++  RTC_DCHECK_EQ(data.size(), kValueSizeBytes);
++  ByteWriter<uint32_t>::WriteBigEndian(data.data(),
++                                       static_cast<uint32_t>(timestamp_ns >> 32));
++  ByteWriter<uint32_t>::WriteBigEndian(data.data() + 4,
++                                       static_cast<uint32_t>(timestamp_ns));
++  return true;
++}
++
+ }  // namespace webrtc
+diff --git a/modules/rtp_rtcp/source/rtp_header_extensions.h b/modules/rtp_rtcp/source/rtp_header_extensions.h
+index 03f846a905..a112a7ecd1 100644
+--- a/modules/rtp_rtcp/source/rtp_header_extensions.h
++++ b/modules/rtp_rtcp/source/rtp_header_extensions.h
+@@ -378,5 +378,23 @@ class VideoFrameTrackingIdExtension {
+   static bool Write(std::span<uint8_t> data, uint16_t video_frame_tracking_id);
+ };
+ 
++// Extension carrying 64-bit nanosecond send timestamp for precise delay
++// measurement with PTP-synchronized clocks.
++class SendTimestampNsExtension {
++ public:
++  using value_type = uint64_t;
++  static constexpr RTPExtensionType kId = kRtpExtensionSendTimestampNs;
++  static constexpr uint8_t kValueSizeBytes = 8;
++  static constexpr absl::string_view Uri() {
++    return RtpExtension::kSendTimestampNsUri;
++  }
++
++  static bool Parse(std::span<const uint8_t> data, uint64_t* timestamp_ns);
++  static size_t ValueSize(uint64_t /* timestamp_ns */) {
++    return kValueSizeBytes;
++  }
++  static bool Write(std::span<uint8_t> data, uint64_t timestamp_ns);
++};
++
+ }  // namespace webrtc
+ #endif  // MODULES_RTP_RTCP_SOURCE_RTP_HEADER_EXTENSIONS_H_

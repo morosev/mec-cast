@@ -2,7 +2,7 @@
   "targets": [
     {
       "target_name": "webrtc_addon",
-      "sources": ["src/addon.cc", "src/peer_connection_wrapper.cc"],
+      "sources": ["src/addon.cc", "src/peer_connection_wrapper.cc", "src/delay_clock.cc", "src/delay_measurement.cc", "src/ptp_monitor.cc"],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
         "../../webrtc/src",

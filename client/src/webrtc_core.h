@@ -27,6 +27,12 @@ char* webrtc_get_audio_info(WebrtcPeer* peer);
 char* webrtc_get_video_info(WebrtcPeer* peer);
 char* webrtc_get_stats(WebrtcPeer* peer);
 
+// Delay measurement — returns JSON string (caller must free with free())
+char* webrtc_get_delay_report(WebrtcPeer* peer);
+char* webrtc_get_ptp_status(WebrtcPeer* peer);
+int webrtc_configure_delay(WebrtcPeer* peer, const char* config_json);
+void webrtc_reset_delay_stats(WebrtcPeer* peer);
+
 // Operations
 int webrtc_create_offer(WebrtcPeer* peer);
 int webrtc_create_answer(WebrtcPeer* peer);
