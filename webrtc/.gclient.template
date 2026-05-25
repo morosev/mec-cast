@@ -1,0 +1,9 @@
+solutions = [
+  {
+    "name": "src",
+    "url": "https://github.com/morosev/mec-cast-webrtc.git@mec-cast",
+    "deps_file": "DEPS",
+    "managed": False,
+    "custom_deps": {},
+  },
+]

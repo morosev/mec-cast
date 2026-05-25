@@ -9,5 +9,11 @@ server/node_modules/
 client/log/
 server/log/
 
-# WebRTC source and tools (checked out separately)
-webrtc/
+# WebRTC build output and tools (managed separately)
+webrtc/src/out/
+webrtc/depot_tools/
+webrtc/.cipd/
+webrtc/.gclient
+webrtc/.gclient_entries
+webrtc/.gclient_previous_sync_commits
+webrtc/.gcs_entries

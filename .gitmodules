@@ -1,0 +1,4 @@
+[submodule "webrtc/src"]
+	path = webrtc/src
+	url = https://github.com/morosev/mec-cast-webrtc.git
+	branch = mec-cast

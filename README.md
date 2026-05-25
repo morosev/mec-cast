@@ -10,12 +10,11 @@ Video is displayed in an X11 window.
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
-  - [1. Create the webrtc folder and install depot_tools](#1-create-the-webrtc-folder-and-install-depot_tools)
-  - [2. Checkout WebRTC source](#2-checkout-webrtc-source)
+  - [1. Clone the repository](#1-clone-the-repository)
+  - [2. Install depot_tools and fetch WebRTC dependencies](#2-install-depot_tools-and-fetch-webrtc-dependencies)
   - [3. Install Linux build dependencies](#3-install-linux-build-dependencies)
-  - [4. Apply the send-timestamp-ns patch](#4-apply-the-send-timestamp-ns-patch)
-  - [5. Build WebRTC](#5-build-webrtc)
-  - [6. Install dependencies and build the demo](#6-install-dependencies-and-build-the-demo)
+  - [4. Build WebRTC](#4-build-webrtc)
+  - [5. Install dependencies and build the demo](#5-install-dependencies-and-build-the-demo)
 - [Running](#running)
 - [Client Commands](#client-commands)
 - [Client Configuration](#client-configuration)
@@ -59,20 +58,38 @@ The client uses a **split-compilation** approach with a C ABI boundary:
 
 ## Getting Started
 
-### 1. Create the webrtc folder and install depot_tools
+### 1. Clone the repository
 
 ```bash
-mkdir webrtc && cd webrtc
+git clone --recurse-submodules https://github.com/morosev/mec-cast.git
+cd mec-cast
+```
+
+If you already cloned without `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+The `webrtc/src` submodule points to our
+[custom WebRTC fork](https://github.com/morosev/mec-cast-webrtc) (branch
+`mec-cast`) which adds the `SendTimestampNsExtension` (16-byte RTP header
+extension carrying capture + send timestamps), forces every frame to carry
+timing metadata, and exposes encode duration on decoded frames.
+
+### 2. Install depot_tools and fetch WebRTC dependencies
+
+```bash
+cd webrtc
 git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
 export PATH="$PWD/depot_tools:$PATH"
-```
-
-### 2. Checkout WebRTC source
-
-```bash
-fetch --nohooks webrtc
+cp .gclient.template .gclient
 gclient sync
 ```
+
+The `.gclient.template` configures gclient to use our fork. `gclient sync`
+fetches all third-party dependencies (toolchain, codecs, etc.) required to
+build WebRTC. This is a large download (~20 GB) and takes time on the first run.
 
 ### 3. Install Linux build dependencies
 
@@ -81,23 +98,7 @@ cd src
 sudo ./build/install-build-deps.sh --no-prompt
 ```
 
-### 4. Apply the send-timestamp-ns patch
-
-The delay measurement system requires a custom RTP header extension in WebRTC.
-Apply the provided patch before building:
-
-```bash
-cd src
-git apply ../../webrtc-send-timestamp-ns.patch
-```
-
-The patch adds a `SendTimestampNsExtension` class that carries a 16-byte payload
-(capture timestamp + send timestamp, each 8 bytes) in every RTP video packet,
-enabling one-way delay measurement and full pipeline breakdown with
-PTP-synchronized clocks. It also forces every frame to carry timing metadata
-for continuous encode/decode measurement.
-
-### 5. Build WebRTC
+### 4. Build WebRTC
 
 ```bash
 gn gen out/release_x64 --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
@@ -106,11 +107,11 @@ ninja -C out/release_x64 webrtc
 
 This produces `out/release_x64/obj/libwebrtc.a`.
 
-### 6. Install dependencies and build the demo
+### 5. Install dependencies and build the demo
 
 ```bash
 # Server
-cd server
+cd ../../server
 npm install
 
 # Client
@@ -315,7 +316,7 @@ RTP Header (12 bytes) → [CSRC if any] → Extension Header:
   ┌─────────────────────────────────────────┐
   │ 0xBEDE (one-byte ext magic) | length=4  │  ← 4 = 16 bytes / 4 (32-bit words)
   ├─────────────────────────────────────────┤
-  │ ID(4b) | L=15(4b) | 16 bytes of data   │  ← L=15 means 16 bytes
+  │ ID(4b) | L=15(4b) | 16 bytes of data    │  ← L=15 means 16 bytes
   └─────────────────────────────────────────┘
 ```
 
