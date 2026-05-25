@@ -13,29 +13,31 @@ Before creating a release, ensure:
 ## Creating a Release
 
 ```bash
-./scripts/release.sh <version>
+./scripts/release.sh <version> "<description>"
 ```
 
 Example:
 ```bash
-./scripts/release.sh 1.0.4
+./scripts/release.sh 1.0.4 "Audio delay measurement, CSV export"
 ```
 
 This will:
 1. Verify prerequisites (built binaries, clean tree, gh auth)
 2. Package the runtime zip (prebuilt `webrtc_addon.node` + JS files)
 3. Package the dev zip (adds `libwebrtc.a` + C++ source + build.sh)
-4. Create an annotated git tag `vX.Y.Z`
-5. Push the tag to GitHub
-6. Create a GitHub release with release notes
-7. Upload both zip packages as release assets
+4. Update version history in RELEASING.md (auto-appends new row)
+5. Commit and push the version history update
+6. Create an annotated git tag `vX.Y.Z`
+7. Push the tag to GitHub
+8. Create a GitHub release with the description as release notes
+9. Upload both zip packages as release assets
 
 ## Dry Run
 
 To test packaging without tagging/pushing:
 
 ```bash
-./scripts/release.sh 1.0.4 --dry-run
+./scripts/release.sh 1.0.4 "Test release" --dry-run
 ```
 
 Packages are created in a temp directory for inspection.

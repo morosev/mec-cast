@@ -9,8 +9,8 @@
 #   ./scripts/release.sh <version> [--dry-run]
 #
 # Examples:
-#   ./scripts/release.sh 1.0.4
-#   ./scripts/release.sh 1.0.4 --dry-run    # builds packages without pushing
+#   ./scripts/release.sh 1.0.4 "Audio delay measurement, CSV export"
+#   ./scripts/release.sh 1.0.4 "Bug fixes" --dry-run
 #
 # Prerequisites:
 #   - Client addon built:   cd client && ./build.sh
@@ -24,16 +24,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Parse arguments ---
-if [ $# -lt 1 ]; then
-  echo "Usage: $0 <version> [--dry-run]"
-  echo "  version: semantic version without 'v' prefix (e.g., 1.0.4)"
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <version> <description> [--dry-run]"
+  echo "  version:     semantic version without 'v' prefix (e.g., 1.0.4)"
+  echo "  description: short release highlights (e.g., \"Audio delay, CSV export\")"
+  echo "  --dry-run:   build packages without pushing"
   exit 1
 fi
 
 VERSION="$1"
+DESCRIPTION="$2"
 TAG="v${VERSION}"
 DRY_RUN=false
-if [ "${2:-}" = "--dry-run" ]; then
+if [ "${3:-}" = "--dry-run" ]; then
   DRY_RUN=true
 fi
 
@@ -245,14 +248,26 @@ fi
 
 # --- Tag and release ---
 cd "$ROOT_DIR"
+
+# Update version history in RELEASING.md
+echo "Updating RELEASING.md..."
+# Insert new version row after the table separator line (|---|---|---|)
+sed -i "/^|---------|------|------------|$/a | ${TAG} | ${DATE} | ${DESCRIPTION} |" RELEASING.md
+
+git add RELEASING.md
+git commit -m "Release ${TAG}: ${DESCRIPTION}"
+git push origin main
+
 echo "Creating tag ${TAG}..."
-git tag -a "$TAG" -m "${TAG}"
+git tag -a "$TAG" -m "${TAG}: ${DESCRIPTION}"
 git push origin "$TAG"
 
 echo "Creating GitHub release..."
 gh release create "$TAG" \
   --title "${TAG}" \
-  --notes "Release ${TAG} (${DATE})"
+  --notes "## ${TAG} (${DATE})
+
+${DESCRIPTION}"
 
 echo "Uploading packages..."
 gh release upload "$TAG" \
