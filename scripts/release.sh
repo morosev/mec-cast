@@ -263,11 +263,28 @@ git tag -a "$TAG" -m "${TAG}: ${DESCRIPTION}"
 git push origin "$TAG"
 
 echo "Creating GitHub release..."
+
+# Build release notes with commit log since last tag
+PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+if [ -n "$PREV_TAG" ]; then
+  COMMIT_LOG=$(git --no-pager log "${PREV_TAG}..HEAD" --oneline --no-decorate)
+  RANGE_LABEL="Changes since ${PREV_TAG}"
+else
+  COMMIT_LOG=$(git --no-pager log --oneline --no-decorate -20)
+  RANGE_LABEL="Recent changes"
+fi
+
+RELEASE_NOTES="## ${TAG} (${DATE})
+
+${DESCRIPTION}
+
+### ${RANGE_LABEL}
+
+$(echo "$COMMIT_LOG" | sed 's/^/- /')"
+
 gh release create "$TAG" \
   --title "${TAG}" \
-  --notes "## ${TAG} (${DATE})
-
-${DESCRIPTION}"
+  --notes "$RELEASE_NOTES"
 
 echo "Uploading packages..."
 gh release upload "$TAG" \
