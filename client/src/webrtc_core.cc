@@ -27,6 +27,7 @@
 #include <vector>
 
 #include <sys/stat.h>
+#include <time.h>
 
 // WebRTC headers must come BEFORE X11 headers because X11/X.h defines
 // macros like CurrentTime, Success, Status, Bool, None that collide
@@ -39,6 +40,8 @@
 #include "api/audio_options.h"
 #include "api/scoped_refptr.h"
 #include "api/make_ref_counted.h"
+#include "api/rtp_packet_info.h"
+#include "api/rtp_packet_infos.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_sink_interface.h"
 #include "api/video/i420_buffer.h"
@@ -239,8 +242,90 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
   void OnFrame(const webrtc::VideoFrame& frame) override {
     // Record render timestamp for delay measurement
     uint64_t render_ts = GetDelayClock().NowNs();
-    uint32_t rtp_ts = frame.timestamp();
-    GetDelayMeasurement().RecordRender(static_cast<uint64_t>(rtp_ts), render_ts);
+    uint32_t rtp_ts = frame.rtp_timestamp();
+
+    // Extract timestamps from RTP packet info (populated via header extension)
+    const auto& pkt_infos = frame.packet_infos();
+    uint64_t send_ts_ns = 0;
+    uint64_t capture_ts_ns = 0;
+    uint64_t receive_ts_ns = 0;
+    for (const auto& info : pkt_infos) {
+      if (info.send_timestamp_ns().has_value()) {
+        send_ts_ns = *info.send_timestamp_ns();
+      }
+      if (info.capture_timestamp_ns().has_value()) {
+        capture_ts_ns = *info.capture_timestamp_ns();
+      }
+      // receive_time is a monotonic Timestamp; convert to realtime ns
+      if (info.receive_time().IsFinite() && info.receive_time().us() > 0) {
+        // Convert monotonic receive_time to CLOCK_REALTIME using current offset
+        struct timespec ts_rt, ts_mono;
+        clock_gettime(CLOCK_REALTIME, &ts_rt);
+        clock_gettime(CLOCK_MONOTONIC, &ts_mono);
+        uint64_t rt_now = static_cast<uint64_t>(ts_rt.tv_sec) * 1000000000ULL +
+                          static_cast<uint64_t>(ts_rt.tv_nsec);
+        uint64_t mono_now = static_cast<uint64_t>(ts_mono.tv_sec) * 1000000000ULL +
+                            static_cast<uint64_t>(ts_mono.tv_nsec);
+        int64_t offset = static_cast<int64_t>(rt_now) - static_cast<int64_t>(mono_now);
+        uint64_t recv_mono_ns = static_cast<uint64_t>(info.receive_time().us()) * 1000ULL;
+        receive_ts_ns = static_cast<uint64_t>(static_cast<int64_t>(recv_mono_ns) + offset);
+      }
+      if (send_ts_ns > 0) break;
+    }
+
+    uint64_t frame_id = static_cast<uint64_t>(rtp_ts);
+
+    // Record capture (from sender's extension data)
+    if (capture_ts_ns > 0) {
+      GetDelayMeasurement().RecordCapture(frame_id, capture_ts_ns);
+    }
+
+    // Record RTP send (from sender's extension data)
+    if (send_ts_ns > 0) {
+      GetDelayMeasurement().RecordRtpSend(frame_id, send_ts_ns);
+    }
+
+    // Record RTP receive
+    if (send_ts_ns > 0 && receive_ts_ns > 0) {
+      GetDelayMeasurement().RecordRtpRecv(frame_id, send_ts_ns, receive_ts_ns);
+    }
+
+    // Extract decode time from processing_time (set by generic_decoder)
+    if (frame.processing_time().has_value()) {
+      auto pt = frame.processing_time().value();
+      // Convert monotonic Timestamps to realtime ns
+      struct timespec ts_rt2, ts_mono2;
+      clock_gettime(CLOCK_REALTIME, &ts_rt2);
+      clock_gettime(CLOCK_MONOTONIC, &ts_mono2);
+      uint64_t rt_now2 = static_cast<uint64_t>(ts_rt2.tv_sec) * 1000000000ULL +
+                         static_cast<uint64_t>(ts_rt2.tv_nsec);
+      uint64_t mono_now2 = static_cast<uint64_t>(ts_mono2.tv_sec) * 1000000000ULL +
+                           static_cast<uint64_t>(ts_mono2.tv_nsec);
+      int64_t offset2 = static_cast<int64_t>(rt_now2) - static_cast<int64_t>(mono_now2);
+      uint64_t decode_start_rt = static_cast<uint64_t>(
+          static_cast<int64_t>(pt.start.us() * 1000ULL) + offset2);
+      uint64_t decode_end_rt = static_cast<uint64_t>(
+          static_cast<int64_t>(pt.finish.us() * 1000ULL) + offset2);
+      GetDelayMeasurement().RecordDecodeStart(frame_id, decode_start_rt);
+      GetDelayMeasurement().RecordDecodeEnd(frame_id, decode_end_rt);
+    }
+
+    // Extract encode duration from VideoTimingExtension (set by generic_decoder)
+    if (frame.encode_duration_ms().has_value()) {
+      int64_t enc_ms = *frame.encode_duration_ms();
+      if (enc_ms > 0 && capture_ts_ns > 0) {
+        // Approximate encode start/end relative to capture_ns
+        // encode_start ≈ capture_ns (frame immediately enters encoder)
+        // encode_end ≈ capture_ns + encode_duration
+        uint64_t enc_start = capture_ts_ns;
+        uint64_t enc_end = capture_ts_ns + static_cast<uint64_t>(enc_ms) * 1000000ULL;
+        GetDelayMeasurement().RecordEncodeStart(frame_id, enc_start);
+        GetDelayMeasurement().RecordEncodeEnd(frame_id, enc_end);
+      }
+    }
+
+    // Record render
+    GetDelayMeasurement().RecordRender(frame_id, render_ts);
 
     auto buffer = frame.video_frame_buffer()->ToI420();
     int w = buffer->width();

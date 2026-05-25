@@ -131,6 +131,15 @@ echo "Compiling addon.cc ..."
 echo "Compiling peer_connection_wrapper.cc ..."
 "$CLANG" $ADDON_CFLAGS -o src/peer_connection_wrapper.o src/peer_connection_wrapper.cc
 
+echo "Compiling delay_clock.cc ..."
+"$CLANG" $WEBRTC_CFLAGS -o src/delay_clock.o src/delay_clock.cc
+
+echo "Compiling ptp_monitor.cc ..."
+"$CLANG" $WEBRTC_CFLAGS -o src/ptp_monitor.o src/ptp_monitor.cc
+
+echo "Compiling delay_measurement.cc ..."
+"$CLANG" $WEBRTC_CFLAGS -o src/delay_measurement.o src/delay_measurement.cc
+
 echo "Linking webrtc_addon.node ..."
 "$CLANG" -shared -fuse-ld=lld -o build/Release/webrtc_addon.node \
   src/webrtc_core.o \
@@ -138,6 +147,9 @@ echo "Linking webrtc_addon.node ..."
   src/vcm_capturer.o \
   src/addon.o \
   src/peer_connection_wrapper.o \
+  src/delay_clock.o \
+  src/ptp_monitor.o \
+  src/delay_measurement.o \
   -Wl,--whole-archive \
   "$WEBRTC_SRC/out/release_x64/obj/libwebrtc.a" \
   -Wl,--no-whole-archive \

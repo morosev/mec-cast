@@ -5,6 +5,33 @@ signaling server and console clients using native C++ WebRTC bindings. Each clie
 can independently send or receive audio and video, controlled via configuration.
 Video is displayed in an X11 window.
 
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  - [1. Create the webrtc folder and install depot_tools](#1-create-the-webrtc-folder-and-install-depot_tools)
+  - [2. Checkout WebRTC source](#2-checkout-webrtc-source)
+  - [3. Install Linux build dependencies](#3-install-linux-build-dependencies)
+  - [4. Apply the send-timestamp-ns patch](#4-apply-the-send-timestamp-ns-patch)
+  - [5. Build WebRTC](#5-build-webrtc)
+  - [6. Install dependencies and build the demo](#6-install-dependencies-and-build-the-demo)
+- [Running](#running)
+- [Client Commands](#client-commands)
+- [Client Configuration](#client-configuration)
+- [Nanosecond Delay Measurement (PTP)](#nanosecond-delay-measurement-ptp)
+  - [Delay Metrics](#delay-metrics)
+  - [Custom RTP Header Extension](#custom-rtp-header-extension)
+  - [PTP and Clock Synchronization](#ptp-and-clock-synchronization)
+  - [Limitations Without PTP](#limitations-without-ptp)
+  - [PTP Requirements](#ptp-requirements)
+- [Logging](#logging)
+- [Example Session](#example-session)
+- [Signaling Protocol](#signaling-protocol)
+  - [Keep-Alive / Heartbeat](#keep-alive--heartbeat)
+- [Testing](#testing)
+- [License](#license)
+
 ## Architecture
 
 ```
@@ -14,7 +41,7 @@ Video is displayed in an X11 window.
 │ + C++)   ├────────────────────┤          ├────────────────────┤  + C++)  │
 └────┬─────┘                    └──────────┘                    └────┬─────┘
      │                                                               │
-     │            P2P Bidirectional Audio + Video (after ICE)         │
+     │            P2P Bidirectional Audio + Video (after ICE)        │
      └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,35 +81,30 @@ cd src
 sudo ./build/install-build-deps.sh --no-prompt
 ```
 
-### 4. Build WebRTC
-
-```bash
-cd src
-gn gen out/release_x64 --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
-ninja -C out/release_x64 webrtc
-```
-
-This produces `out/release_x64/obj/libwebrtc.a`.
-
-### 5. Apply the send-timestamp-ns patch
+### 4. Apply the send-timestamp-ns patch
 
 The delay measurement system requires a custom RTP header extension in WebRTC.
 Apply the provided patch before building:
 
 ```bash
-cd webrtc/src
+cd src
 git apply ../../webrtc-send-timestamp-ns.patch
 ```
 
-Then rebuild WebRTC:
+The patch adds a `SendTimestampNsExtension` class that carries a 16-byte payload
+(capture timestamp + send timestamp, each 8 bytes) in every RTP video packet,
+enabling one-way delay measurement and full pipeline breakdown with
+PTP-synchronized clocks. It also forces every frame to carry timing metadata
+for continuous encode/decode measurement.
+
+### 5. Build WebRTC
 
 ```bash
+gn gen out/release_x64 --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
 ninja -C out/release_x64 webrtc
 ```
 
-The patch adds a `SendTimestampNsExtension` class that carries an 8-byte
-nanosecond timestamp in every RTP packet, enabling one-way delay measurement
-with PTP-synchronized clocks.
+This produces `out/release_x64/obj/libwebrtc.a`.
 
 ### 6. Install dependencies and build the demo
 
@@ -188,6 +210,10 @@ sender and receiver in a 5G testbed environment.
 
 ### Delay Metrics
 
+The system measures seven delay components across the entire video pipeline.
+Each metric is computed per-frame and aggregated into running statistics
+(last, min, max, average, p99, count).
+
 | Metric | Description |
 |--------|-------------|
 | **Network (one-way)** | RTP packet transit time (requires PTP sync) |
@@ -197,6 +223,185 @@ sender and receiver in a 5G testbed environment.
 | **Jitter buffer** | Time waiting in the receiver jitter buffer |
 | **Sender pipeline** | Capture → RTP send |
 | **Receiver pipeline** | RTP receive → render |
+
+**Network (one-way):** Measured as `send_ns − receive_ns` where `send_ns` is
+stamped by the sender at packet departure (in `rtp_sender_egress`) and
+`receive_ns` is recorded on the receiver when the RTP packet arrives. Both
+timestamps use `CLOCK_REALTIME`, so this metric requires PTP-synchronized clocks
+to produce meaningful absolute values. On loopback or same-machine tests, the
+offset is near-zero and this effectively measures kernel/stack processing time.
+
+**Glass-to-glass:** The total end-to-end latency from frame capture on the sender
+to frame display on the receiver: `render_ns − capture_ns`. The `capture_ns`
+timestamp is taken at the moment the camera driver delivers a frame to WebRTC's
+video capture module; it is converted from the monotonic `capture_time()` to
+`CLOCK_REALTIME` at packet egress and transmitted via the header extension. The
+`render_ns` is taken locally when `OnFrame()` delivers the decoded frame to the
+renderer. This metric requires PTP sync for cross-machine accuracy.
+
+**Encoding:** The time the video encoder (VP8/VP9/H.264/AV1) takes to compress
+a single frame. WebRTC's `VideoTimingExtension` carries `encode_start_delta_ms`
+and `encode_finish_delta_ms` (relative to capture time) in every packet. On the
+receiver, the decoder extracts these and exposes them as `encode_duration_ms` on
+the decoded `VideoFrame`. Every frame is forced to be a "timing frame" so this
+data is always available (not just periodic samples).
+
+**Decoding:** The time the video decoder takes to decompress a frame. Measured
+locally on the receiver using WebRTC's `processing_time()` field on the decoded
+`VideoFrame`, which records the monotonic timestamps when the frame entered and
+exited the decoder (`generic_decoder.cc`). Converted to `CLOCK_REALTIME` for
+consistency with other metrics.
+
+**Jitter buffer:** The time a frame spends waiting in the receiver's jitter
+buffer before being released to the decoder: `decode_start_ns − receive_ns`.
+This captures the buffering delay introduced to smooth out network jitter.
+Higher values indicate more aggressive buffering or variable network conditions.
+
+**Sender pipeline:** The total sender-side processing time from frame capture to
+RTP packet departure: `send_ns − capture_ns`. This encompasses encoding,
+packetization, and pacer queue delay. The pacer introduces intentional delay to
+smooth burst transmissions and comply with bandwidth estimates.
+
+**Receiver pipeline:** The total receiver-side processing time from packet
+arrival to frame display: `render_ns − receive_ns`. This encompasses jitter
+buffer wait, decoding, and any rendering queue delay.
+
+### Custom RTP Header Extension
+
+The delay measurement system uses a custom RTP header extension to transport
+sender-side timestamps to the receiver. The extension uses the **one-byte header
+format** (RFC 8285) which supports extension elements of 1–16 bytes with IDs 1–14.
+
+**Extension URI:** `http://www.mec-cast.org/experiments/rtp-hdrext/send-timestamp-ns`
+
+**Wire format (16 bytes):**
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         capture_ns (high 32 bits, big-endian)                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         capture_ns (low 32 bits, big-endian)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         send_ns (high 32 bits, big-endian)                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         send_ns (low 32 bits, big-endian)                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+- **capture_ns** (bytes 0–7): `CLOCK_REALTIME` nanoseconds at frame capture.
+  Computed at packet egress by converting the monotonic `capture_time()` stored
+  on the `RtpPacketToSend` to real-time using the offset
+  `CLOCK_REALTIME − CLOCK_MONOTONIC` sampled at that instant.
+- **send_ns** (bytes 8–15): `CLOCK_REALTIME` nanoseconds at packet departure.
+  Stamped in `rtp_sender_egress.cc` just before the packet is handed to the
+  transport layer.
+
+**Why 16 bytes?** The one-byte RTP header extension format encodes element length
+in a 4-bit field as `L` where actual length = `L + 1`, giving a maximum of
+16 bytes per element. Our extension uses exactly this maximum to carry two
+64-bit nanosecond timestamps. Using 64-bit nanoseconds (rather than 32-bit
+milliseconds) provides sub-microsecond resolution necessary for PTP-grade
+measurements and avoids wrap-around issues (a 64-bit ns counter won't wrap
+for ~584 years).
+
+**RTP header integration:** The extension is negotiated in SDP via the standard
+`a=extmap` mechanism. WebRTC assigns it an ID (typically 12) during offer/answer
+negotiation. In the RTP packet, it appears as:
+
+```
+RTP Header (12 bytes) → [CSRC if any] → Extension Header:
+  ┌─────────────────────────────────────────┐
+  │ 0xBEDE (one-byte ext magic) | length=4  │  ← 4 = 16 bytes / 4 (32-bit words)
+  ├─────────────────────────────────────────┤
+  │ ID(4b) | L=15(4b) | 16 bytes of data   │  ← L=15 means 16 bytes
+  └─────────────────────────────────────────┘
+```
+
+The extension adds 20 bytes of overhead per RTP packet (4-byte extension header +
+16 bytes payload). At 30 fps video with ~3 packets per frame, this amounts to
+~1.8 KB/s of additional bandwidth — negligible compared to the video bitrate.
+
+**Direction:** The extension is registered as `kSendRecv` so both peers in a
+bidirectional call stamp their outgoing packets and extract timestamps from
+incoming packets, enabling delay measurement in both directions simultaneously.
+
+### PTP and Clock Synchronization
+
+The delay measurement system relies on **synchronized wall-clock time** between
+sender and receiver. Without clock synchronization, one-way metrics (network,
+glass-to-glass, sender/receiver pipeline) are meaningless because timestamps from
+different machines cannot be compared.
+
+**How PTP is used:**
+
+1. The PTP daemon (`ptp4l`) synchronizes the NIC's hardware clock (PHC) to a
+   grandmaster clock on the network via IEEE 1588 Precision Time Protocol.
+2. `phc2sys` continuously disciplines `CLOCK_REALTIME` from the PHC, maintaining
+   sub-microsecond alignment between the system clock and the PTP time domain.
+3. Our code calls `clock_gettime(CLOCK_REALTIME)` for all timestamps. When PTP
+   is active, this clock is phase-locked to the grandmaster with nanosecond-level
+   accuracy, making cross-machine timestamp comparisons valid.
+4. The `PtpMonitor` module periodically reads the PHC offset (via `ioctl` on
+   `/dev/ptp0`) and reports synchronization quality. The delay report shows
+   "PTP Sync: ✓ RELIABLE" when the measured offset is below the configured
+   threshold (default 1 µs).
+
+**Timing points in the pipeline:**
+
+```
+Sender                                          Receiver
+──────                                          ────────
+Camera grab ──→ capture_ns (CLOCK_REALTIME)
+    │
+    ▼
+Encoder (VP8/H264)
+    │
+    ▼
+Packetizer + Pacer
+    │
+    ▼
+RTP Egress ───→ send_ns (CLOCK_REALTIME)
+    │
+    │ ~~~ Network ~~~
+    ▼
+RTP Arrival ──→ receive_time (CLOCK_MONOTONIC → CLOCK_REALTIME)
+    │
+    ▼
+Jitter Buffer (wait)
+    │
+    ▼
+Decoder (VP8/H264)
+    │
+    ▼
+OnFrame() ────→ render_ns (CLOCK_REALTIME)
+```
+
+### Limitations Without PTP
+
+When PTP hardware is not available (no `/dev/ptp0`), the system falls back to
+`CLOCK_REALTIME` without hardware disciplining. This has several implications:
+
+| Limitation | Impact |
+|-----------|--------|
+| **No accurate one-way delay** | Network delay values are unreliable because `CLOCK_REALTIME` on two machines may differ by milliseconds (NTP) or more. Values may even be negative. |
+| **Glass-to-glass is approximate** | Without PTP, the capture_ns and render_ns are on different time bases. On the same machine (loopback test), this works fine. |
+| **Sender/receiver pipeline split is invalid** | Cross-machine sender_pipeline and receiver_pipeline values include clock offset error. |
+| **Local-only metrics still work** | Encoding, decoding, and jitter buffer delays are measured entirely on one machine using monotonic clocks, so they remain accurate regardless of PTP. |
+| **Same-machine testing is valid** | When both clients run on the same host, they share `CLOCK_REALTIME` and all metrics are accurate (the "PTP Sync: ✗ UNRELIABLE" warning can be ignored). |
+
+**Signaling-based NTP fallback:** The system includes a signaling-based clock
+synchronization protocol (`clock_sync_request`/`clock_sync_response` messages)
+that estimates clock offset using NTP-style round-trip measurement via the
+WebSocket connection. This provides ~1–5 ms accuracy for development use, but
+is insufficient for production measurements where sub-microsecond precision is
+required.
+
+**Recommendation:** For production measurements in a 5G MEC testbed, always use
+PTP with hardware timestamping. For development and functional testing, the
+same-machine loopback setup provides accurate relative measurements without any
+PTP infrastructure.
 
 ### PTP Requirements
 
@@ -241,18 +446,6 @@ clocks. The system uses the PTP Hardware Clock (PHC) exposed at `/dev/ptp0`.
 | PTP with HW timestamping (multiple hops) | 100–500 ns |
 | PTP with SW timestamping | 1–10 µs |
 | No PTP (software NTP fallback) | 1–5 ms |
-
-**Fallback behavior:** If no PTP hardware is detected (`/dev/ptp0` not available),
-the system falls back to `CLOCK_REALTIME`. A signaling-based NTP estimation is
-also available for development without PTP hardware (accuracy ~1-5ms).
-
-### Custom RTP Header Extension
-
-A custom 8-byte RTP header extension (`send-timestamp-ns`) carries the sender's
-nanosecond timestamp in every RTP packet. This allows the receiver to compute
-true one-way network delay when clocks are PTP-synchronized.
-
-Extension URI: `http://www.mec-cast.org/experiments/rtp-hdrext/send-timestamp-ns`
 
 ## Logging
 
@@ -335,6 +528,27 @@ responds with a `pong`. If the server receives no ping from a client within
 notifies the remaining peer via `peer_left`. If the client receives no pong
 within 30 seconds, it logs a timeout notification and transitions to the
 disconnected state.
+
+## Testing
+
+### Local E2E Test
+
+Run a full end-to-end test locally (server + 2 clients + call + delay report):
+
+```bash
+./tests/e2e_local.sh [duration_seconds]
+```
+
+Default duration is 10 seconds. The script:
+1. Starts the signaling server on port 8080
+2. Connects two clients (alice and bob)
+3. Alice calls bob (auto-answered)
+4. Waits for the specified duration while streaming
+5. Prints delay measurement reports
+6. Verifies P2P connection was established
+7. Cleans up all processes on exit
+
+Prerequisites: server deps installed, client addon built, port 8080 free.
 
 ## License
 

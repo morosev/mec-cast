@@ -1,5 +1,6 @@
 #include "delay_clock.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <time.h>
