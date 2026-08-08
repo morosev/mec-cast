@@ -1,19 +1,36 @@
 # Build artifacts
-client/build/
+clients/webrtc_native/build/
+target/
+runs/
+
+# Per-developer local tool config
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
 
 # Dependencies
-client/node_modules/
-server/node_modules/
+node_modules/
 
 # Logs
-client/log/
-server/log/
+clients/webrtc_native/log/
+edge/signaling/log/
 
-# WebRTC build output and tools (managed separately)
-webrtc/src/out/
-webrtc/depot_tools/
-webrtc/.cipd/
-webrtc/.gclient
-webrtc/.gclient_entries
-webrtc/.gclient_previous_sync_commits
-webrtc/.gcs_entries
+# ROS2 colcon output (built inside containers, never committed)
+ros2/build/
+ros2/install/
+ros2/log/
+
+# WebRTC build output and tools (managed separately by gclient)
+third_party/webrtc/src/out/
+third_party/webrtc/depot_tools/
+third_party/webrtc/.cipd/
+third_party/webrtc/.gclient
+third_party/webrtc/.gclient_entries
+third_party/webrtc/.gclient_previous_sync_commits
+third_party/webrtc/.gcs_entries
+third_party/webrtc/_bad_scm/

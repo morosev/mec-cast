@@ -1,0 +1,105 @@
+name: platform
+
+# Path-filtered so that pushes touching only the legacy WebRTC client or the
+# docs do not rebuild the ROS image. The legacy client has no build job at
+# all: compiling libwebrtc needs a ~20 GB checkout and hours, so it is an
+# opt-in local/lab target only (docs/guides/building-libwebrtc.md).
+
+on:
+  push:
+    branches: [main]
+    # NOTE: GitHub Actions does not support YAML anchors, so this list is
+    # duplicated below rather than aliased. Keep the two in sync.
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Makefile"
+      - "telemetry/**"
+      - "ran/**"
+      - "ros2/**"
+      - "deploy/**"
+      - "tests/e2e/**"
+      - "scripts/**"
+      - ".github/workflows/platform.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Makefile"
+      - "telemetry/**"
+      - "ran/**"
+      - "ros2/**"
+      - "deploy/**"
+      - "tests/e2e/**"
+      - "scripts/**"
+      - ".github/workflows/platform.yml"
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+      - run: cargo clippy -p mec-cast-telemetry --all-targets --features linux-ptp,pyo3 -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo test --workspace --no-default-features
+
+  pybind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install maturin pytest
+      - run: maturin build --release -o dist
+        working-directory: telemetry/python
+      - run: pip install telemetry/python/dist/*.whl
+      - run: pytest telemetry/python/tests -v
+
+  ros:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
+      - name: colcon test (launch_testing)
+        run: bash deploy/docker/run-ros-tests.sh
+
+  ran-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/docker/ran.Dockerfile -t mec-cast-ran .
+
+  # Full netem e2e needs NET_ADMIN and ~2 min of runtime: main/nightly only.
+  e2e:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [rust, ros]
+    steps:
+      # Only the small submodules: third_party/webrtc is ~20 GB and nothing
+      # in CI builds it.
+      - uses: actions/checkout@v4
+      - run: git submodule update --init services/logging
+      - name: Fall back to a sibling checkout if the submodule is empty
+        run: |
+          if [ ! -f services/logging/pyproject.toml ]; then
+            git clone --depth 1 \
+              https://github.com/morosev/mec-cast-logging-service.git \
+              ../mec-cast-logging-service
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: pytest tests/e2e -v

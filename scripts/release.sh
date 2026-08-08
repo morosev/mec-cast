@@ -13,8 +13,8 @@
 #   ./scripts/release.sh 1.0.4 "Bug fixes" --dry-run
 #
 # Prerequisites:
-#   - Client addon built:   cd client && ./build.sh
-#   - WebRTC built:         ninja -C webrtc/src/out/release_x64 webrtc
+#   - Client addon built:   make build-client
+#   - WebRTC built:         ninja -C third_party/webrtc/src/out/release_x64 webrtc
 #   - gh CLI authenticated: gh auth status
 #   - Clean git working tree (no uncommitted changes)
 
@@ -52,16 +52,16 @@ echo "Dry run: ${DRY_RUN}"
 echo ""
 
 # --- Verify prerequisites ---
-ADDON="${ROOT_DIR}/client/build/Release/webrtc_addon.node"
-LIBWEBRTC="${ROOT_DIR}/webrtc/src/out/release_x64/obj/libwebrtc.a"
+ADDON="${ROOT_DIR}/clients/webrtc_native/build/Release/webrtc_addon.node"
+LIBWEBRTC="${ROOT_DIR}/third_party/webrtc/src/out/release_x64/obj/libwebrtc.a"
 
 if [ ! -f "$ADDON" ]; then
-  echo "ERROR: webrtc_addon.node not found. Run: cd client && ./build.sh"
+  echo "ERROR: webrtc_addon.node not found. Run: make build-client"
   exit 1
 fi
 
 if [ ! -f "$LIBWEBRTC" ]; then
-  echo "ERROR: libwebrtc.a not found. Run: ninja -C webrtc/src/out/release_x64 webrtc"
+  echo "ERROR: libwebrtc.a not found. Run: ninja -C third_party/webrtc/src/out/release_x64 webrtc"
   exit 1
 fi
 
@@ -92,9 +92,11 @@ DEV_DIR="${BUILD_DIR}/${DEV_PKG}"
 # Runtime package
 mkdir -p "$RUNTIME_DIR/client/build/Release" "$RUNTIME_DIR/server" "$RUNTIME_DIR/tests"
 cp "$ADDON" "$RUNTIME_DIR/client/build/Release/"
-cp client/client.js client/client-config.json client/package.json "$RUNTIME_DIR/client/"
-cp server/server.js server/package.json "$RUNTIME_DIR/server/"
-cp tests/e2e_local.sh "$RUNTIME_DIR/tests/"
+cp clients/webrtc_native/client.js \
+   clients/webrtc_native/client-config.json \
+   clients/webrtc_native/package.json "$RUNTIME_DIR/client/"
+cp edge/signaling/server.js edge/signaling/package.json "$RUNTIME_DIR/server/"
+cp tests/legacy/e2e_local.sh "$RUNTIME_DIR/tests/"
 cp LICENSE "$RUNTIME_DIR/"
 
 # Generate INSTALL.md with version and date
@@ -173,8 +175,8 @@ INSTALLEOF
 cp -r "$RUNTIME_DIR" "$DEV_DIR"
 cp "$LIBWEBRTC" "$DEV_DIR/libwebrtc.a"
 mkdir -p "$DEV_DIR/client/src"
-cp client/build.sh "$DEV_DIR/client/"
-cp client/src/*.cc client/src/*.h "$DEV_DIR/client/src/"
+cp clients/webrtc_native/build.sh "$DEV_DIR/client/"
+cp clients/webrtc_native/src/*.cc clients/webrtc_native/src/*.h "$DEV_DIR/client/src/"
 
 # Generate INSTALL-DEV.md with version and date
 cat > "$DEV_DIR/INSTALL-DEV.md" << DEVEOF
@@ -199,11 +201,11 @@ export PATH="\$PWD/depot_tools:\$PATH"
 Then place \`libwebrtc.a\` where build.sh expects it:
 
 \`\`\`bash
-mkdir -p webrtc/src/out/release_x64/obj
-cp libwebrtc.a webrtc/src/out/release_x64/obj/
+mkdir -p third_party/webrtc/src/out/release_x64/obj
+cp libwebrtc.a third_party/webrtc/src/out/release_x64/obj/
 \`\`\`
 
-Ensure the WebRTC source headers are available at \`webrtc/src/\` (clone the
+Ensure the WebRTC source headers are available at \`third_party/webrtc/src/\` (clone the
 submodule from the main repository). Then rebuild:
 
 \`\`\`bash

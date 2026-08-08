@@ -1,0 +1,32 @@
+# Lab role: gNB — srsRAN MAC/scheduler metrics collector.
+#
+# Runs alongside the srsRAN gNB (not inside it). Point the gNB at this
+# collector in gnb.yml:
+#
+#   metrics:
+#     addr: <this host>
+#     port: 55555
+#
+# The collector stamps arrival with the same PTP-disciplined clock the UE
+# and edge use, so RAN KPIs and application latency land on one time base
+# and join on trace_id = RUN_ID.
+#
+# Required env: RUN_ID, LOGGING_HOST
+services:
+  ran-collector:
+    image: mec-cast-ran
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ran.Dockerfile
+    network_mode: host
+    environment:
+      RUN_ID: ${RUN_ID:?set RUN_ID}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      GNB_METRICS_ADDR: 0.0.0.0:${METRICS_PORT:-55555}
+    volumes:
+      - ../../runs:/runs
+      - /dev/ptp0:/dev/ptp0
+    devices:
+      - /dev/ptp0
+    restart: unless-stopped

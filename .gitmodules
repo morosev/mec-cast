@@ -1,4 +1,10 @@
 [submodule "webrtc/src"]
-	path = webrtc/src
+	path = third_party/webrtc/src
 	url = https://github.com/morosev/mec-cast-webrtc.git
 	branch = mec-cast
+[submodule "services/logging"]
+	path = services/logging
+	url = https://github.com/morosev/mec-cast-logging-service.git
+[submodule "third_party/str0m"]
+	path = third_party/str0m
+	url = https://github.com/morosev/mec-cast-str0m.git

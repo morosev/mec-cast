@@ -1,0 +1,15 @@
+[Unit]
+Description=Precision Time Protocol (PTP) service for mec-cast
+Documentation=man:ptp4l
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Override with: systemctl edit ptp4l  ->  Environment=PTP_IFACE=eth1
+Environment=PTP_IFACE=eth0
+ExecStart=/usr/sbin/ptp4l -f /etc/linuxptp/ptp4l.conf -i ${PTP_IFACE} --step_threshold=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

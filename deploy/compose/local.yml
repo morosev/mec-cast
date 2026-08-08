@@ -1,0 +1,69 @@
+# Local topology (Profile A): zenoh router <- lidar client (+netem sidecar) -> edge.
+# The netem sidecar shares the client's network namespace and impairs its
+# egress — modelling the 5G uplink leg without touching host networking.
+#
+# Run from the repo root, usually via the Makefile:
+#   make up-local            # or:
+#   RUN_ID=$(uuidgen) docker compose \
+#     -f deploy/compose/logging.yml -f deploy/compose/local.yml up -d --build
+#
+# Knobs: RUN_ID, NETEM_DELAY (20ms), NETEM_JITTER (5ms), NETEM_LOSS (0.5%),
+#        NUM_POINTS (30000), RATE_HZ (10.0), SEED (42)
+services:
+  zenoh-router:
+    image: mec-cast-ros
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+    environment:
+      ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+
+  lidar-client:
+    image: mec-cast-ros
+    command: >
+      ros2 run mec_cast_lidar_client lidar_client --ros-args
+      -p num_points:=${NUM_POINTS:-30000}
+      -p rate_hz:=${RATE_HZ:-10.0}
+      -p seed:=${SEED:-42}
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      RUN_ID: ${RUN_ID:-dev-run}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://logging:8000
+    volumes:
+      - ../../runs:/runs
+    depends_on:
+      - zenoh-router
+
+  # Impairs everything the lidar client sends (it shares its netns).
+  netem:
+    image: mec-cast-ros
+    network_mode: "service:lidar-client"
+    cap_add:
+      - NET_ADMIN
+    command: >
+      bash -c "tc qdisc replace dev eth0 root netem
+      delay ${NETEM_DELAY:-20ms} ${NETEM_JITTER:-5ms}
+      loss ${NETEM_LOSS:-0.5%}
+      && echo netem applied: delay=${NETEM_DELAY:-20ms} jitter=${NETEM_JITTER:-5ms} loss=${NETEM_LOSS:-0.5%}
+      && sleep infinity"
+    depends_on:
+      - lidar-client
+
+  edge:
+    image: mec-cast-ros
+    command: ros2 run mec_cast_edge edge
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      RUN_ID: ${RUN_ID:-dev-run}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://logging:8000
+    volumes:
+      - ../../runs:/runs
+    depends_on:
+      - zenoh-router

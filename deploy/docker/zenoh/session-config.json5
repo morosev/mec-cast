@@ -1,0 +1,13 @@
+// Zenoh session configuration for mec-cast ROS2 nodes (rmw_zenoh).
+// Point ZENOH_SESSION_CONFIG_URI at this file. Nodes dial the router by
+// service name; multicast scouting is off (models the 5G/UPF path where
+// multicast does not exist).
+{
+  mode: "peer",
+  connect: {
+    endpoints: ["tcp/zenoh-router:7447"],
+  },
+  scouting: {
+    multicast: { enabled: false },
+  },
+}

@@ -1,0 +1,43 @@
+# Lab role: infra — logging service + PostgreSQL, shared by every other role.
+#
+# Deploy this first: the UE, edge, and gNB roles all POST snapshots here and
+# will buffer-then-drop if it is unreachable.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: mec_cast_logs
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mec_cast_logs"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  logging:
+    build:
+      context: ${MECLOG_BUILD_CONTEXT:-../../services/logging}
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        WORKDIR /app
+        COPY pyproject.toml README.md LICENSE ./
+        COPY src ./src
+        RUN pip install --no-cache-dir .
+        EXPOSE 8000
+        CMD ["mec-cast-logs", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MECLOG_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/mec_cast_logs
+      MECLOG_AUTO_MIGRATE: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

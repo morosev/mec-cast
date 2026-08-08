@@ -1,0 +1,16 @@
+# Keep the docker build context small: only telemetry/, ran/, ros2/, deploy/ matter.
+# third_party/webrtc alone is ~20 GB — it must never enter a build context.
+.git/
+third_party/
+clients/
+edge/signaling/
+services/
+scripts/
+tests/
+tools/
+docs/
+target/
+runs/
+**/.venv/
+**/__pycache__/
+**/node_modules/

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5"]
+build-backend = "maturin"
+
+[project]
+name = "mec-cast-telemetry"
+description = "Python bindings for the mec-cast telemetry spine (timing envelope, delay stats, async recorder)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dynamic = ["version"]
+
+[tool.maturin]
+manifest-path = "../Cargo.toml"
+module-name = "mec_cast_telemetry"
+features = ["extension-module", "http"]

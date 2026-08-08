@@ -1,0 +1,34 @@
+# Lab role: UE — LiDAR + compute machine behind the 5G modem.
+#
+# Unlike the local topology there is no netem here: the impairment is the
+# real 5G uplink. The Zenoh router lives on the edge host, so this node
+# dials out to it across the UPF (which is exactly why Zenoh was chosen
+# over multicast DDS discovery — see docs/architecture/adr/0001).
+#
+# Required env: RUN_ID, EDGE_HOST, LOGGING_HOST
+services:
+  lidar-client:
+    image: mec-cast-ros
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+    network_mode: host
+    command: >
+      ros2 run mec_cast_lidar_client lidar_client --ros-args
+      -p num_points:=${NUM_POINTS:-30000}
+      -p rate_hz:=${RATE_HZ:-10.0}
+      -p seed:=${SEED:-42}
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Dial the router on the edge host across the 5G user plane.
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/${EDGE_HOST}:7447"]'
+      RUN_ID: ${RUN_ID:?set RUN_ID}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+    volumes:
+      - ../../runs:/runs
+      # Read the PTP hardware clock for capture timestamps.
+      - /dev/ptp0:/dev/ptp0
+    devices:
+      - /dev/ptp0

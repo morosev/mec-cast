@@ -1,0 +1,36 @@
+# Lab role: edge — the MEC application server behind the UPF.
+#
+# Hosts the Zenoh router (the rendezvous point the UE dials into) and the
+# ingest node that stamps arrival and computes latency.
+#
+# Required env: RUN_ID, LOGGING_HOST
+services:
+  zenoh-router:
+    image: mec-cast-ros
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+    network_mode: host
+    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+    environment:
+      ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+    restart: unless-stopped
+
+  edge:
+    image: mec-cast-ros
+    network_mode: host
+    command: ros2 run mec_cast_edge edge
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      RUN_ID: ${RUN_ID:?set RUN_ID}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+    volumes:
+      - ../../runs:/runs
+      - /dev/ptp0:/dev/ptp0
+    devices:
+      - /dev/ptp0
+    depends_on:
+      - zenoh-router

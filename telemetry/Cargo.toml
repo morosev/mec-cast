@@ -1,0 +1,32 @@
+[package]
+name = "mec-cast-telemetry"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared timing envelope, delay statistics, clocks, and async recording for the mec-cast 5G measurement platform"
+
+[lib]
+name = "mec_cast_telemetry"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+pyo3 = { version = "0.23", optional = true, features = ["abi3-py310"] }
+rtrb = "0.3"
+serde_json = { version = "1", optional = true }
+ureq = { version = "2", optional = true }
+
+[features]
+default = ["http"]
+# Ship aggregated snapshots to the mec-cast-logging-service over HTTP.
+http = ["dep:ureq", "dep:serde_json"]
+# PTP Hardware Clock support (/dev/ptpN). Linux-only.
+linux-ptp = []
+# Python bindings (abi3, one wheel for py3.10+).
+pyo3 = ["dep:pyo3"]
+# Used by maturin when building the wheel: don't link libpython.
+extension-module = ["pyo3", "pyo3/extension-module"]
+
+[dev-dependencies]
+proptest = "1"

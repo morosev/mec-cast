@@ -1,0 +1,12 @@
+// Zenoh router configuration for the mec-cast lab topology.
+// The router is the rendezvous point; peers dial it explicitly (no
+// multicast scouting — it would not traverse a UPF/NAT anyway).
+{
+  mode: "router",
+  listen: {
+    endpoints: ["tcp/[::]:7447"],
+  },
+  scouting: {
+    multicast: { enabled: false },
+  },
+}

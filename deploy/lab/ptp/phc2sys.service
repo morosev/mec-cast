@@ -1,0 +1,14 @@
+[Unit]
+Description=Synchronise CLOCK_REALTIME from the PTP hardware clock
+Documentation=man:phc2sys
+After=ptp4l.service
+Requires=ptp4l.service
+
+[Service]
+# -w waits for ptp4l to lock before disciplining the system clock.
+ExecStart=/usr/sbin/phc2sys -s /dev/ptp0 -c CLOCK_REALTIME -O 0 -w -m
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

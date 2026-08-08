@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["telemetry", "ran/collector"]
+# Vendored third-party crates carry their own Cargo.toml (and their own
+# workspace). Excluding the directory keeps cargo from ever trying to pull
+# them into this workspace.
+exclude = ["third_party"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/morosev/mec-cast"
+
+[profile.release]
+lto = "thin"

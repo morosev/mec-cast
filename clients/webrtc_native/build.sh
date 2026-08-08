@@ -2,18 +2,18 @@
 set -e
 
 # Build script for the WebRTC native addon on Linux using Chromium's clang.
-# Must be run from the client/ directory.
-# The WebRTC source tree is expected at ../../webrtc/src relative to this script.
+# Must be run from the clients/webrtc_native/ directory.
+# The WebRTC source tree is expected at ../../third_party/webrtc/src.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WEBRTC_SRC="$SCRIPT_DIR/../webrtc/src"
+WEBRTC_SRC="$SCRIPT_DIR/../../third_party/webrtc/src"
 
 if [ ! -d "$WEBRTC_SRC" ]; then
   echo "ERROR: WebRTC source not found at $WEBRTC_SRC"
   echo "Expected directory layout:"
   echo "  mec-cast/"
-  echo "    webrtc/src/   (WebRTC source tree)"
-  echo "    client/       (this project)"
+  echo "    third_party/webrtc/src/   (WebRTC source tree)"
+  echo "    clients/webrtc_native/    (this project)"
   exit 1
 fi
 

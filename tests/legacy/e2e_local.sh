@@ -2,18 +2,18 @@
 # End-to-end local test: starts server + 2 clients, establishes a call,
 # enables delay measurement, prints the delay report, then tears down.
 #
-# Usage: ./tests/e2e_local.sh [duration_seconds]
+# Usage: ./tests/legacy/e2e_local.sh [duration_seconds]
 #   duration_seconds: how long to keep the call active (default: 10)
 #
 # Prerequisites:
-#   - Server deps installed (cd server && npm install)
-#   - Client addon built    (cd client && ./build.sh)
+#   - Server deps installed (cd edge/signaling && npm install)
+#   - Client addon built    (cd clients/webrtc_native && ./build.sh)
 #   - Port 8080 free
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DURATION=${1:-10}
 
 SERVER_PID=""
@@ -39,7 +39,7 @@ echo "Duration: ${DURATION}s"
 echo ""
 
 # --- Start signaling server ---
-cd "$ROOT_DIR/server"
+cd "$ROOT_DIR/edge/signaling"
 node server.js &
 SERVER_PID=$!
 sleep 2
@@ -51,7 +51,7 @@ fi
 echo "[OK] Server started (PID=$SERVER_PID)"
 
 # --- Start Client 1 (alice): connect, wait for peer, call ---
-cd "$ROOT_DIR/client"
+cd "$ROOT_DIR/clients/webrtc_native"
 (
   sleep 0; echo "connect alice"
   sleep 4; echo "call"
