@@ -14,15 +14,15 @@ telemetry spine:
 
 ```
  ROBOT / UE                       5G RAN + CORE (lab)             EDGE (MEC server)
-┌─────────────────────┐                                         ┌─────────────────────────┐
-│ LiDAR → ROS2 node    │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)    │
-│  capture_ns stamp    ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp           │
-│  (compress: later)   │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns stamp │
-│  send_ns stamp       │         └───┬────┘   └─────────┘        │  ├─► runs/<id>/samples.csv
-│  rmw_zenoh publish   │             │ metrics UDP/JSON          │  └─► snapshots → logging │
-└─────────┬───────────┘             ▼                            └────────────┬────────────┘
-          │                   ran-collector ──────────────────────────────────┤
-          │                                                                   ▼
+┌─────────────────────┐                                         ┌──────────────────────────┐
+│ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)    │
+│  capture_ns stamp   ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp           │
+│  (compress: later)  │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns stamp │
+│  send_ns stamp      │         └───┬────┘   └─────────┘        │  ├─► runs/<id>/samples.csv
+│  rmw_zenoh publish  │             │ metrics UDP/JSON          │  └─► snapshots → logging │
+└─────────┬───────────┘             ▼                           └────────────┬─────────────┘
+          │                  ran-collector ──────────────────────────────────┤
+          │                                                                  ▼
           │        PTP (ptp4l+phc2sys, management/backhaul LAN,        logging service
           └──────  NOT the 5G user plane) — shared CLOCK_REALTIME      (FastAPI+Postgres)
 ```
@@ -85,6 +85,11 @@ nothing else in the repo.
   batches to the logging service). Invariant: `written + dropped == pushed`.
 - **PyO3 bindings** (`telemetry/python/`) — the Python ROS nodes use the
   same stats engine; there is exactly one implementation.
+- **C ABI** (`telemetry/src/ffi.rs`, `telemetry/include/`) — the legacy
+  WebRTC C++ addon links the crate as a `staticlib` and records one sample
+  per rendered frame, so Profile B lands in the same CSV schema and logging
+  service. It runs *alongside* the addon's in-process `DelayMeasurement`,
+  which still backs the interactive `delay report` output.
 
 Derived metrics per sample: `network = recv − send`,
 `e2e = process_done − capture`, `processing = process_done − recv`,

@@ -8,7 +8,9 @@ description = "Shared timing envelope, delay statistics, clocks, and async recor
 
 [lib]
 name = "mec_cast_telemetry"
-crate-type = ["cdylib", "rlib"]
+# staticlib: linked into the legacy WebRTC C++ addon via the C ABI in
+# src/ffi.rs. cdylib: the PyO3 wheel. rlib: the other workspace members.
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 libc = "0.2"

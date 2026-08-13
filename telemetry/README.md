@@ -16,6 +16,7 @@ comparable and independent.
 | `recorder` | Lock-free hot path → writer thread → CSV + HTTP snapshots |
 | `sink` | CSV, HTTP (logging service), Parquet (feature) |
 | `py` | PyO3 bindings (feature) |
+| `ffi` | C ABI for non-Rust producers (the legacy WebRTC addon) |
 
 ## The hot-path contract
 
@@ -61,6 +62,25 @@ make test-python
 sort and Welford stddev against a two-pass computation.
 `tests/recorder_loopback.rs` drives 50k samples through the pipeline against
 a stub HTTP server and asserts `rows_written + dropped == pushed`.
+
+## Consumers
+
+Three bindings, one implementation of the statistics:
+
+| Consumer | Binding | Crate type |
+|---|---|---|
+| `ran/collector` | native Rust | `rlib` |
+| ROS2 nodes (Profile A) | PyO3 wheel | `cdylib` |
+| Legacy WebRTC addon (Profile B) | C ABI, [`include/mec_cast_telemetry.h`](include/mec_cast_telemetry.h) | `staticlib` |
+
+The C ABI is deliberately minimal — start, record, dropped-count, stop —
+and every entry point tolerates NULL. `extern "C"` aborts on unwind, so
+nothing in `ffi.rs` may panic; fallible calls return NULL or `false`.
+A recorder is single-producer: call `mct_record` from one thread only.
+
+`trace_id` is derived identically in the Python and C bindings (first 16
+bytes of `run_id`, zero-padded), so one `RUN_ID` joins media and
+point-cloud samples in the same query.
 
 ## Snapshot schema
 

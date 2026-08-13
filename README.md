@@ -16,13 +16,13 @@ Two profiles share one Rust telemetry spine:
 ```
  ROBOT / UE                       5G RAN + CORE (lab)             EDGE (MEC server)
 ┌─────────────────────┐                                         ┌─────────────────────────┐
-│ LiDAR → ROS2 node    │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)    │
-│  capture_ns stamp    ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp           │
-│  send_ns stamp       │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns       │
+│ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)   │
+│  capture_ns stamp   ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp          │
+│  send_ns stamp      │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns      │
 └─────────┬───────────┘         └───┬────┘   └─────────┘        └────────────┬────────────┘
           │                         │ metrics UDP/JSON                       │
           │                   ran-collector ─────────────────────────────────┤
-          │        PTP (management LAN, NOT the 5G user plane)                ▼
+          │        PTP (management LAN, NOT the 5G user plane)               ▼
           └─────────────────────────────────────────────────────  logging service + CSV
 ```
 
@@ -84,8 +84,9 @@ why there is no RIC yet.
 
 | Area | State |
 |---|---|
-| Telemetry crate (+ PyO3) | Working, tested |
+| Telemetry crate (+ PyO3, C ABI) | Working, tested |
 | ROS2 + Zenoh profile | Working; netem e2e green |
+| WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
 | RAN metrics tap | Working against a captured fixture |
 | Logging service submodule | Wired at `services/logging` |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |

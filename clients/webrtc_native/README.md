@@ -455,6 +455,36 @@ clocks. The system uses the PTP Hardware Clock (PHC) exposed at `/dev/ptp0`.
 | PTP with SW timestamping | 1–10 µs |
 | No PTP (software NTP fallback) | 1–5 ms |
 
+## Shared telemetry (Profile B → mec-cast-telemetry)
+
+Every rendered frame is also recorded into the shared Rust telemetry spine,
+so media runs are directly comparable with the ROS2/Zenoh profile. This runs
+*alongside* the in-process `DelayMeasurement` described above — the console
+`delay` commands are unchanged.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RUN_ID` | `dev-run` | Experiment id; joins profiles in one query |
+| `RUNS_DIR` | `runs` | Output base; CSV at `<RUNS_DIR>/<RUN_ID>/media/samples.csv` |
+| `LOGGING_URL` | unset | Logging service base URL; CSV is always written |
+| `MEC_CAST_TELEMETRY` | `1` | Set to `0` to disable entirely |
+
+Envelope mapping for a video frame: `capture_ns` and `send_ns` come from the
+sender via the custom RTP extension, `recv_ns` from packet arrival, and
+`process_done_ns` is render time — so the recorded `e2e_ns` **is** the
+glass-to-glass metric. Decode duration rides in `aux_ns`.
+
+The addon links `libmec_cast_telemetry.a` over the C ABI in
+[`telemetry/include/mec_cast_telemetry.h`](../../telemetry/include/mec_cast_telemetry.h);
+`build.sh` builds it automatically when `cargo` is on PATH.
+
+> **Not verifiable without a camera.** This path only executes when video
+> frames are actually rendered. WSL and CI have no `/dev/video*`, so the
+> call negotiates video `recvonly` and `OnFrame()` never fires — meaning
+> `make test-legacy` exercises signalling and audio only, and never the
+> delay measurement. The C boundary itself is covered by `make test-ffi`;
+> end-to-end confirmation needs a machine with a camera.
+
 ## Logging
 
 All screen output and errors are mirrored to log files, recreated on each

@@ -8,6 +8,7 @@
 
 #include "delay_clock.h"
 #include "delay_measurement.h"
+#include "mec_cast_telemetry.h"
 #include "ptp_monitor.h"
 
 #include <cstdio>
@@ -215,6 +216,68 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
   std::unique_ptr<webrtc::test::TestVideoCapturer> capturer_;
 };
 
+// --- Shared telemetry spine (Profile B → mec-cast-telemetry) ---
+//
+// Runs ALONGSIDE the in-process DelayMeasurement above: that one still backs
+// the interactive `delay report` output, while this feeds the same CSV schema
+// and logging service as the ROS2/Zenoh profile, so media and point-cloud
+// runs are directly comparable.
+//
+// Configured entirely by environment, matching the ROS2 nodes:
+//   RUN_ID       experiment run id (joins profiles; default "dev-run")
+//   RUNS_DIR     base output directory (default "runs")
+//   LOGGING_URL  logging service base URL (optional; CSV always written)
+//   MEC_CAST_TELEMETRY=0 disables it entirely
+//
+// Threading: the queue is single-producer and this is fed only from the video
+// render callback, which WebRTC drives on one thread per remote track.
+namespace {
+
+MctRecorder* g_telemetry = nullptr;
+std::once_flag g_telemetry_once;
+
+const char* EnvOr(const char* name, const char* fallback) {
+  const char* v = std::getenv(name);
+  return (v && *v) ? v : fallback;
+}
+
+void ShutdownTelemetry() {
+  if (!g_telemetry) return;
+  MctReport r{};
+  mct_recorder_stop(g_telemetry, &r);
+  g_telemetry = nullptr;
+  DEMO_LOG("telemetry: %llu samples written, %llu dropped, %llu snapshots posted",
+           (unsigned long long)r.samples_written,
+           (unsigned long long)r.samples_dropped,
+           (unsigned long long)r.snapshots_posted);
+}
+
+MctRecorder* Telemetry() {
+  std::call_once(g_telemetry_once, [] {
+    if (std::strcmp(EnvOr("MEC_CAST_TELEMETRY", "1"), "0") == 0) {
+      DEMO_LOG("telemetry: disabled via MEC_CAST_TELEMETRY=0");
+      return;
+    }
+    const char* run_id = EnvOr("RUN_ID", "dev-run");
+    std::string out_dir =
+        std::string(EnvOr("RUNS_DIR", "runs")) + "/" + run_id + "/media";
+    const char* logging_url = std::getenv("LOGGING_URL");
+
+    g_telemetry = mct_recorder_start(run_id, "mec-cast-media", out_dir.c_str(),
+                                     logging_url, 0.0);
+    if (g_telemetry) {
+      DEMO_LOG("telemetry: recording to %s (run_id=%s)", out_dir.c_str(), run_id);
+      std::atexit(ShutdownTelemetry);
+    } else {
+      DEMO_LOG("telemetry: WARNING failed to start (is %s writable?)",
+               out_dir.c_str());
+    }
+  });
+  return g_telemetry;
+}
+
+}  // namespace
+
 // --- X11 video renderer window ---
 class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
  public:
@@ -326,6 +389,23 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
 
     // Record render
     GetDelayMeasurement().RecordRender(frame_id, render_ts);
+
+    // Same frame into the shared telemetry spine. The four envelope stamps
+    // map directly onto what this callback already has; process_done_ns is
+    // render time, which makes e2e here the glass-to-glass metric.
+    if (MctRecorder* t = Telemetry()) {
+      int64_t decode_ns = 0;
+      if (frame.processing_time().has_value()) {
+        decode_ns = frame.processing_time()->Elapsed().ns();
+      }
+      mct_record(t, MCT_MODALITY_VIDEO, frame_id,
+                 static_cast<int64_t>(capture_ts_ns),
+                 static_cast<int64_t>(send_ts_ns),
+                 static_cast<int64_t>(receive_ts_ns),
+                 static_cast<int64_t>(render_ts),
+                 static_cast<uint32_t>(frame.width() * frame.height() * 3 / 2),
+                 decode_ns, /*site=*/1);
+    }
 
     auto buffer = frame.video_frame_buffer()->ToI420();
     int w = buffer->width();

@@ -50,17 +50,28 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 	  ninja -C out/release_x64 webrtc
 
 # ─── test ─────────────────────────────────────────────────────────────────
-.PHONY: test test-all test-rust test-python test-ros2 test-e2e
+.PHONY: test test-all test-rust test-python test-ros2 test-e2e test-ffi
 
-test: test-rust test-python ## Fast tests (no docker)
+test: test-rust test-ffi test-python ## Fast tests (no docker)
 
-test-all: test-rust test-python test-ros2 test-e2e ## Everything, containers included
+test-all: test-rust test-ffi test-python test-ros2 test-e2e ## Everything, containers included
 
 test-rust: ## Unit + property + integration tests across the workspace
 	cargo test --workspace
 
 test-python: ## PyO3 binding smoke tests
 	$(PYTEST) telemetry/python/tests -v
+
+# The legacy addon's video path needs a camera, so it cannot be exercised in
+# CI or WSL. This covers the C boundary it depends on, from a C compiler.
+test-ffi: ## C ABI smoke test against the telemetry staticlib
+	cargo build --release -p mec-cast-telemetry
+	cc -Wall -Wextra -Werror -o target/c_abi_smoke \
+	  telemetry/tests/c_abi_smoke.c \
+	  -Itelemetry/include \
+	  target/release/libmec_cast_telemetry.a \
+	  -lpthread -ldl -lm
+	./target/c_abi_smoke
 
 test-ros2: build-ros2 ## In-container colcon/launch_testing tier
 	bash deploy/docker/run-ros-tests.sh

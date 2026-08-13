@@ -23,6 +23,7 @@ mod envelope;
 mod stats;
 
 pub mod clock;
+pub mod ffi;
 pub mod ptp;
 #[cfg(feature = "pyo3")]
 mod py;

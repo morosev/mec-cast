@@ -28,8 +28,15 @@ cd clients/webrtc_native && npm install
 make build-client          # from the repo root
 ```
 
-It keeps its own in-process `DelayMeasurement` rather than the shared Rust
-telemetry crate. That is deliberate: it stays untouched until the str0m
-profile reaches parity, at which point both retire together. Known defects
-in its statistics layer are catalogued in
-[ADR-0004](../docs/architecture/adr/0004-exact-percentiles.md).
+It now feeds **both** measurement paths:
+
+- its original in-process `DelayMeasurement`, which still backs the
+  interactive `delay report` / `delay log` commands (known defects
+  catalogued in [ADR-0004](../docs/architecture/adr/0004-exact-percentiles.md));
+- the shared Rust telemetry crate over its C ABI, writing
+  `runs/<RUN_ID>/media/samples.csv` in the same schema as Profile A and
+  posting the same snapshots to the logging service.
+
+Environment (identical to the ROS2 nodes): `RUN_ID`, `RUNS_DIR`,
+`LOGGING_URL`, plus `MEC_CAST_TELEMETRY=0` to disable. One `RUN_ID` joins
+media and point-cloud samples in the same query.

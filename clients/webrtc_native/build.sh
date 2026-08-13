@@ -50,11 +50,33 @@ if [ ! -f "$NAPI_DIR/napi.h" ]; then
   exit 1
 fi
 
+# Shared Rust telemetry spine, linked over its C ABI (telemetry/src/ffi.rs).
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+TELEMETRY_INC="$REPO_ROOT/telemetry/include"
+TELEMETRY_LIB="$REPO_ROOT/target/release/libmec_cast_telemetry.a"
+
+if command -v cargo >/dev/null 2>&1; then
+  echo "Building mec-cast-telemetry staticlib ..."
+  (cd "$REPO_ROOT" && cargo build --release -p mec-cast-telemetry)
+elif [ ! -f "$TELEMETRY_LIB" ]; then
+  echo "ERROR: cargo not found and $TELEMETRY_LIB is missing."
+  echo "Install Rust (scripts/bootstrap-dev.sh) or prebuild the staticlib."
+  exit 1
+else
+  echo "cargo not found; using existing $TELEMETRY_LIB"
+fi
+
+if [ ! -f "$TELEMETRY_LIB" ]; then
+  echo "ERROR: telemetry staticlib not produced at $TELEMETRY_LIB"
+  exit 1
+fi
+
 echo "=== WebRTC Native Addon Build (Linux) ==="
 echo "Clang++:      $CLANG"
 echo "WebRTC src:   $WEBRTC_SRC"
 echo "Node include: $NODE_INC"
 echo "NAPI include: $NAPI_DIR"
+echo "Telemetry:    $TELEMETRY_LIB"
 echo ""
 
 mkdir -p build/Release
@@ -97,7 +119,8 @@ WEBRTC_CFLAGS="-c -O2 -std=c++20 -fPIC -fno-exceptions -fno-rtti -Wno-everything
   -isystem $WEBRTC_SRC/third_party/libc++abi/src/include \
   -I$WEBRTC_SRC \
   -I$WEBRTC_SRC/third_party/abseil-cpp \
-  -I$WEBRTC_SRC/third_party/libyuv/include"
+  -I$WEBRTC_SRC/third_party/libyuv/include \
+  -I$TELEMETRY_INC"
 
 # Flags for addon/wrapper files (Node.js N-API layer)
 ADDON_CFLAGS="-c -O2 -std=c++20 -fPIC -fno-exceptions -fno-rtti \
@@ -154,6 +177,7 @@ echo "Linking webrtc_addon.node ..."
   "$WEBRTC_SRC/out/release_x64/obj/libwebrtc.a" \
   -Wl,--no-whole-archive \
   "$WEBRTC_SRC/out/release_x64/obj/buildtools/third_party/libc++/libc++/"*.o \
+  "$TELEMETRY_LIB" \
   -lX11 \
   -lpthread \
   -ldl \
