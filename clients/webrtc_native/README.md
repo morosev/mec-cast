@@ -571,7 +571,20 @@ disconnected state.
 
 ### Local E2E Test
 
-Run a full end-to-end test locally (server + 2 clients + call + delay report):
+Run a full end-to-end test locally (server + 2 clients + call + delay report)
+from the repository root:
+
+```bash
+make test-legacy
+```
+
+`make test-legacy DURATION=30` changes the call length. The target checks
+that the native addon, the signaling dependencies, and `node` are all
+present before starting, and reports what is missing rather than failing
+mid-run. It is deliberately excluded from `make test-all`, since it needs
+the opt-in libwebrtc build.
+
+To invoke the script directly instead:
 
 ```bash
 ./tests/legacy/e2e_local.sh [duration_seconds]
@@ -590,4 +603,4 @@ Prerequisites: server deps installed, client addon built, port 8080 free.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](../../LICENSE).

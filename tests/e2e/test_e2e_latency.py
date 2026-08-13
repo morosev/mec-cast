@@ -36,9 +36,10 @@ COMPOSE = [
 def logging_build_context() -> str | None:
     """Resolve the logging-service build context, relative to the compose file.
 
-    Prefers the services/logging submodule. Until that submodule is populated
-    (its upstream currently publishes only LICENSE/README), fall back to a
-    sibling working tree so the suite still runs.
+    The services/logging submodule is the normal source and what the compose
+    files already point at, so the usual answer is None. The sibling-checkout
+    fallback only covers a clone made without --recurse-submodules; it keeps
+    the suite runnable instead of failing on a missing pyproject.toml.
     """
     if (REPO / "services" / "logging" / "pyproject.toml").exists():
         return None  # compose default already points here

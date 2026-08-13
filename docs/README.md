@@ -12,6 +12,7 @@ code** — that is what keeps them from rotting:
 | RAN metrics tap | [ran/collector/](../ran/collector/README.md) |
 | Third-party forks | [third_party/](../third_party/README.md) |
 | Deployment | [deploy/](../deploy/README.md) |
+| Releasing (legacy client only) | [RELEASING.md](../RELEASING.md) |
 
 ## I want to…
 

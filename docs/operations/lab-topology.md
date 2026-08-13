@@ -19,11 +19,11 @@ buffer-then-drop while it is unreachable.
 │ ros2 client├─modem───┤ srsRAN ├──┤ Open5GS ├───┤ router     │   │ service    │
 │            │  USRP   │ gNB    │  │ core    │UPF│ edge node  ├──►│ postgres   │
 └─────┬──────┘         └───┬────┘  └─────────┘   └─────┬──────┘   └─────▲──────┘
-      │                    │ metrics UDP              │                 │
-      │                    ▼                          │                 │
-      │              gNB host: ran-collector ─────────┼─────────────────┘
-      │                                               │
-      └────── PTP grandmaster, management LAN ────────┘
+      │                    │ metrics UDP               │                │
+      │                    ▼                           │                │
+      │              gNB host: ran-collector ──────────┼────────────────┘
+      │                                                │
+      └────── PTP grandmaster, management LAN ─────────┘
               (ptp4l + phc2sys on every measuring host)
 ```
 

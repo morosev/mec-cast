@@ -29,6 +29,23 @@ initialises it otherwise.
 - It removes the out-of-repo `../` build context the compose files used to
   need, so a fresh clone gives a working e2e suite and CI can run the job.
 
+## Operational posture — read before exposing it
+
+The service was built with a **deliberately unauthenticated core**. That
+shapes three things you must respect when deploying to the lab:
+
+- **No authentication, no rate limiting.** Anyone who can reach the port
+  can both ingest and read every log entry. Bind it to the management LAN
+  only — never to a UE-reachable or public interface. `deploy/lab/` keeps
+  it on the infra role for exactly this reason.
+- **Bulk deletion is not an HTTP endpoint.** Retention is a CLI command
+  (`mec-cast-logs purge --days 30 --dry-run`) precisely so that destructive
+  bulk operations are not reachable over an unauthenticated API. Run it
+  from cron or a systemd timer; nothing is deleted automatically.
+- **Explicitly out of scope upstream:** auth, rate limiting, a web UI, and
+  non-HTTP ingestion (syslog, message queues). If a mec-cast component
+  needs one of these, it is a change to the service, not a workaround here.
+
 ## The schema contract
 
 Snapshots posted by `mec-cast-telemetry` must match `LogEntryCreate`

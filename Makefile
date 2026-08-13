@@ -50,10 +50,12 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 	  ninja -C out/release_x64 webrtc
 
 # ─── test ─────────────────────────────────────────────────────────────────
-.PHONY: test test-all test-rust test-python test-ros2 test-e2e test-ffi
+.PHONY: test test-all test-rust test-python test-ros2 test-e2e test-legacy test-ffi
 
 test: test-rust test-ffi test-python ## Fast tests (no docker)
 
+# test-legacy is deliberately NOT here: it needs the libwebrtc addon, which
+# is a ~20 GB opt-in build. Run it explicitly when working on Profile B.
 test-all: test-rust test-ffi test-python test-ros2 test-e2e ## Everything, containers included
 
 test-rust: ## Unit + property + integration tests across the workspace
@@ -78,6 +80,26 @@ test-ros2: build-ros2 ## In-container colcon/launch_testing tier
 
 test-e2e: build-ros2 ## Full compose topology with netem impairment
 	$(PYTEST) tests/e2e -v
+
+# Profile B. Needs the native addon, so it is opt-in rather than part of
+# test-all. DURATION sets how long the call streams (default 10s).
+DURATION ?= 10
+test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
+	@test -f clients/webrtc_native/build/Release/webrtc_addon.node || { \
+	  echo "ERROR: native addon not built."; \
+	  echo "  make build-client   (requires third_party/webrtc/src —"; \
+	  echo "                       see docs/guides/building-libwebrtc.md)"; \
+	  exit 1; }
+	@test -d edge/signaling/node_modules || { \
+	  echo "ERROR: signaling server dependencies missing."; \
+	  echo "  cd edge/signaling && npm install"; \
+	  exit 1; }
+	@# node comes from nvm, which only loads in interactive shells.
+	@[ -s "$$HOME/.nvm/nvm.sh" ] && . "$$HOME/.nvm/nvm.sh"; \
+	  command -v node >/dev/null || { \
+	    echo "ERROR: node not on PATH (nvm is interactive-only in this shell)."; \
+	    exit 1; }; \
+	  bash tests/legacy/e2e_local.sh $(DURATION)
 
 # ─── lint ─────────────────────────────────────────────────────────────────
 .PHONY: lint fmt
@@ -115,5 +137,6 @@ clean: ## Remove build artifacts (keeps runs/ and third_party/)
 	find . -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 
 help: ## Show this help
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
+	@# [0-9] matters: without it test-ros2, test-e2e and build-ros2 vanish.
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'

@@ -4,10 +4,11 @@
 #   make up-logging          # or:
 #   docker compose -f deploy/compose/logging.yml up -d --build
 #
-# The build context defaults to the services/logging submodule. Until that
-# submodule is populated (see docs/operations/logging-submodule.md) you can
-# point it at a working tree instead:
+# The build context is the services/logging submodule (initialise it with
+# `git submodule update --init services/logging`). To build from a separate
+# working tree instead — e.g. testing an unpushed change to the service:
 #   MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service make up-logging
+# See docs/operations/logging-submodule.md.
 services:
   postgres:
     image: postgres:16

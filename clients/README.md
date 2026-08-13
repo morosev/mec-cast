@@ -26,6 +26,7 @@ fork. Requires `third_party/webrtc/src/out/release_x64/obj/libwebrtc.a`
 ```bash
 cd clients/webrtc_native && npm install
 make build-client          # from the repo root
+make test-legacy           # end-to-end call + delay report
 ```
 
 It now feeds **both** measurement paths:

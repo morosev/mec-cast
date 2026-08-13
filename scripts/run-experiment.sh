@@ -51,7 +51,8 @@ COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/local.ym
 
 export RUN_ID NUM_POINTS RATE_HZ SEED NETEM_DELAY NETEM_JITTER NETEM_LOSS
 
-# Fall back to a sibling working tree while services/logging is unpopulated.
+# Normally the services/logging submodule supplies this. Only a clone made
+# without --recurse-submodules needs the sibling-working-tree fallback.
 if [ ! -f services/logging/pyproject.toml ] && \
    [ -f ../mec-cast-logging-service/pyproject.toml ]; then
   export MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service
