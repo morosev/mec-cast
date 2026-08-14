@@ -23,6 +23,10 @@ lab/             Per-role compose files for the real testbed
   ptp/             ptp4l/phc2sys units, config, and verification
 ```
 
+To run the components one per terminal instead of all at once — and for
+database access, log access, restarts, and retention — see
+[docs/guides/manual-operation.md](../docs/guides/manual-operation.md).
+
 ## Local
 
 ```bash

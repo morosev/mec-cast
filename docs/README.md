@@ -29,6 +29,11 @@ percentiles, why no RIC yet. Read these before proposing to change any of it.
 **work on the media profile** → [architecture/str0m-profile.md](architecture/str0m-profile.md)
 — the planned str0m SFU, its wire contract, and the migration plan.
 
+**run components by hand, reach the database, or maintain a deployment** →
+[guides/manual-operation.md](guides/manual-operation.md) — one container per
+terminal, docker/compose vocabulary, psql and pgAdmin access, logs, restarts,
+retention and backup. Dev and lab.
+
 **run an experiment** → [guides/running-an-experiment.md](guides/running-an-experiment.md)
 
 **set up the lab** → [operations/lab-topology.md](operations/lab-topology.md)

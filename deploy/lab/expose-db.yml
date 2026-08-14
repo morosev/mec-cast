@@ -1,0 +1,19 @@
+# Optional overlay for the lab `infra` role: publish PostgreSQL so pgAdmin on
+# an operator laptop can reach it.
+#
+#   docker compose -f deploy/lab/compose.infra.yml \
+#                  -f deploy/lab/expose-db.yml up -d
+#
+# SECURITY: the database and the logging service both run without
+# authentication beyond the postgres password. Publishing this port exposes
+# every measurement record to anything that can route to the infra host. Bind
+# it to the management LAN only — never to a UE-reachable interface — and
+# prefer the SSH tunnel described in
+# docs/guides/manual-operation.md#option-b-ssh-tunnel-preferred-for-the-lab.
+#
+# PGBIND defaults to loopback so the port is NOT world-reachable by accident;
+# set PGBIND=0.0.0.0 deliberately if you really want it on the LAN.
+services:
+  postgres:
+    ports:
+      - "${PGBIND:-127.0.0.1}:${PGHOSTPORT:-5433}:5432"

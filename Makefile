@@ -120,7 +120,8 @@ fmt: ## Apply rustfmt
 .PHONY: up-local up-logging down logs experiment
 
 up-local: build-ros2 ## Bring up the full local topology
-	RUN_ID=$${RUN_ID:-$$(uuidgen)} $(COMPOSE) up -d --build
+	RUN_ID=$${RUN_ID:-$$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)} \
+	  $(COMPOSE) up -d --build
 
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build

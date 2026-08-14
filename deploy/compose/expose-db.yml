@@ -1,0 +1,19 @@
+# Optional overlay: publish PostgreSQL to the host for pgAdmin, DBeaver, or
+# a local psql.
+#
+# Normally postgres has NO host port — it is reachable only from inside the
+# compose network, which is deliberate: the logging service has no auth, and
+# neither does the database. Add this file only when you need an external
+# client, and only on a machine you trust.
+#
+#   docker compose -f deploy/compose/logging.yml \
+#                  -f deploy/compose/expose-db.yml up -d
+#
+# Host port 5433 by default, NOT 5432, so it cannot collide with a PostgreSQL
+# already installed on the host. Override with PGHOSTPORT.
+#
+# Connect with:  host=localhost port=5433 db=mec_cast_logs user=postgres
+services:
+  postgres:
+    ports:
+      - "${PGHOSTPORT:-5433}:5432"

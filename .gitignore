@@ -6,6 +6,10 @@ runs/
 # Per-developer local tool config
 .claude/settings.local.json
 
+# Per-run shell environment sourced into each terminal when operating the
+# system by hand (docs/guides/manual-operation.md). Holds one RUN_ID.
+.run-env
+
 # Python
 __pycache__/
 *.egg-info/

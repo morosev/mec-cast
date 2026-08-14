@@ -43,7 +43,14 @@ while getopts "d:n:r:l:j:L:s:t:h" opt; do
   esac
 done
 
-RUN_ID=$(uuidgen)
+# uuidgen lives in uuid-runtime, which is not installed everywhere. The
+# kernel source always exists on Linux. Without this fallback RUN_ID silently
+# became empty: run.json landed in runs/ while the CSVs went to runs/dev-run/.
+RUN_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+if [ -z "$RUN_ID" ]; then
+  echo "ERROR: could not generate a RUN_ID" >&2
+  exit 1
+fi
 RUN_DIR="runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
