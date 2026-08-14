@@ -18,6 +18,12 @@ PYTHON  := $(VENV)/bin/python
 PYTEST  := $(VENV)/bin/pytest
 COMPOSE := docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml
 
+# On macOS, ring's C objects are compiled against the SDK's deployment target
+# while a bare `cc` link defaults to the host's — so ld warns once per object.
+# Pin the link to the SDK to match. Expands to nothing on other platforms.
+CC_VERSION_MIN := $(shell test "$$(uname -s)" = Darwin && \
+                    printf -- '-mmacosx-version-min=%s' "$$(xcrun --show-sdk-version)")
+
 # ─── setup ────────────────────────────────────────────────────────────────
 .PHONY: bootstrap
 bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
@@ -68,7 +74,7 @@ test-python: ## PyO3 binding smoke tests
 # CI or WSL. This covers the C boundary it depends on, from a C compiler.
 test-ffi: ## C ABI smoke test against the telemetry staticlib
 	cargo build --release -p mec-cast-telemetry
-	cc -Wall -Wextra -Werror -o target/c_abi_smoke \
+	cc -Wall -Wextra -Werror $(CC_VERSION_MIN) -o target/c_abi_smoke \
 	  telemetry/tests/c_abi_smoke.c \
 	  -Itelemetry/include \
 	  target/release/libmec_cast_telemetry.a \

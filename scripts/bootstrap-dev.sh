@@ -15,6 +15,13 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # --- Rust -----------------------------------------------------------------
 say "Rust toolchain"
+# A non-login shell won't have ~/.cargo/bin on PATH, and rustup writes its
+# PATH line to ~/.profile — which zsh never reads. Source the env file
+# directly before concluding cargo is missing, or we reinstall it every run.
+if ! have cargo && [ -f "$HOME/.cargo/env" ]; then
+  # shellcheck disable=SC1091
+  source "$HOME/.cargo/env"
+fi
 if have cargo; then
   echo "cargo present: $(cargo --version)"
 else
@@ -43,8 +50,36 @@ fi
 # --- Python venv + maturin ------------------------------------------------
 say "Python venv (telemetry/python/.venv)"
 VENV="$ROOT_DIR/telemetry/python/.venv"
-if [ ! -x "$VENV/bin/python" ]; then
-  python3 -m venv "$VENV"
+
+# The wheel is abi3-py310 (telemetry/Cargo.toml). A 3.9 interpreter still
+# builds it, but pip then refuses to install it — so pick the interpreter
+# deliberately instead of trusting whatever `python3` happens to be.
+py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; }
+
+if [ -x "$VENV/bin/python" ] && py_ok "$VENV/bin/python"; then
+  : # already on 3.10+
+else
+  if [ -e "$VENV" ]; then
+    echo "Existing venv is older than 3.10; recreating."
+    rm -rf "$VENV"
+  fi
+  if have uv; then
+    # uv's interpreters are self-contained, which also sidesteps Homebrew
+    # pythons whose pyexpat is linked against a mismatched system libexpat.
+    uv venv --python '>=3.10' --seed "$VENV"
+  else
+    PYBIN=""
+    for c in python3.13 python3.12 python3.11 python3.10 python3; do
+      if have "$c" && py_ok "$c"; then PYBIN="$c"; break; fi
+    done
+    if [ -z "$PYBIN" ]; then
+      echo "ERROR: no Python 3.10+ found; the telemetry wheel needs one." >&2
+      echo "  Install uv (recommended):  brew install uv" >&2
+      echo "  ...or a Python directly:   brew install python@3.12" >&2
+      exit 1
+    fi
+    "$PYBIN" -m venv "$VENV"
+  fi
 fi
 "$VENV/bin/pip" install --quiet --upgrade pip
 "$VENV/bin/pip" install --quiet maturin pytest
