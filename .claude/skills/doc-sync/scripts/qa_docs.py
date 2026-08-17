@@ -107,6 +107,8 @@ def check_make_targets(docs: list[Path]) -> None:
         "sure", "sense", "and", "any", "each", "every", "results", "changes",
         "them", "one", "two", "both", "no", "not", "your", "our", "its",
         "up", "out", "off", "more", "less", "it's",
+        # "the same make targets", "make targets" as a noun phrase
+        "targets", "target", "commands", "local",
     }
     for doc in docs:
         text = doc.read_text(encoding="utf-8", errors="replace")

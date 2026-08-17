@@ -63,6 +63,12 @@ Nothing changed → say so and stop. Do not manufacture work.
 Turn the diff into **candidates** — (doc, reason, evidence) triples — then
 filter. Never edit a doc that has no candidate.
 
+[`references/code-to-doc-map.md`](references/code-to-doc-map.md) maps each
+source path to the docs it implicates, lists the change shapes that usually
+warrant an ADR, and collects the phrasings that rot silently ("not yet",
+"currently only", pinned versions, counts). Read it when turning a diff into
+candidates — it is a starting point, not a substitute for reading the diff.
+
 Two signals:
 
 - **Code churn.** A file changed repeatedly in the window is still in flux;

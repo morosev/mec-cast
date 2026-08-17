@@ -48,6 +48,43 @@ See [docs/operations/lab-topology.md](../docs/operations/lab-topology.md).
 Deploy `infra` first. `RUN_ID` must be identical across all roles — it is
 the `trace_id` that correlates UE, edge, and RAN records for one experiment.
 
+## Published images (GHCR)
+
+Every push to `main` that passes the test jobs publishes both images to
+GitHub Container Registry:
+
+```
+ghcr.io/morosev/mec-cast-ros:main      ghcr.io/morosev/mec-cast-ran:main
+ghcr.io/morosev/mec-cast-ros:sha-<7>   ghcr.io/morosev/mec-cast-ran:sha-<7>
+```
+
+The repository is public, so lab hosts pull without credentials.
+
+**Why this matters beyond convenience.** `deploy.sh` builds on each host, so
+the UE and the edge can end up running images that differ in base-image
+digest or package versions — an uncontrolled variable sitting underneath
+every measurement. Pulling one published digest removes it, and replaces a
+~1.4 GB build per host with a pull.
+
+Pin a run to an exact image rather than tracking `:main`:
+
+```bash
+docker pull ghcr.io/morosev/mec-cast-ros:sha-1a2b3c4
+```
+
+```bash
+docker tag ghcr.io/morosev/mec-cast-ros:sha-1a2b3c4 mec-cast-ros
+```
+
+The compose files reference the local tag `mec-cast-ros`, so retagging is
+all that is needed — no compose edits, and `deploy.sh` still works unchanged
+for anyone who prefers to build.
+
+**One-time setup:** the first successful publish creates the packages as
+*private* even in a public repository. Open each package's settings on
+GitHub and set its visibility to public (or link it to the repo and inherit
+access), otherwise lab hosts get `denied` on pull.
+
 ## Why compose and not Kubernetes
 
 Four hosts, each running one or two containers, operated by the people who

@@ -115,3 +115,65 @@ jobs:
                          -f deploy/compose/local.yml ps -a || true
           docker compose -f deploy/compose/logging.yml \
                          -f deploy/compose/local.yml logs --tail 100 || true
+
+  # Publish the container images so every lab host pulls one identical build.
+  #
+  # This is a measurement concern, not a convenience: deploy/lab/deploy.sh
+  # builds on each host, so the UE and the edge can end up running images that
+  # differ in base-image digest or package versions. One published digest
+  # removes that variable from every result — and turns a ~1.4 GB build per
+  # host into a pull.
+  #
+  # Gated on the test jobs: an image whose pipeline test failed must not reach
+  # a registry that four lab hosts pull from.
+  publish-images:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [rust, ros, ran-image, e2e]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      # Plain docker login rather than a third-party action: GITHUB_TOKEN is
+      # already scoped by the permissions block above, so no extra secret.
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          SHORT=$(git rev-parse --short HEAD)
+
+          for spec in "ros:deploy/docker/ros.Dockerfile" \
+                      "ran:deploy/docker/ran.Dockerfile"; do
+            name="mec-cast-${spec%%:*}"
+            file="${spec#*:}"
+            image="$REGISTRY/$OWNER/$name"
+            echo "==> $image"
+            # :main always points at the newest build; the sha tag is what a
+            # run.json can cite and a lab host can pin to.
+            docker build -f "$file" -t "$image:main" -t "$image:sha-$SHORT" .
+            docker push "$image:main"
+            docker push "$image:sha-$SHORT"
+          done
+
+      - name: Summary
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          SHORT=$(git rev-parse --short HEAD)
+          {
+            echo "### Images published"
+            echo
+            echo '```bash'
+            for n in mec-cast-ros mec-cast-ran; do
+              echo "docker pull $REGISTRY/$OWNER/$n:sha-$SHORT"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
