@@ -10,6 +10,14 @@ runs/
 # system by hand (docs/guides/manual-operation.md). Holds one RUN_ID.
 .run-env
 
+# Editor-extension AI instruction files (e.g. the Mermaid Chart VS Code
+# extension writes these). Deliberately not tracked: they would impose that
+# extension on everyone who clones, and their guidance competes with
+# docs/diagrams/render.sh, which validates and renders without an editor.
+# These two rules are path-specific, so .github/workflows/ stays tracked.
+.github/copilot-instructions.md
+.github/instructions/
+
 # Python
 __pycache__/
 *.egg-info/
