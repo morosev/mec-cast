@@ -102,4 +102,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
+      # The image built by the `ros` job lives on a different runner, so it
+      # is not available here. `make test-e2e` depends on build-ros2 for the
+      # same reason; build it explicitly so CI matches the local target.
+      - name: Build the ROS image
+        run: docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
       - run: pytest tests/e2e -v
+      - name: Compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/compose/logging.yml \
+                         -f deploy/compose/local.yml ps -a || true
+          docker compose -f deploy/compose/logging.yml \
+                         -f deploy/compose/local.yml logs --tail 100 || true

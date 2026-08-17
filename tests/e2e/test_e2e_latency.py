@@ -82,8 +82,39 @@ def get_json(url: str):
         return json.loads(resp.read())
 
 
+# Filled in by the fixture and appended to every assertion message. Without
+# it a CI failure says only "CSV missing", which is the symptom and never the
+# cause — the container that died is the cause, and its logs live here.
+DIAG = ""
+
+
+def collect_diagnostics(env) -> str:
+    """Container state and logs, for when an assertion is about to fail."""
+    parts = ["", "=" * 70, "COMPOSE DIAGNOSTICS", "=" * 70]
+
+    ps = compose(["ps", "-a"], env, check=False)
+    parts += ["--- docker compose ps -a ---", ps.stdout or "(no output)"]
+    if ps.stderr.strip():
+        parts += ["--- ps stderr ---", ps.stderr]
+
+    for svc in ("zenoh-router", "lidar-client", "edge", "netem",
+                "logging", "postgres"):
+        got = compose(["logs", "--tail", "40", svc], env, check=False)
+        body = (got.stdout or "").strip() or (got.stderr or "").strip()
+        parts += [f"--- logs: {svc} ---", body or "(no output — did it start?)"]
+
+    runs = REPO / "runs"
+    listing = (
+        "\n".join(sorted(str(p.relative_to(REPO)) for p in runs.rglob("*")))
+        if runs.exists() else "(runs/ does not exist)"
+    )
+    parts += ["--- runs/ tree ---", listing, "=" * 70, ""]
+    return "\n".join(parts)
+
+
 @pytest.fixture(scope="module")
 def e2e_run():
+    global DIAG
     run_id = str(uuid.uuid4())
     env = dict(
         os.environ,
@@ -98,12 +129,35 @@ def e2e_run():
     ctx = logging_build_context()
     if ctx is not None:
         env["MECLOG_BUILD_CONTEXT"] = ctx
-    compose(["up", "-d", "--build"], env)
+
+    # The ROS image must exist before compose starts the pipeline. Only
+    # zenoh-router carries a build: section, so a missing image would
+    # otherwise surface as containers that never start rather than as a
+    # build error. `make test-e2e` builds it first; do the same here so the
+    # test behaves identically however it was invoked.
+    build = subprocess.run(
+        ["docker", "build", "-f", "deploy/docker/ros.Dockerfile",
+         "-t", "mec-cast-ros", "."],
+        cwd=REPO, capture_output=True, text=True, timeout=1800,
+    )
+    if build.returncode != 0:
+        pytest.fail(
+            "building mec-cast-ros failed — the pipeline cannot run:\n"
+            + build.stdout[-3000:] + "\n" + build.stderr[-3000:]
+        )
+
+    up = compose(["up", "-d", "--build"], env, check=False)
+    if up.returncode != 0:
+        pytest.fail(
+            "docker compose up failed:\n"
+            + (up.stdout or "")[-3000:] + "\n" + (up.stderr or "")[-3000:]
+        )
     try:
         wait_http_ok("http://localhost:8000/health/ready", 90)
         time.sleep(DURATION_S)
         # Graceful stop so recorders drain, flush, and post final snapshots.
         compose(["stop", "-t", "15", "lidar-client", "edge"], env)
+        DIAG = collect_diagnostics(env)
         yield run_id
     finally:
         compose(["down", "-v", "--remove-orphans"], env, check=False)
@@ -112,18 +166,18 @@ def e2e_run():
 def test_edge_csv_has_expected_rows_and_delay(e2e_run):
     run_id = e2e_run
     csv_path = REPO / "runs" / run_id / "edge" / "samples.csv"
-    assert csv_path.exists(), f"edge CSV missing: {csv_path}"
+    assert csv_path.exists(), f"edge CSV missing: {csv_path}\n{DIAG}"
 
     with csv_path.open() as f:
         rows = list(csv.DictReader(f))
 
     expected = RATE_HZ * DURATION_S
     assert len(rows) >= 0.7 * expected, (
-        f"only {len(rows)} rows for ~{expected:.0f} published frames"
+        f"only {len(rows)} rows for ~{expected:.0f} published frames\n{DIAG}"
     )
 
     network_ns = [int(r["network_ns"]) for r in rows if r["network_ns"]]
-    assert network_ns, "no network delay values recorded"
+    assert network_ns, f"no network delay values recorded\n{DIAG}"
     p50_ms = statistics.median(network_ns) / 1e6
     # Same-host clock: p50 must reflect the injected one-way delay.
     assert NETEM_DELAY_MS <= p50_ms <= NETEM_DELAY_MS + 150, (
@@ -141,7 +195,7 @@ def test_snapshots_reached_logging_service(e2e_run):
     page = get_json(f"http://localhost:8000/api/v1/logs?{q}")
     items = page["items"]
     # 2s cadence over the run duration, generous lower bound.
-    assert len(items) >= DURATION_S // 2 - 2, f"only {len(items)} snapshots"
+    assert len(items) >= DURATION_S // 2 - 2, f"only {len(items)} snapshots\n{DIAG}"
 
     ctx = items[0]["context"]
     network = ctx["metrics"]["network"]
