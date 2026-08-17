@@ -80,10 +80,10 @@ The compose files reference the local tag `mec-cast-ros`, so retagging is
 all that is needed — no compose edits, and `deploy.sh` still works unchanged
 for anyone who prefers to build.
 
-**One-time setup:** the first successful publish creates the packages as
-*private* even in a public repository. Open each package's settings on
-GitHub and set its visibility to public (or link it to the repo and inherit
-access), otherwise lab hosts get `denied` on pull.
+No setup is needed. Because the workflow publishes with `GITHUB_TOKEN` from
+a public repository, the packages inherit public visibility — verified by
+pulling all four tags with `docker logout ghcr.io` first, which is exactly
+what a lab host does.
 
 ## Why compose and not Kubernetes
 
