@@ -5,6 +5,13 @@
 #
 # Build from the repo root:
 #   docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
+#
+# VCS_REF/VERSION are stamped as OCI labels so a running container can be
+# traced back to a commit without a checkout beside it. scripts/version.sh
+# compares the label against the local HEAD and warns when a host is running
+# an image built from different source — the failure that silently detaches
+# a measurement campaign from the code that produced it.
+#   --build-arg VCS_REF=$(git rev-parse HEAD)
 
 FROM rust:1-bookworm AS wheel
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,6 +27,16 @@ COPY ran ./ran
 RUN cd telemetry/python && /opt/maturin/bin/maturin build --release -o /wheels
 
 FROM ros:jazzy-ros-base
+
+ARG VCS_REF=unknown
+ARG VERSION=unknown
+LABEL org.opencontainers.image.title="mec-cast-ros" \
+      org.opencontainers.image.description="ROS2 + rmw_zenoh + mec_cast packages" \
+      org.opencontainers.image.source="https://github.com/morosev/mec-cast" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${VERSION}"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-rmw-zenoh-cpp \
         python3-colcon-common-extensions \

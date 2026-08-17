@@ -48,6 +48,32 @@ See [docs/operations/lab-topology.md](../docs/operations/lab-topology.md).
 Deploy `infra` first. `RUN_ID` must be identical across all roles — it is
 the `trace_id` that correlates UE, edge, and RAN records for one experiment.
 
+## What is this host running?
+
+```bash
+make version
+```
+
+Run it on any host, after any deploy. It reports the role, version and commit,
+submodule pins, each running container with the commit its image was built
+from, and PTP presence. It reads git, compose and the containers themselves —
+never a file someone had to remember to update.
+
+The line to watch for:
+
+```
+WARNING: a running image was built from a different commit than this checkout.
+```
+
+That is a host that was pulled but not redeployed, or redeployed from a stale
+image. Measurements taken in that state cannot be attributed to the source in
+front of you.
+
+`deploy.sh` prints this report at the end of every deploy, and — because it
+rsyncs without `.git` — leaves a `.deployed-version` stamp so a push-deployed
+host can still answer. Full release and versioning story:
+[RELEASING.md](../RELEASING.md).
+
 ## Published images (GHCR)
 
 Every push to `main` that passes the test jobs publishes both images to

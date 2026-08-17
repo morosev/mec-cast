@@ -678,7 +678,25 @@ $COMPOSE down -v --remove-orphans && make build-ros2 && make up-local
 
 ## Checking system status
 
-A quick pass, top to bottom:
+Start with what this host is running:
+
+```bash
+make version
+```
+
+Role, version, commit, submodule pins, every running container with the commit
+its image was built from, and whether PTP is present. It inspects git, compose
+and the containers rather than reading a version someone wrote down, so it
+stays right on a host that was pulled but not redeployed — and says so:
+
+```
+WARNING: a running image was built from a different commit than this checkout.
+```
+
+Treat that as a stop. Measurements taken in that state cannot be attributed to
+the code in front of you. Redeploy the role, or pull the matching image tag.
+
+Then a quick pass, top to bottom:
 
 ```bash
 $COMPOSE ps
@@ -713,6 +731,44 @@ $COMPOSE logs edge | grep -i drop
 ```
 
 ## Routine admin tasks
+
+### Upgrading a host to a new release
+
+Per host, per role. Do `infra` first — the edge and UE post snapshots to it.
+
+```bash
+cd ~/mec-cast && git fetch --tags && git checkout platform-v0.2.0
+```
+
+```bash
+git submodule update --init --recursive
+```
+
+The submodule step is not optional. `git checkout` moves the pins but does not
+move the working trees, so skipping it leaves the logging service at whatever
+commit it was on — a mismatch that surfaces later as a schema rejection.
+
+```bash
+docker compose -f deploy/lab/compose.$ROLE.yml up -d --build
+```
+
+Then confirm, on that host:
+
+```bash
+make version
+```
+
+The version and commit should read `platform-v0.2.0`, and every container
+should say **matches this checkout**. If one reports a different commit, its
+image was cached from before the checkout — rebuild that service with
+`--no-cache`, or pull the published `sha-` tag for this release.
+
+Deploying from a workstation instead does all of this in one command, and
+prints the same report at the end:
+
+```bash
+bash deploy/lab/deploy.sh edge morosev@edge-host
+```
 
 ### Retention — the database grows without bound
 

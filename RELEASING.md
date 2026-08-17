@@ -2,11 +2,34 @@
 
 Three artifact streams, deliberately different in cadence and effort.
 
-| Stream | Artifact | Cadence | Effort |
-|---|---|---|---|
-| Container images | `ghcr.io/morosev/mec-cast-{ros,ran}` | every green push to `main` | none — CI |
-| Platform version marker | an annotated git tag | per campaign or milestone | one command |
-| Legacy WebRTC client | zips on a GitHub Release | rare | `scripts/release.sh` |
+| Stream | Artifact | Tag namespace | Cadence | Effort |
+|---|---|---|---|---|
+| Container images | `ghcr.io/morosev/mec-cast-{ros,ran}` | — | every green push to `main` | none — CI |
+| Platform | tag + Release notes | `platform-vX.Y.Z` | per campaign or milestone | `scripts/tag-release.sh` |
+| Legacy WebRTC client | zips on a GitHub Release | `vX.Y.Z` | rare | `scripts/release.sh` |
+
+## Two tag namespaces, and why
+
+`v1.0.3` means the **legacy WebRTC client** — the two zips end users download.
+`platform-v0.2.0` means the **testbed**: telemetry crate, ROS2 packages, RAN
+collector, compose topologies, images. They version independently because they
+change independently, and a `v1.0.4` would advertise a client release that
+never happened.
+
+They converge when Profile B retires: once the str0m SFU reaches parity the
+`platform-` prefix is dropped and the line continues at `v2.0.0`.
+
+For platform versions:
+
+| Bump | Means |
+|---|---|
+| MAJOR | runs before and after **cannot be compared** — the `TimingEnvelope` wire format, the CSV schema, the logging-service `context` shape, or a metric definition changed |
+| MINOR | new capability; existing runs stay comparable |
+| PATCH | fixes and docs |
+
+That MAJOR rule is the one worth being strict about. Every other kind of
+breakage announces itself; a silently redefined metric does not, and it
+invalidates comparisons made months later against archived data.
 
 ## Container images — automatic
 
@@ -19,27 +42,64 @@ recipe: [deploy/README.md](deploy/README.md#published-images-ghcr).
 Nothing to maintain per push. In a few months, set a package retention rule
 so `sha-` tags do not accumulate indefinitely.
 
-## Platform version marker — a tag, not a Release
-
-Measurement campaigns need a citable handle. `runs/<id>/run.json` already
-records the repo and submodule SHAs, so reproducibility is covered at the
-run level; a tag simply makes it human-readable.
+## Platform releases
 
 ```bash
-git tag -a platform-v0.2.0 -m "<what changed>" && git push origin platform-v0.2.0
+bash scripts/tag-release.sh 0.2.0 "Version reporting and OCI image stamps"
+bash scripts/tag-release.sh 0.2.0 "..." --dry-run   # print the notes, change nothing
 ```
 
-**Use a namespace that does not collide with `v1.0.x`.** Those tags mean the
-legacy client, while `telemetry` and `ran/collector` sit at `0.1.0`; a
-`v1.0.4` would imply a client release that never happened.
+Pass the bare `X.Y.Z`; the script adds `platform-v`. It refuses a dirty tree,
+a branch other than `main`, a local `main` that differs from the remote, and
+an existing tag; it warns on a non-green pipeline and asks before continuing.
 
-**Do not create a GitHub Release for these tags.** A Release carries
-downloadable assets, and for the platform there are none — the artifact is
-the image in GHCR and the source at that SHA. A bare tag is the marker; a
-Release with no assets is ceremony.
+It creates an annotated tag **and** a GitHub Release. No assets are attached —
+the artifacts are the images already in GHCR and the source at that SHA — but
+the Release is the changelog, which is the part worth keeping. The notes are
+generated: commit log bounded by the previous `platform-v*` tag, the pinned
+`sha-` image references, submodule commits, and the deploy commands.
+
+The tag names a commit; it does not trigger a build. Images for that SHA were
+published when it landed on `main`.
 
 Do not publish the crate to crates.io or the wheel to PyPI while neither has
 a consumer outside this repository.
+
+## Knowing what a host is running
+
+The scenario this exists for: a release lands, an admin pulls on each host and
+redeploys per role, and then needs to confirm what that host actually ended up
+with. On any host:
+
+```bash
+make version
+```
+
+It reports the role, the version and commit, the submodule pins, every running
+container with the commit its image was built from, and PTP presence — and it
+**warns when a running image was built from a different commit than the
+checkout**, which is how a campaign silently detaches from its source. Nothing
+in it is read from a hand-maintained file.
+
+Two ways source reaches a host, and the report handles both:
+
+- `git pull` — the checkout speaks for itself.
+- `deploy/lab/deploy.sh` — rsyncs without `.git`, so it writes
+  `.deployed-version` (version, SHA, role, timestamp, who deployed it) and
+  `make version` falls back to that. `deploy.sh` also prints the report at the
+  end of every deploy, so the admin sees it without a second login.
+
+A host with neither says `UNKNOWN` rather than guessing. Deliberate: no answer
+is safer than a confident wrong one when the question is which code produced a
+measurement.
+
+The images are stamped with OCI labels (`org.opencontainers.image.revision`
+and `.version`) at build time, which is what makes the comparison possible:
+
+```bash
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+  ghcr.io/morosev/mec-cast-ros:main
+```
 
 ## Legacy WebRTC client — the rest of this document
 

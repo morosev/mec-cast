@@ -30,7 +30,13 @@ bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
 	bash scripts/bootstrap-dev.sh
 
 # ─── build ────────────────────────────────────────────────────────────────
-.PHONY: build build-telemetry build-ran build-python build-ros2 build-client build-libwebrtc
+.PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc
+
+# Stamp images with the commit they came from, so a container found running on
+# a lab host is traceable without trusting whatever the checkout beside it says.
+BUILD_LABELS = \
+  --build-arg VCS_REF=$(shell git rev-parse HEAD 2>/dev/null || echo unknown) \
+  --build-arg VERSION=$(shell git describe --tags --match 'platform-v*' --always --dirty 2>/dev/null || echo unknown)
 
 build: build-telemetry build-ran build-python ## Build everything cheap (no docker, no libwebrtc)
 
@@ -44,7 +50,10 @@ build-python: ## PyO3 wheel into the dev venv
 	cd telemetry/python && ../../$(VENV)/bin/maturin develop --release
 
 build-ros2: ## ROS2 image (telemetry wheel + colcon workspace)
-	docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
+	docker build -f deploy/docker/ros.Dockerfile $(BUILD_LABELS) -t mec-cast-ros .
+
+build-ran-image: ## srsRAN collector image
+	docker build -f deploy/docker/ran.Dockerfile $(BUILD_LABELS) -t mec-cast-ran .
 
 build-client: ## Legacy WebRTC native addon (needs libwebrtc.a)
 	cd clients/webrtc_native && ./build.sh
@@ -136,7 +145,10 @@ experiment: ## Run one measured experiment (see scripts/run-experiment.sh)
 	bash scripts/run-experiment.sh
 
 # ─── misc ─────────────────────────────────────────────────────────────────
-.PHONY: clean help
+.PHONY: clean help version
+
+version: ## What is actually deployed on this host (role, commit, images, PTP)
+	@bash scripts/version.sh
 
 clean: ## Remove build artifacts (keeps runs/ and third_party/)
 	cargo clean

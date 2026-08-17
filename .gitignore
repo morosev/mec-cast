@@ -51,3 +51,6 @@ third_party/webrtc/.gclient_entries
 third_party/webrtc/.gclient_previous_sync_commits
 third_party/webrtc/.gcs_entries
 third_party/webrtc/_bad_scm/
+
+# Written on lab hosts by deploy/lab/deploy.sh (rsync deploys have no .git)
+.deployed-version

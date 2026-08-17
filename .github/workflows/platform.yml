@@ -150,16 +150,23 @@ jobs:
           set -euo pipefail
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           SHORT=$(git rev-parse --short HEAD)
+          # Stamped into OCI labels so `make version` on a lab host can tell
+          # whether the container it is running came from the checkout sitting
+          # next to it. Tags can be re-pointed; the label cannot.
+          VERSION=$(git describe --tags --match 'platform-v*' --always)
 
           for spec in "ros:deploy/docker/ros.Dockerfile" \
                       "ran:deploy/docker/ran.Dockerfile"; do
             name="mec-cast-${spec%%:*}"
             file="${spec#*:}"
             image="$REGISTRY/$OWNER/$name"
-            echo "==> $image"
+            echo "==> $image  ($VERSION)"
             # :main always points at the newest build; the sha tag is what a
             # run.json can cite and a lab host can pin to.
-            docker build -f "$file" -t "$image:main" -t "$image:sha-$SHORT" .
+            docker build -f "$file" \
+              --build-arg "VCS_REF=$(git rev-parse HEAD)" \
+              --build-arg "VERSION=$VERSION" \
+              -t "$image:main" -t "$image:sha-$SHORT" .
             docker push "$image:main"
             docker push "$image:sha-$SHORT"
           done
