@@ -43,15 +43,36 @@ by default on Ubuntu:
 sudo apt install -y jq uuid-runtime
 ```
 
+On macOS `uuidgen` is already present; only `jq` is missing:
+
+```bash
+brew install jq
+```
+
 `jq` only pretty-prints JSON — `python3 -m json.tool` is shown as the
-alternative everywhere. `uuid-runtime` provides `uuidgen`; the scripts fall
-back to `/proc/sys/kernel/random/uuid`, which always exists on Linux.
+alternative everywhere. `uuid-runtime` provides `uuidgen`; where it is
+absent the scripts fall back to `/proc/sys/kernel/random/uuid`, which exists
+on Linux only — hence the `uuidgen ||` ordering, which is what keeps the
+snippets working on macOS.
 
 The ROS image is large (~1.4 GB) and is built once:
 
 ```bash
 make build-ros2
 ```
+
+### macOS
+
+The pipeline itself runs in containers and behaves identically, but the host
+side differs in two ways worth knowing before you start:
+
+- **Your shell is zsh, not bash.** zsh does not word-split an unquoted
+  `$VAR` into separate arguments, so the `$COMPOSE` idiom used throughout
+  this guide fails with `no such file or directory: docker compose -f …`
+  unless `.run-env` opts into it. [Concept 2](#four-concepts-first) below
+  has the one line that fixes it.
+- **Docker is a VM.** Docker Desktop (or colima) must be running before any
+  `$COMPOSE` command; there is no daemon to add yourself to a group for.
 
 ## Four concepts first
 
@@ -86,6 +107,24 @@ export COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/l
 ```
 
 Put that in `.run-env` too. Every command below uses `$COMPOSE`.
+
+Because `$COMPOSE` is a *string of arguments*, it only works unquoted in a
+shell that word-splits — bash does, zsh does not. On macOS, where zsh is the
+default, add one more line to `.run-env` so the rest of this guide works
+verbatim:
+
+```bash
+cat >> .run-env <<'EOF'
+# zsh does not word-split an unquoted $VAR the way bash does, which would
+# make every `$COMPOSE ...` below try to exec one long filename.
+[ -n "$ZSH_VERSION" ] && setopt SH_WORD_SPLIT
+EOF
+```
+
+That option applies to the whole shell session, not just `$COMPOSE` — fine
+in the dedicated terminals this guide asks you to open, worth knowing if you
+reuse them for other work. Without it, prefix each invocation with zsh's
+explicit split flag instead: `${=COMPOSE} up --no-deps postgres`.
 
 **3. Service name vs container name.** Compose commands take the *service*
 name (`postgres`); raw `docker` commands take the *container* name
@@ -429,7 +468,7 @@ Add the overlay, which publishes **5433** so it cannot collide with a
 PostgreSQL already on the host:
 
 ```bash
-docker compose -f deploy/compose/logging.yml -f deploy/compose/expose-db.yml up -d
+docker compose -f deploy/compose/logging.yml -f deploy/compose/expose-db.yml up --no-deps postgres
 ```
 
 pgAdmin connection settings:

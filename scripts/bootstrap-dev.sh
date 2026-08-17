@@ -12,6 +12,7 @@ cd "$ROOT_DIR"
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+OS="$(uname -s)"
 
 # --- Rust -----------------------------------------------------------------
 say "Rust toolchain"
@@ -36,15 +37,25 @@ say "Docker"
 if have docker; then
   echo "docker present: $(docker --version)"
   if ! docker info >/dev/null 2>&1; then
-    echo "WARNING: docker is installed but not usable by $(whoami)."
-    echo "  Either add yourself to the docker group and re-login:"
-    echo "    sudo usermod -aG docker \$USER"
-    echo "  or run docker-dependent make targets with sudo."
+    echo "WARNING: docker is installed but the daemon is not reachable."
+    if [ "$OS" = Darwin ]; then
+      echo "  Start Docker Desktop, or 'colima start' if you use colima."
+    else
+      echo "  Either add yourself to the docker group and re-login:"
+      echo "    sudo usermod -aG docker \$USER"
+      echo "  or run docker-dependent make targets with sudo."
+    fi
   fi
 else
   echo "Docker not found. Install it with:"
-  echo "  curl -fsSL https://get.docker.com | sh"
-  echo "  sudo usermod -aG docker \$USER   # then re-login"
+  if [ "$OS" = Darwin ]; then
+    echo "  brew install --cask docker            # Docker Desktop, then launch it"
+    echo "  ...or a lighter CLI-only VM:"
+    echo "  brew install colima docker docker-compose && colima start"
+  else
+    echo "  curl -fsSL https://get.docker.com | sh"
+    echo "  sudo usermod -aG docker \$USER   # then re-login"
+  fi
 fi
 
 # --- Python venv + maturin ------------------------------------------------
