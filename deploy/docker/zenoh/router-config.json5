@@ -6,6 +6,21 @@
   listen: {
     endpoints: ["tcp/[::]:7447"],
   },
+  // Shared memory is deliberately OFF.
+  //
+  // Two reasons. It crashes where /dev/shm is small: a container gets 64 MB
+  // by default, and on a constrained runner the provider fails to allocate
+  // (ENOMEM), which aborts rclpy.init() and kills the node at startup.
+  //
+  // The stronger reason is measurement integrity. SHM is a same-host
+  // transport optimisation, and every path this platform measures crosses a
+  // network boundary — container to container locally, UE to edge over 5G in
+  // the lab. If SHM ever did engage between two co-located processes it
+  // would bypass the very path under measurement and silently report
+  // latencies that no deployment would ever see.
+  transport: {
+    shared_memory: { enabled: false },
+  },
   scouting: {
     multicast: { enabled: false },
   },
