@@ -1,6 +1,6 @@
 # ran-collector
 
-Taps srsRAN's MAC/scheduler metrics so RAN state can be correlated with
+Taps the srsRAN O-DU's MAC/scheduler metrics so RAN state can be correlated with
 application-layer latency — answering not just *how late* a point cloud was
 but *why*.
 

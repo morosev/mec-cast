@@ -284,7 +284,7 @@ Four hosts, four roles. Same containers, different composition, and real
 | `infra` | services host | postgres + logging | — |
 | `edge` | MEC app server | zenoh-router + edge | `RUN_ID`, `LOGGING_HOST` |
 | `ue` | robot compute | lidar-client | `RUN_ID`, `EDGE_HOST`, `LOGGING_HOST` |
-| `gnb` | srsRAN host | ran-collector | `RUN_ID`, `LOGGING_HOST` |
+| `gnb` | srsRAN O-DU host | ran-collector | `RUN_ID`, `LOGGING_HOST` |
 
 **Order matters: `infra` → `edge` → `gnb` → `ue`.** Everything posts to the
 logging service, and the UE dials the edge's router. Start the UE last or it

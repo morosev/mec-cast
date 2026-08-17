@@ -7,7 +7,7 @@
 | **infra** | Logging service + PostgreSQL | `bash deploy/lab/deploy.sh infra user@host` |
 | **edge** | Zenoh router + ROS2 ingest node | `bash deploy/lab/deploy.sh edge user@host` |
 | **ue** | LiDAR + ROS2 client node, behind the 5G modem | `bash deploy/lab/deploy.sh ue user@host` |
-| **gnb** | srsRAN metrics collector (beside the gNB) | `bash deploy/lab/deploy.sh gnb user@host` |
+| **gnb** | srsRAN metrics collector (beside the O-DU) | `bash deploy/lab/deploy.sh gnb user@host` |
 
 Deploy **infra first** — every other role POSTs snapshots to it and will
 buffer-then-drop while it is unreachable.

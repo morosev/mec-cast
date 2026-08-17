@@ -1,30 +1,43 @@
 # mec-cast
 
-A measurement platform for **5G industrial communication**. Its value is not
-any single transport but the **PTP-grade, per-frame latency measurement
-discipline** applied across transports.
+[![mec-cast system overview](docs/diagrams/system-hero-web.png)](docs/diagrams/system-hero.png)
 
-Two profiles share one Rust telemetry spine:
+<sub>Click for the full-resolution version. Source:
+[`system-hero.html`](docs/diagrams/system-hero.html)</sub>
+
+An **experimentation testbed for industrial communication over private 5G**,
+built on srsRAN and Open5GS. It exists to run real workloads across a real
+radio network and study how they behave — so that design choices can be
+tested rather than argued.
+
+What it is used to investigate:
+
+- **Large data transmission in industrial systems** — how bulk sensor
+  payloads behave on a constrained uplink, and what makes them behave better
+- **Minimal latency for teleoperation** — where the delay actually accrues,
+  and which part of the stack is worth changing
+- **Fast communication between nearby peers and edge processing** — what the
+  edge can offload from a machine that cannot carry the compute itself
+
+To answer those questions the testbed provides reproducible workloads,
+RAN-level observability, transport comparison under identical conditions,
+controlled impairment, and PTP-disciplined timing across hosts. **The
+timestamping is one instrument, not the purpose** — it is what makes the
+other answers trustworthy.
+
+Two workload profiles share one Rust telemetry spine:
 
 - **Profile A — robotics:** ROS2 LiDAR point clouds over `rmw_zenoh`, from a
   UE (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a
-  MEC edge server, plus an srsRAN MAC metrics tap.
+  MEC edge server, plus a tap on the srsRAN O-DU MAC scheduler.
 - **Profile B — media:** WebRTC. Today the legacy libwebrtc client; the
   planned retarget onto [str0m](docs/architecture/str0m-profile.md) removes
   the need for a patched WebRTC fork.
 
-```
- ROBOT / UE                       5G RAN + CORE (lab)             EDGE (MEC server)
-┌─────────────────────┐                                         ┌─────────────────────────┐
-│ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)   │
-│  capture_ns stamp   ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp          │
-│  send_ns stamp      │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns      │
-└─────────┬───────────┘         └───┬────┘   └─────────┘        └────────────┬────────────┘
-          │                         │ metrics UDP/JSON                       │
-          │                   ran-collector ─────────────────────────────────┤
-          │        PTP (management LAN, NOT the 5G user plane)               ▼
-          └─────────────────────────────────────────────────────  logging service + CSV
-```
+More detail: [architecture overview and lab deployment](docs/diagrams/README.md)
+(rendered inline), or the two detailed dataflow diagrams —
+[measurement lifecycle](docs/diagrams/dataflow-measurement-lifecycle.png) and
+[runtime topology](docs/diagrams/dataflow-runtime-topology.png).
 
 ## Quick start
 

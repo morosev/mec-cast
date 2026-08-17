@@ -1,0 +1,166 @@
+# mec-cast cross-cutting facts.
+#
+# Values that appear in many documents and drift silently when code changes.
+# Docs, slides and diagrams all cite these; scripts/facts_check.py flags any
+# document that contradicts them.
+#
+# Scope discipline: put a value here ONLY if it appears in 3+ places OR being
+# wrong is silently harmful. This is not a system model — prose stays in the
+# docs. If this file grows past ~150 lines it has drifted from its purpose.
+#
+# Maintained by the /doc-sync skill. Update the value here first, then let the
+# skill propagate.
+
+meta:
+  # Last commit whose code changes were reviewed against the docs.
+  # /doc-sync diffs from here to HEAD. Update only after a completed sync.
+  last_synced_sha: "8512cba8cb74ea9c1d9450cc46d7360b5ebd72e7"
+  last_synced_date: "2026-08-17"
+
+# --- identity ---------------------------------------------------------------
+platform:
+  name: mec-cast
+  purpose: >-
+    An experimentation testbed for industrial communication over a private
+    5G network (srsRAN + Open5GS). It exists to study and improve how real
+    workloads behave on that network. Precise timestamping is one capability
+    among several, not the point of the system.
+  # Use these when describing what the platform is FOR. Ordered by weight.
+  research_aims:
+    - "Large data transmission in industrial systems — bulk sensor payloads over a constrained uplink"
+    - "Minimal latency for teleoperation"
+    - "Fast communication between nearby peers and edge processing"
+  capabilities:
+    - "Reproducible workload generation with controlled payload size and rate"
+    - "Per-frame timing across hosts, PTP-disciplined"
+    - "RAN observability — O-DU MAC/scheduler KPIs correlated to application behaviour"
+    - "Transport comparison under identical conditions (Zenoh, DDS, WebRTC)"
+    - "Impairment control for repeatable experiments"
+  # Framing rule for all docs, slides and diagrams: mec-cast is a testbed,
+  # not a measurement engine. Do not describe timing as its purpose.
+  profiles:
+    A: "robotics — ROS2 point clouds over rmw_zenoh"
+    B: "media — WebRTC today, str0m planned"
+
+# --- the wire contract ------------------------------------------------------
+envelope:
+  name: TimingEnvelope
+  wire_bytes: 64
+  endianness: little
+  version: 1
+  fields: [capture_ns, send_ns, recv_ns, process_done_ns, seq, modality, trace_id]
+  trace_id_bytes: 16
+  trace_id_derivation: "first 16 bytes of RUN_ID, zero-padded (identical in the PyO3 and C bindings)"
+  modalities: {pointcloud: 0, video: 1, audio: 2, generic: 3}
+
+# --- derived metrics (the definitions every doc must agree on) --------------
+metrics:
+  network:    "recv_ns - send_ns"
+  e2e:        "process_done_ns - capture_ns"
+  processing: "process_done_ns - recv_ns"
+  sender:     "send_ns - capture_ns"
+  statistics: "Welford mean + stddev; exact percentiles over a sliding window"
+  percentile_note: "exact, not an estimator — P2 rejected (ADR-0004)"
+
+# --- service identities used as the logging `service` field -----------------
+services:
+  publisher: mec-cast-pub
+  edge:      mec-cast-edge
+  ran:       mec-cast-ran
+  media:     mec-cast-media
+
+# --- ports and protocols ----------------------------------------------------
+ports:
+  zenoh_router:   {port: 7447,  proto: tcp,  note: "rendezvous; the UE dials OUT to it"}
+  logging_api:    {port: 8000,  proto: http, note: "published on the host"}
+  postgres:       {port: 5432,  proto: tcp,  note: "NOT published by default; internal to the compose network"}
+  postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}
+  gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this; set in gnb.yml metrics.addr/port"}
+  signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
+
+# --- environment contract (identical across ROS2 nodes, ran-collector, addon)
+env:
+  RUN_ID:      {default: "dev-run", note: "becomes trace_id; MUST match across all components of one run"}
+  RUNS_DIR:    {default: "runs",    note: "base output dir; /runs inside containers"}
+  LOGGING_URL: {default: null,      note: "optional; CSV is always written regardless"}
+  MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the legacy WebRTC addon"}
+  GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
+  MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
+
+# --- output layout ----------------------------------------------------------
+outputs:
+  per_frame_csv: "runs/<RUN_ID>/<site>/samples.csv"
+  csv_header: "seq,modality,kind,site,capture_ns,send_ns,recv_ns,process_done_ns,payload_bytes,aux_ns,network_ns,e2e_ns,processing_ns,sender_ns"
+  run_manifest: "runs/<RUN_ID>/run.json"
+  snapshot_interval_s: 2
+  routing_rule: >-
+    Per-frame samples go to CSV. Aggregated snapshots go to the logging
+    service. The firehose never goes to PostgreSQL.
+
+# --- logging service contract ----------------------------------------------
+logging_service:
+  submodule_path: services/logging
+  upstream: https://github.com/morosev/mec-cast-logging-service
+  schema_model: LogEntryCreate
+  strictness: 'extra="forbid" — any unexpected top-level field is a runtime 422'
+  top_level_fields: [timestamp, level, service, host, logger, message, context, trace_id]
+  auto_migrate: true
+  auth: "none by design — bind to the management LAN only"
+  retention: "CLI only: mec-cast-logs purge --days N (deliberately not an HTTP endpoint)"
+
+# --- radio access network ---------------------------------------------------
+ran:
+  stack: "srsRAN Project"
+  split: >-
+    Deployed with the O-RAN functional split — O-CU (RRC / PDCP) and O-DU
+    (RLC / MAC / upper PHY). The MAC scheduler, which decides when a UE may
+    transmit and is the source of every KPI the collector reads, lives in
+    the O-DU.
+  radio: >-
+    USRP driven by srsRAN over UHD. This is NOT a 7.2 fronthaul O-RU — do
+    not describe an eCPRI/Open Fronthaul interface unless the lab actually
+    deploys a separate radio unit.
+  metrics_source: "srsRAN JSON-over-UDP metrics export"
+  metrics_config: "gnb.yml → metrics.addr / metrics.port"
+  metrics_caveat: >-
+    That config path is the gNB app's. If the lab splits O-CU and O-DU into
+    separately deployed processes, the metrics section moves with the DU
+    config and ran-collector's target changes with it.
+  kpis: [MCS, "PRB utilisation", "HARQ retx", BSR, CQI, "per-UE throughput"]
+
+# --- deployment -------------------------------------------------------------
+deployment:
+  lab_roles: [infra, edge, gnb, ue]
+  lab_start_order: "infra -> edge -> gnb -> ue"
+  local_services: [postgres, logging, zenoh-router, lidar-client, netem, edge]
+  images: {ros: mec-cast-ros, ran: mec-cast-ran}
+  compose_local: "-f deploy/compose/logging.yml -f deploy/compose/local.yml"
+
+# --- clock model (the claim that makes cross-host numbers valid) ------------
+clock:
+  transport: "ptp4l + phc2sys over the management/backhaul LAN"
+  never: "the 5G user plane — srsRAN and Open5GS implement no 5G-TSN"
+  device: /dev/ptp0
+  per_snapshot_field: "context.ptp.reliable"
+  local_dev_truth: "containers share the host kernel clock; ptp.reliable is honestly false"
+
+# --- build entry points -----------------------------------------------------
+build:
+  toolchains: [cargo, maturin, npm, colcon, "gn+ninja"]
+  facade: "Makefile delegates only; build logic stays in each component's native tool"
+  test_fast: "make test"
+  test_all: "make test-all"
+  opt_in: "make build-libwebrtc (~20 GB, hours, never in CI)"
+
+# --- known constraints worth restating in docs ------------------------------
+constraints:
+  webrtc_video_untestable: >-
+    The legacy addon's frame path needs a camera. WSL and CI have no
+    /dev/video*, so calls negotiate video recvonly and OnFrame never fires;
+    make test-legacy covers signalling and audio only.
+  ros2_containers_only: >-
+    ROS2 runs only in containers — the dev host is WSL Ubuntu 25.x and
+    Jazzy targets 24.04.
+  third_party_excluded: >-
+    third_party/ is excluded from the Cargo workspace and from every docker
+    build context (webrtc alone is ~20 GB).

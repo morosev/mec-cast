@@ -1,9 +1,17 @@
 # mec-cast Platform Architecture
 
-mec-cast is a measurement platform for 5G industrial communication. Its
-value is not any single transport but the **PTP-grade, per-frame latency
-measurement discipline** applied across transports. Two profiles share one
-telemetry spine:
+mec-cast is an **experimentation testbed for industrial communication over
+private 5G**, built on srsRAN and Open5GS. It runs real workloads across a
+real radio network so that design choices can be tested rather than argued.
+
+It is used to investigate large data transmission in industrial systems,
+minimal latency for teleoperation, and fast communication between nearby
+peers and edge processing. Supporting that: reproducible workloads, RAN-level
+observability, transport comparison under identical conditions, controlled
+impairment, and PTP-disciplined timing across hosts — **timing is the
+instrument that makes the other findings trustworthy, not the purpose.**
+
+Two workload profiles share one telemetry spine:
 
 - **Profile A — robotics (ROS2 + Zenoh):** LiDAR point clouds from a UE
   (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a MEC
@@ -17,7 +25,7 @@ telemetry spine:
 ┌─────────────────────┐                                         ┌──────────────────────────┐
 │ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)    │
 │  capture_ns stamp   ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp           │
-│  (compress: later)  │ (USRP)  │ gNB    │   │  core   │        │  process → done_ns stamp │
+│  (compress: later)  │ (USRP)  │O-DU/CU │   │  core   │        │  process → done_ns stamp │
 │  send_ns stamp      │         └───┬────┘   └─────────┘        │  ├─► runs/<id>/samples.csv
 │  rmw_zenoh publish  │             │ metrics UDP/JSON          │  └─► snapshots → logging │
 └─────────┬───────────┘             ▼                           └────────────┬─────────────┘
@@ -43,7 +51,7 @@ ros2/             Single colcon workspace (see exception below)
   src/mec_cast_lidar_client/  ROS2 client node — runs on the UE
   src/mec_cast_edge/          Zenoh ingest layer — runs on the edge
 telemetry/        Shared Rust crate + PyO3 bindings — the spine
-ran/collector/    srsRAN MAC metrics tap
+ran/collector/    O-DU MAC scheduler metrics tap
 services/logging/ Logging service (submodule)
 third_party/      Vendored forks, excluded from workspace + build contexts
   webrtc/src        forked libwebrtc (submodule) + gclient glue
@@ -110,7 +118,7 @@ publisher, edge, and RAN.
 
 Cross-machine one-way metrics are only meaningful with synchronized clocks:
 
-- **Lab testbed:** `ptp4l` + `phc2sys` on UE-compute, edge, and gNB server
+- **Lab testbed:** `ptp4l` + `phc2sys` on UE-compute, edge, and the O-DU host
   against a grandmaster on the **management/backhaul LAN**. The 5G user
   plane cannot carry sync — srsRAN/Open5GS implement no 5G-TSN (DS-TT/NW-TT).
 - **Local dev (containers on one host):** all containers share the kernel
@@ -119,10 +127,19 @@ Cross-machine one-way metrics are only meaningful with synchronized clocks:
 
 ## RAN observability
 
+The RAN runs srsRAN Project with the O-RAN functional split — **O-CU**
+(RRC / PDCP) and **O-DU** (RLC / MAC / upper PHY). The MAC scheduler lives
+in the O-DU, and it is the scheduler that decides when this UE may
+transmit — which is why its KPIs are the ones worth correlating against
+application latency. The radio is a USRP driven over UHD, not a 7.2
+fronthaul O-RU.
+
 - **Phase RAN-1 (implemented):** `ran/collector` binds the UDP socket that
   srsRAN's `metrics: {addr, port}` (gnb.yml) points at, stamps arrivals,
   forwards KPI objects leniently (schema drift-proof) to the logging
-  service. Replayable offline from `ran/collector/testdata/`.
+  service. Replayable offline from `ran/collector/testdata/`. If the lab
+  ever splits O-CU and O-DU into separate processes, that config path moves
+  with the DU and the collector's target moves with it.
 - **Phase RAN-2 (deferred):** near-RT RIC (FlexRIC) + E2SM-KPM xApp via
   srsRAN's E2 agent for standardized O-RAN KPI subscription; later E2SM-RC
   for scheduling/slicing control experiments.
