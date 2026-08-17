@@ -18,6 +18,11 @@ runs/
 .github/copilot-instructions.md
 .github/instructions/
 
+# Vector renders of the Mermaid diagrams. PNG is committed because that is
+# what GitHub can display; SVG is only needed for print or a paper and is
+# regenerated on demand with `bash docs/diagrams/render.sh --svg`.
+docs/diagrams/*.svg
+
 # Python
 __pycache__/
 *.egg-info/

@@ -1,0 +1,370 @@
+<!-- mec-cast — system overview for a technical reader.
+     Source of truth for docs/diagrams/system-hero.png.
+     Render: bash .claude/skills/doc-sync/scripts/render_hero.sh
+
+     Audience: someone who already knows O-RAN and ROS2. Labels use the names
+     they expect (O-RU / O-DU / O-CU, UPF, N3/N6, MAC, PointCloud2, Zenoh) so
+     the system is recognised rather than explained.
+
+     Layout: four physical sites left to right, with a real air gap at Uu, and
+     the PTP/telemetry plane as a band crossing all of them. Spatial (where
+     things run) and functional (what crosses each link) in one picture.
+
+     NOTE: the robotic arm is drawn as part of the intended deployment. The
+     platform today is sensor -> edge one-way; no actuation is implemented.
+     The footer states this. -->
+<meta charset="utf-8">
+<style>
+  :root {
+    --ink:       #23201D;
+    --ink-2:     #55504A;
+    --ink-3:     #857E76;
+    --paper:     #FAF7F2;
+    --paper-2:   #EFE9E0;
+    --rule:      #CFC7BC;
+
+    --ue:        #BE6E4E;
+    --ran:       #D19A34;
+    --core:      #4E7286;
+    --edge:      #5C7F5E;
+    --plane:     #33302B;
+    --hot:       #E0A94A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    width: 1920px; height: 1080px;
+    background:
+      radial-gradient(130% 100% at 50% -10%, #FFFEFB 0%, var(--paper) 52%, var(--paper-2) 100%);
+    font-family: 'Lato', system-ui, sans-serif;
+    color: var(--ink);
+    padding: 44px 60px 40px;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    position: relative; overflow: hidden;
+  }
+  body::before {           /* soft directional light, top-left */
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(48% 40% at 12% 4%, rgba(190,110,78,.09), transparent 68%);
+  }
+
+  /* ---------- header ---------- */
+  .head { display:flex; align-items:baseline; gap:24px; }
+  h1 { font-size:42px; font-weight:800; letter-spacing:-1px; white-space:nowrap; }
+  .tagline { font-size:19px; color:var(--ink-2); font-weight:600; }
+  .tagline b { color: var(--ink); font-weight:800; }
+  .legend { margin-left:auto; display:flex; gap:18px; font-size:13.5px; color:var(--ink-3); font-weight:700; }
+  .legend i { display:inline-block; width:24px; height:5px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+
+  /* ---------- site row ---------- */
+  .sites { display:flex; align-items:stretch; margin-top:22px;
+           flex:0 0 auto; }
+
+  .site {
+    border:2px dashed var(--rule); border-radius:19px;
+    padding:17px 14px 14px; position:relative;
+    background: rgba(255,255,255,.50);
+    display:flex; flex-direction:column;
+  }
+  .site > .name {
+    position:absolute; top:-11px; left:17px; background:var(--paper);
+    padding:0 9px; font-size:13px; font-weight:800; letter-spacing:1.8px;
+    text-transform:uppercase; color:var(--ink-3); white-space:nowrap;
+  }
+
+  /* ---------- component chip ---------- */
+  .chip {
+    border-radius:12px; padding:13px 15px 14px; color:#fff;
+    box-shadow: 0 1px 2px rgba(35,32,29,.10),
+                0 7px 15px rgba(35,32,29,.13),
+                inset 0 1px 0 rgba(255,255,255,.26);
+    position:relative; overflow:hidden;
+  }
+  .chip::after {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(165deg, rgba(255,255,255,.18), transparent 52%);
+  }
+  .chip .t { font-size:19px; font-weight:800; letter-spacing:-.2px; line-height:1.15; }
+  .chip .s { font-size:13.5px; font-weight:600; opacity:.87; margin-top:3px; line-height:1.32; }
+  .chip .m { font-size:12px; font-weight:700; opacity:.72; margin-top:5px; letter-spacing:.15px; }
+  .chip.sm .t { font-size:17px; }
+
+  .ue   { background:linear-gradient(158deg,#C87A57,#A85D3E); }
+  .ran  { background:linear-gradient(158deg,#DCA845,#BE8A24); }
+  .core { background:linear-gradient(158deg,#587F94,#3F6274); }
+  .edge { background:linear-gradient(158deg,#6A8F6B,#4E7250); }
+  .tap  { background:linear-gradient(158deg,#B4863A,#8E6820); }
+
+  .stack { display:flex; flex-direction:column; gap:11px; height:100%; }
+  /* natural chip height; the slack is spread between them rather than
+     pooled into one void (margin-top:auto) or forced into equal blocks. */
+  .stack > .chip, .stack > .row2 { flex:0 1 auto; }
+  .row2  { display:flex; gap:9px; }
+  .row2 > * { flex:1; }
+
+  /* ---------- links between sites ---------- */
+  .link { display:flex; flex-direction:column; align-items:center; justify-content:center;
+          padding:0 3px; }
+  .link .top { font-size:14px; font-weight:800; color:var(--ink-2); white-space:nowrap; }
+  .link .bot { font-size:12.5px; font-weight:700; color:var(--ink-3);
+               white-space:nowrap; text-align:center; line-height:1.35; }
+  .link svg { display:block; margin:6px 0; filter:drop-shadow(0 2px 4px rgba(35,32,29,.16)); }
+
+  .air { width:150px; }
+  .air .top { font-size:16px; font-weight:800; color:var(--ue); letter-spacing:1.2px; }
+
+
+  /* ---------- measurement axis: the functional layer ----------
+     x-positions are aligned to the site row above (content width 1800px):
+     UE 0-378 | air 378-528 | O-RAN 528-924 | N3 924-1028 |
+     core 1028-1312 | N6 1312-1416 | edge 1416-1808          */
+  .metrics { position:relative; height:196px; margin-top:10px; }
+  .metrics .axis {
+    position:absolute; left:0; right:0; top:34px; height:2px;
+    background:repeating-linear-gradient(90deg,var(--rule) 0 7px,transparent 7px 14px);
+  }
+  .metrics .stamp { position:absolute; top:0; transform:translateX(-50%); text-align:center; }
+  .metrics .stamp .dot {
+    width:15px; height:15px; border-radius:50%; background:var(--plane);
+    margin:0 auto; box-shadow:0 0 0 5px var(--paper), 0 2px 5px rgba(35,32,29,.28);
+    position:relative; top:27px;
+  }
+  .metrics .stamp .nm {
+    font-size:14.5px; font-weight:800; color:var(--ink); white-space:nowrap;
+  }
+  .metrics .stamp .wh {
+    font-size:11.5px; font-weight:700; color:var(--ink-3); white-space:nowrap; margin-top:1px;
+  }
+  .metrics .span {
+    position:absolute; height:34px; border-radius:8px; display:flex;
+    align-items:center; justify-content:center; color:#fff;
+    font-size:14px; font-weight:800; letter-spacing:.1px;
+    box-shadow:0 2px 6px rgba(35,32,29,.16), inset 0 1px 0 rgba(255,255,255,.20);
+  }
+  .metrics .span small { font-weight:700; opacity:.8; margin-left:8px; font-size:12.5px; }
+
+  /* ---------- timing / telemetry plane ---------- */
+  .plane {
+    margin-top:8px; border-radius:16px; color:#F3EEE6;
+    background:linear-gradient(150deg,#403B34 0%, var(--plane) 60%, #262320 100%);
+    padding:18px 26px; display:flex; align-items:center; gap:26px;
+    box-shadow:0 2px 3px rgba(35,32,29,.12), 0 12px 26px rgba(35,32,29,.20),
+               inset 0 1px 0 rgba(255,255,255,.11);
+  }
+  .plane .lab { font-size:19px; font-weight:800; white-space:nowrap; }
+  .plane .lab span { display:block; font-size:11.5px; font-weight:700; opacity:.52;
+                     letter-spacing:1.4px; margin-top:2px; }
+  .plane .items { display:flex; gap:10px; flex:1; }
+  .plane .it {
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.13);
+    border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.4; flex:1;
+  }
+  .plane .it b { display:block; font-size:13.5px; color:var(--hot); font-weight:800; margin-bottom:2px; }
+
+  /* ---------- footer ---------- */
+  .foot { margin-top:12px; display:flex; align-items:center; gap:22px;
+          font-size:13px; color:var(--ink-3); font-weight:600; }
+  .foot .k { color:var(--ink-2); font-weight:800; }
+  .foot .planned { margin-left:auto; font-style:italic; }
+</style>
+
+<div class="head">
+  <h1>mec-cast</h1>
+  <div class="tagline">
+    industrial communication testbed on private 5G —
+    <b>sensor → O-RAN → UPF → MEC</b>
+  </div>
+  <div class="legend">
+    <div><i style="background:var(--ue)"></i>UE site</div>
+    <div><i style="background:var(--ran)"></i>O-RAN</div>
+    <div><i style="background:var(--core)"></i>5G core</div>
+    <div><i style="background:var(--edge)"></i>MEC edge</div>
+  </div>
+</div>
+
+<div class="sites">
+
+  <!-- ============ UE SITE ============ -->
+  <div class="site" style="width:378px">
+    <div class="name">UE site · robot</div>
+    <div class="stack">
+      <div class="row2">
+        <div class="chip ue sm">
+          <div class="t">LiDAR</div>
+          <div class="s">3D scan, 10 Hz</div>
+          <div class="m">PointCloud2</div>
+        </div>
+        <div class="chip ue sm">
+          <div class="t">Robotic arm</div>
+          <div class="s">actuation</div>
+          <div class="m">planned loop</div>
+        </div>
+      </div>
+      <div class="chip ue">
+        <div class="t">ROS 2 — lidar client</div>
+        <div class="s">stamps capture_ns, then send_ns immediately before publish</div>
+        <div class="m">rclpy · rmw_zenoh_cpp · CloudWithTelemetry</div>
+      </div>
+      <div class="chip ue">
+        <div class="t">5G modem — UE</div>
+        <div class="s">dials OUT to the Zenoh router across the UPF</div>
+        <div class="m">uplink · NAT-traversed</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ AIR INTERFACE ============ -->
+  <div class="link air">
+    <div class="top">Uu</div>
+    <svg width="128" height="104" viewBox="0 0 128 104">
+      <defs>
+        <linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="56" y1="52" x2="124" y2="52">
+          <stop offset="0" stop-color="#BE6E4E"/><stop offset="1" stop-color="#D19A34"/>
+        </linearGradient>
+      </defs>
+      <g fill="none" stroke="#BE6E4E" stroke-width="3.4" opacity=".40" stroke-linecap="round">
+        <path d="M16 36 a24 24 0 0 1 0 32"/>
+        <path d="M29 26 a37 37 0 0 1 0 52"/>
+        <path d="M42 16 a50 50 0 0 1 0 72"/>
+      </g>
+      <path d="M56 52 H94" stroke="url(#ga)" stroke-width="20" stroke-linecap="round"/>
+      <path d="M88 36 L124 52 L88 68 Z" fill="#D19A34"/>
+    </svg>
+    <div class="bot">PointCloud2<br>over the 5G uplink</div>
+  </div>
+
+  <!-- ============ O-RAN SITE ============ -->
+  <div class="site" style="width:396px">
+    <div class="name">O-RAN · srsRAN</div>
+    <div class="stack">
+      <div class="chip ran sm">
+        <div class="t">Radio unit · USRP</div>
+        <div class="s">driven over UHD ↓ to the DU</div>
+      </div>
+      <div class="chip ran">
+        <div class="t">O-DU — distributed unit</div>
+        <div class="s">the scheduler decides when this UE may transmit</div>
+        <div class="m">MAC · HARQ retx · PRB · MCS · CQI</div>
+      </div>
+      <div class="chip ran sm">
+        <div class="t">O-CU · RRC / PDCP</div>
+      </div>
+      <div class="chip tap sm">
+        <div class="t">ran-collector</div>
+        <div class="s">taps MAC KPIs — UDP JSON :55555</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="link" style="width:104px">
+    <div class="top">N3</div>
+    <svg width="92" height="46" viewBox="0 0 92 46">
+      <defs><linearGradient id="gb" gradientUnits="userSpaceOnUse" x1="3" y1="23" x2="89" y2="23">
+        <stop offset="0" stop-color="#D19A34"/><stop offset="1" stop-color="#4E7286"/></linearGradient></defs>
+      <path d="M3 23 H56" stroke="url(#gb)" stroke-width="20" stroke-linecap="round"/>
+      <path d="M50 7 L89 23 L50 39 Z" fill="#4E7286"/>
+    </svg>
+    <div class="bot">GTP-U</div>
+  </div>
+
+  <!-- ============ CORE SITE ============ -->
+  <div class="site" style="width:284px">
+    <div class="name">5G core · Open5GS</div>
+    <div class="stack">
+      <div class="chip core sm">
+        <div class="t">AMF · SMF</div>
+        <div class="s">control plane, session setup</div>
+      </div>
+      <div class="chip core sm">
+        <div class="t">NRF · UDM · UDR</div>
+        <div class="s">subscriber data, service discovery</div>
+      </div>
+      <div class="chip core">
+        <div class="t">UPF</div>
+        <div class="s">user-plane forwarding — the NAT boundary the UE must dial out through</div>
+        <div class="m">N6 → data network</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="link" style="width:104px">
+    <div class="top">N6</div>
+    <svg width="92" height="46" viewBox="0 0 92 46">
+      <defs><linearGradient id="gc" gradientUnits="userSpaceOnUse" x1="3" y1="23" x2="89" y2="23">
+        <stop offset="0" stop-color="#4E7286"/><stop offset="1" stop-color="#5C7F5E"/></linearGradient></defs>
+      <path d="M3 23 H56" stroke="url(#gc)" stroke-width="20" stroke-linecap="round"/>
+      <path d="M50 7 L89 23 L50 39 Z" fill="#5C7F5E"/>
+    </svg>
+    <div class="bot">tcp/7447</div>
+  </div>
+
+  <!-- ============ MEC EDGE SITE ============ -->
+  <div class="site" style="width:392px">
+    <div class="name">MEC edge · app server</div>
+    <div class="stack">
+      <div class="chip edge sm">
+        <div class="t">Zenoh router</div>
+        <div class="s">unicast rendezvous — no multicast discovery survives the UPF</div>
+      </div>
+      <div class="chip edge">
+        <div class="t">Edge ingest node</div>
+        <div class="s">stamps recv_ns first, processes the cloud, then process_done_ns</div>
+        <div class="m">ROS 2 · rmw_zenoh_cpp</div>
+      </div>
+      <div class="row2">
+        <div class="chip edge sm">
+          <div class="t">CSV</div>
+          <div class="s">per frame<br>runs/&lt;RUN_ID&gt;</div>
+        </div>
+        <div class="chip edge sm">
+          <div class="t">PostgreSQL</div>
+          <div class="s">2 s snapshots<br>trace_id joins</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============ MEASUREMENT AXIS (functional view) ============ -->
+<div class="metrics">
+  <div class="axis"></div>
+
+  <div class="stamp" style="left:96px">
+    <div class="nm">capture_ns</div><div class="wh">LiDAR frame ready</div><div class="dot"></div>
+  </div>
+  <div class="stamp" style="left:306px">
+    <div class="nm">send_ns</div><div class="wh">before publish</div><div class="dot"></div>
+  </div>
+  <div class="stamp" style="left:1508px">
+    <div class="nm">recv_ns</div><div class="wh">first line of callback</div><div class="dot"></div>
+  </div>
+  <div class="stamp" style="left:1730px">
+    <div class="nm">process_done_ns</div><div class="wh">after processing</div><div class="dot"></div>
+  </div>
+
+  <div class="span" style="left:96px;  width:210px;  top:82px; background:linear-gradient(160deg,#C87A57,#A85D3E)">sender</div>
+  <div class="span" style="left:306px; width:1202px; top:82px; background:linear-gradient(160deg,#DCA845,#4E7286)">network<small>the 5G path under test — O-RAN scheduling, HARQ, UPF</small></div>
+  <div class="span" style="left:1508px;width:222px;  top:82px; background:linear-gradient(160deg,#6A8F6B,#4E7250)">processing</div>
+
+  <div class="span" style="left:96px;  width:1634px; top:132px; background:linear-gradient(160deg,#4A443C,#2B2823)">glass-to-glass — e2e<small>capture_ns → process_done_ns, valid only while PTP holds</small></div>
+</div>
+
+<!-- ============ TIMING + TELEMETRY PLANE ============ -->
+<div class="plane">
+  <div class="lab">mec-cast-telemetry<span>SHARED MEASUREMENT PLANE</span></div>
+  <div class="items">
+    <div class="it"><b>PTP · ptp4l + phc2sys</b>management LAN, never the user plane — srsRAN and Open5GS carry no 5G-TSN</div>
+    <div class="it"><b>TimingEnvelope · 64 B</b>capture_ns · send_ns · recv_ns · process_done_ns · seq · trace_id</div>
+    <div class="it"><b>network = recv − send</b>e2e = done − capture · Welford + exact windowed percentiles</div>
+    <div class="it"><b>one RUN_ID</b>joins UE samples, O-DU KPIs and edge samples in a single query</div>
+  </div>
+</div>
+
+<div class="foot">
+  <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
+  <span><span class="k">Transport:</span> rmw_zenoh over TCP — NAT traversal and ~2 MB payloads</span>
+  <span><span class="k">RAN tap:</span> O-DU MAC KPIs correlated to application latency</span>
+  <span class="planned">robotic arm shown as intended deployment; today the path is sensor → edge only</span>
+</div>

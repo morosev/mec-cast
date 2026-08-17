@@ -1,0 +1,58 @@
+%% mec-cast — lab deployment, four roles on four hosts (deck slide 3)
+%% Deploy order: infra -> edge -> gnb -> ue
+%% Edit this file, then: bash docs/diagrams/render.sh
+%%{init: {"theme":"base","themeVariables":{
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
+  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
+flowchart LR
+  classDef host fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef svc fill:#FFFFFF,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef sync fill:#2B3136,stroke:#2B3136,color:#FFFFFF
+
+  subgraph UEH["Host 1 — role: ue"]
+    direction TB
+    LC["lidar-client<br/>network_mode: host<br/>needs EDGE_HOST, LOGGING_HOST"]
+    PTPU["/dev/ptp0"]
+  end
+
+  subgraph GNBH["Host 2 — role: gnb"]
+    direction TB
+    SRS["srsRAN — O-CU / O-DU<br/>metrics: addr + port in gnb.yml"]
+    RC["ran-collector<br/>binds UDP :55555"]
+    SRS -->|"UDP JSON"| RC
+  end
+
+  subgraph EDGEH["Host 3 — role: edge"]
+    direction TB
+    ZR["zenoh-router<br/>listens tcp/:7447"]
+    ED["edge<br/>ingest + processing"]
+    ZR --> ED
+  end
+
+  subgraph INFRAH["Host 4 — role: infra"]
+    direction TB
+    LOGS["logging service<br/>:8000, auto-migrate"]
+    PG["postgres:16<br/>volume pgdata"]
+    LOGS --> PG
+  end
+
+  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → tcp/7447"| ZR
+  LC -.->|"HTTP :8000 snapshots"| LOGS
+  ED -.->|"HTTP :8000 snapshots"| LOGS
+  RC -.->|"HTTP :8000 snapshots"| LOGS
+
+  GM["PTP grandmaster — management / backhaul LAN"]
+  GM -->|"ptp4l + phc2sys"| UEH
+  GM -->|"ptp4l + phc2sys"| GNBH
+  GM -->|"ptp4l + phc2sys"| EDGEH
+
+  RUNS["runs/&lt;RUN_ID&gt;/ on each host<br/>per-frame CSV stays local"]
+  LC -.-> RUNS
+  ED -.-> RUNS
+  RC -.-> RUNS
+
+  class UEH,GNBH,EDGEH,INFRAH host
+  class LC,SRS,RC,ZR,ED,LOGS,PG,PTPU,RUNS svc
+  class GM sync

@@ -1,0 +1,96 @@
+%% mec-cast — measurement lifecycle of ONE point-cloud frame (lab testbed).
+%% Answers: where does each number in samples.csv actually come from?
+%% Read top to bottom: UE -> 5G -> edge -> logging. Dark nodes are timestamps.
+%% Edit this file, then: bash docs/diagrams/render.sh
+%%{init: {"theme":"base","themeVariables":{
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
+  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
+flowchart TB
+  classDef stamp fill:#2B3136,stroke:#2B3136,color:#FFFFFF,font-weight:bold
+  classDef work fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef queue fill:#FFFFFF,stroke:#1A1A1A,stroke-width:2px,color:#1A1A1A
+  classDef sink fill:#FFFFFF,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef derived fill:#FFFFFF,stroke:#B9BDC0,stroke-dasharray:3 3,color:#444C52
+  classDef wire fill:#FFFFFF,stroke:#5A6167,stroke-dasharray:4 2,color:#1A1A1A
+
+  subgraph UEHOST["1 &nbsp; UE HOST — robot compute behind the 5G modem"]
+    direction TB
+    GEN["Generate cloud<br/>seed · num_points · rate_hz<br/>deterministic, reproducible"]:::work
+    T1(["capture_ns<br/>PTP-disciplined CLOCK_REALTIME"]):::stamp
+    ENV["Build TimingEnvelope — 64 bytes, little-endian<br/>capture_ns · seq · modality=pointcloud · trace_id=RUN_ID"]:::work
+    MSG["CloudWithTelemetry<br/>envelope rides IN-BAND as a message field<br/>rmw_zenoh exposes no per-publish attachment"]:::wire
+    T2(["send_ns<br/>last line before publish"]):::stamp
+    PUB["rclpy publish → rmw_zenoh_cpp"]:::work
+    GEN --> T1 --> ENV --> MSG --> T2 --> PUB
+
+    SREC["SampleSender.try_record<br/>never blocks · never allocates"]:::work
+    SRING[["SPSC ring · 8192 × 80-byte Sample"]]:::queue
+    SWRITE["Writer thread"]:::work
+    SCSV[("runs/&lt;RUN_ID&gt;/pub/samples.csv")]:::sink
+    T2 -.-> SREC --> SRING --> SWRITE --> SCSV
+  end
+
+  subgraph AIR["2 &nbsp; 5G USER PLANE — the impairment under test"]
+    direction TB
+    UU["Uu air interface<br/>HARQ retransmission · scheduling delay"]:::wire
+    GNB2["srsRAN O-DU → O-CU → Open5GS core → UPF / N6"]:::wire
+    UU --> GNB2
+  end
+
+  subgraph EDGEHOST["3 &nbsp; EDGE HOST — MEC application server"]
+    direction TB
+    ZR2["zenoh-router :7447<br/>unicast rendezvous, NAT-traversing"]:::work
+    CB["Edge subscription callback"]:::work
+    T3(["recv_ns<br/>FIRST line of the callback, before any work"]):::stamp
+    PROC["Process the cloud<br/>numpy centroid + occupied-voxel count"]:::work
+    T4(["process_done_ns<br/>after the work completes"]):::stamp
+    ZR2 --> CB --> T3 --> PROC --> T4
+
+    EREC["SampleSender.try_record<br/>full ring → drop counter++, sample discarded<br/>dropping beats perturbing the measurement"]:::work
+    ERING[["SPSC ring · bounded, lock-free"]]:::queue
+    EWRITE["Writer thread — CSV rows + DelayStats"]:::work
+    ECSV[("runs/&lt;RUN_ID&gt;/edge/samples.csv<br/>one row per frame")]:::sink
+    T4 --> EREC --> ERING --> EWRITE --> ECSV
+
+    DER["Derived per sample<br/>network = recv_ns − send_ns<br/>e2e = process_done_ns − capture_ns<br/>processing = process_done_ns − recv_ns<br/>sender = send_ns − capture_ns"]:::derived
+    STATS["DelayStats per metric<br/>Welford mean + stddev<br/>exact windowed percentiles, sorted off the hot path"]:::work
+    UPL["Uploader thread<br/>separate from the writer, so a stalled<br/>logging service cannot stall CSV"]:::work
+    EWRITE -.-> DER
+    EWRITE --> STATS -->|"every 2 s"| UPL
+  end
+
+  subgraph INFRAHOST["4 &nbsp; INFRA HOST"]
+    direction TB
+    API["POST /api/v1/logs<br/>LogEntryCreate is extra=forbid"]:::work
+    PGDB[("PostgreSQL — log_entries<br/>context JSONB + GIN · trace_id indexed")]:::sink
+    API --> PGDB
+  end
+
+  subgraph GNBHOST["RAN HOST — O-DU observability"]
+    direction TB
+    SRSM["srsRAN metrics exporter — O-DU MAC scheduler<br/>gnb.yml → metrics.addr / port"]:::work
+    RCOL["ran-collector<br/>binds UDP :55555, stamps arrival"]:::work
+    RKPI["MCS · PRB usage · HARQ retx · BSR · CQI · per-UE throughput"]:::derived
+    SRSM -->|"UDP JSON"| RCOL --> RKPI
+  end
+
+  PUB ==>|"Zenoh over TCP, dialled OUT to the router"| UU
+  GNB2 ==>|"tcp/EDGE_HOST:7447"| ZR2
+  UPL -->|"HTTP JSON batch · service=mec-cast-edge · trace_id=RUN_ID"| API
+  RCOL -->|"service=mec-cast-ran · same trace_id"| API
+
+  subgraph CLOCK["CLOCK DISCIPLINE — management / backhaul LAN, never the 5G user plane"]
+    direction LR
+    GMC["PTP grandmaster<br/>IEEE 1588"]:::stamp
+    P4L["ptp4l → NIC hardware clock (PHC)"]:::work
+    P2S["phc2sys → CLOCK_REALTIME"]:::work
+    MON["PtpMonitor samples the PHC offset;<br/>every snapshot carries ptp.reliable"]:::derived
+    WARN["Cross-host metrics are meaningful only while ptp.reliable is true.<br/>srsRAN and Open5GS implement no 5G-TSN, so the user plane<br/>carries no time sync — discipline arrives over the management LAN."]:::derived
+    GMC --> P4L --> P2S --> MON --> WARN
+  end
+
+  CLOCK -.->|"disciplines capture_ns · send_ns"| UEHOST
+  CLOCK -.->|"disciplines recv_ns · process_done_ns"| EDGEHOST
+  CLOCK -.->|"stamps KPI arrival"| GNBHOST

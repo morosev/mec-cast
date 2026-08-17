@@ -29,6 +29,10 @@ percentiles, why no RIC yet. Read these before proposing to change any of it.
 **work on the media profile** → [architecture/str0m-profile.md](architecture/str0m-profile.md)
 — the planned str0m SFU, its wire contract, and the migration plan.
 
+**see or edit a diagram** → [diagrams/](diagrams/README.md) — editable
+Mermaid sources for the architecture and lab-deployment overviews, plus two
+detailed data-flow diagrams (measurement lifecycle and runtime topology).
+
 **run components by hand, reach the database, or maintain a deployment** →
 [guides/manual-operation.md](guides/manual-operation.md) — one container per
 terminal, docker/compose vocabulary, psql and pgAdmin access, logs, restarts,

@@ -1,0 +1,56 @@
+%% mec-cast — architecture overview (deck slide 1)
+%% Edit this file, then: bash docs/diagrams/render.sh
+%%{init: {"theme":"base","themeVariables":{
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
+  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
+flowchart LR
+  classDef comp fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef spine fill:#2B3136,stroke:#2B3136,color:#FFFFFF
+  classDef store fill:#FFFFFF,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef note fill:#FFFFFF,stroke:#B9BDC0,stroke-dasharray:3 3,color:#444C52
+
+  subgraph UE["UE — robot compute"]
+    LIDAR["LiDAR sensor<br/>(synthetic source today)"]
+    ROSC["ROS2 client<br/>stamps capture_ns, send_ns"]
+    LIDAR --> ROSC
+  end
+
+  subgraph NET["5G network — lab"]
+    GNB["srsRAN — O-CU / O-DU<br/>MAC scheduler in the DU · USRP radio"]
+    CORE["Open5GS core<br/>UPF / N6"]
+    GNB --> CORE
+  end
+
+  subgraph EDGE["MEC edge server"]
+    ZR["Zenoh router"]
+    EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
+    ZR --> EN
+  end
+
+  RANC["ran-collector<br/>O-DU MAC / scheduler KPIs"]
+  SPINE["mec-cast-telemetry — shared spine<br/>64-byte TimingEnvelope · DelayStats · clocks + PTP · lock-free recorder"]
+  CSV["Per-frame CSV<br/>runs/&lt;RUN_ID&gt;/"]
+  LOG["Logging service + PostgreSQL<br/>2 s aggregated snapshots"]
+
+  ROSC -->|"Uu — PointCloud2"| GNB
+  CORE -->|"UPF / N6"| ZR
+  GNB -.->|"UDP JSON metrics"| RANC
+
+  ROSC --- SPINE
+  EN --- SPINE
+  RANC --- SPINE
+
+  SPINE --> CSV
+  SPINE -->|"HTTP, joined by trace_id = RUN_ID"| LOG
+
+  PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
+  PTP -.-> UE
+  PTP -.-> EDGE
+  PTP -.-> RANC
+
+  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC comp
+  class SPINE spine
+  class CSV,LOG store
+  class PTP note

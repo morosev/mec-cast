@@ -1,0 +1,90 @@
+%% mec-cast — runtime topology of the lab testbed.
+%% Answers: what process runs where, over which port and protocol, with what
+%% configuration and which volumes. Complements the measurement-lifecycle
+%% diagram, which answers where the numbers come from.
+%% Solid edges carry payload or requests. Dashed edges are telemetry.
+%% Dotted edges are clock discipline. Edit, then: bash docs/diagrams/render.sh
+%%{init: {"theme":"base","themeVariables":{
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
+  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
+flowchart TB
+  classDef host fill:#FFFFFF,stroke:#1A1A1A,stroke-width:2px,color:#1A1A1A
+  classDef ctr fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
+  classDef ext fill:#FFFFFF,stroke:#5A6167,stroke-dasharray:4 2,color:#1A1A1A
+  classDef vol fill:#FFFFFF,stroke:#B9BDC0,color:#444C52
+  classDef sync fill:#2B3136,stroke:#2B3136,color:#FFFFFF
+
+  subgraph H1["HOST — role: ue &nbsp;&nbsp; compose.ue.yml &nbsp;&nbsp; network_mode: host"]
+    direction TB
+    UEC["container: lidar-client<br/>image mec-cast-ros<br/>ros2 run mec_cast_lidar_client lidar_client"]:::ctr
+    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[tcp/EDGE_HOST:7447]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL"]:::ext
+    UEPTP["device /dev/ptp0"]:::vol
+    UEVOL["volume ../../runs → /runs"]:::vol
+    UEC --- UEENV
+    UEC --- UEPTP
+    UEC --- UEVOL
+  end
+
+  subgraph H2["HOST — role: gnb &nbsp;&nbsp; compose.gnb.yml &nbsp;&nbsp; network_mode: host"]
+    direction TB
+    SRSRAN["srsRAN Project — O-CU / O-DU<br/>runs natively, not containerised<br/>gnb.yml: metrics.addr / metrics.port"]:::ext
+    RANC["container: ran-collector<br/>image mec-cast-ran<br/>GNB_METRICS_ADDR=0.0.0.0:55555"]:::ctr
+    RANVOL["volume ../../runs → /runs<br/>device /dev/ptp0"]:::vol
+    SRSRAN -->|"UDP :55555 · JSON KPI datagrams"| RANC
+    RANC --- RANVOL
+  end
+
+  subgraph H3["HOST — role: edge &nbsp;&nbsp; compose.edge.yml &nbsp;&nbsp; network_mode: host"]
+    direction TB
+    ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens tcp/0.0.0.0:7447<br/>restart: unless-stopped"]:::ctr
+    EDGEC["container: edge<br/>ros2 run mec_cast_edge edge<br/>subscribes over rmw_zenoh_cpp"]:::ctr
+    EDGEVOL["volume ../../runs → /runs<br/>device /dev/ptp0"]:::vol
+    ZR -->|"in-process Zenoh session"| EDGEC
+    EDGEC --- EDGEVOL
+  end
+
+  subgraph H4["HOST — role: infra &nbsp;&nbsp; compose.infra.yml"]
+    direction TB
+    LOGC["container: logging<br/>uvicorn → FastAPI<br/>published :8000<br/>MECLOG_AUTO_MIGRATE=true<br/>restart: unless-stopped"]:::ctr
+    PGC["container: postgres:16<br/>NO published port by default<br/>healthcheck pg_isready"]:::ctr
+    PGVOL["named volume pgdata<br/>→ /var/lib/postgresql/data"]:::vol
+    LOGC -->|"postgresql://postgres@postgres:5432<br/>asyncpg pool"| PGC
+    PGC --- PGVOL
+  end
+
+  subgraph NET5G["5G NETWORK — user plane"]
+    direction TB
+    RAN["O-DU + radio · USRP over UHD"]:::ext
+    UPF["Open5GS core → UPF → N6"]:::ext
+    RAN --> UPF
+  end
+
+  UEC ==>|"PointCloud2 in CloudWithTelemetry<br/>Zenoh over TCP, dialled OUT"| RAN
+  UPF ==>|"tcp/EDGE_HOST:7447"| ZR
+
+  UEC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
+  EDGEC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
+  RANC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
+
+  subgraph MGMT["MANAGEMENT / BACKHAUL LAN — separate from the 5G user plane"]
+    direction TB
+    GM["PTP grandmaster (IEEE 1588)<br/>GPS-disciplined or lab reference"]:::sync
+    VERIFY["deploy/lab/ptp/verify-ptp.sh<br/>run on every measuring host"]:::vol
+  end
+
+  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H1
+  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H2
+  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H3
+
+  OPS["Operator workstation<br/>bash deploy/lab/deploy.sh ROLE user@host<br/>rsync + docker compose up -d --build"]:::ext
+  OPS -.->|"ssh"| H1
+  OPS -.->|"ssh"| H2
+  OPS -.->|"ssh"| H3
+  OPS -.->|"ssh"| H4
+  OPS -.->|"pgAdmin via ssh -L 5433:localhost:5433<br/>(expose-db.yml binds loopback)"| PGC
+
+  ORDER["Deploy order: infra → edge → gnb → ue<br/>everything posts to the logging service, and the UE dials the edge router"]:::vol
+
+  class H1,H2,H3,H4,NET5G,MGMT host
