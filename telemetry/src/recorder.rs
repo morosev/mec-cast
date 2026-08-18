@@ -192,14 +192,27 @@ const CSV_HEADER: &str = "seq,modality,kind,site,capture_ns,send_ns,recv_ns,proc
 
 /// Start the recorder: creates `out_dir`, opens `samples.csv`, spawns the
 /// writer (and, with `http` + `logging_url`, the uploader).
+///
+/// `samples.csv` is opened for **append**. A run whose `RUN_ID` is reused —
+/// restarting one container mid-experiment, say — adds to the file rather than
+/// truncating it, because the earlier frames are measurement data and the
+/// second incarnation is the same logical run. The header is written only when
+/// the file is new, so appending leaves one header at the top.
 pub fn spawn(
     cfg: RecorderConfig,
     ptp: PtpMonitor,
 ) -> std::io::Result<(SampleSender, RecorderHandle)> {
     fs::create_dir_all(&cfg.out_dir)?;
-    let file = fs::File::create(cfg.out_dir.join("samples.csv"))?;
+    let path = cfg.out_dir.join("samples.csv");
+    let file = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&path)?;
+    let needs_header = file.metadata()?.len() == 0;
     let mut csv = BufWriter::new(file);
-    writeln!(csv, "{CSV_HEADER}")?;
+    if needs_header {
+        writeln!(csv, "{CSV_HEADER}")?;
+    }
 
     let (producer, mut consumer) = rtrb::RingBuffer::<Sample>::new(cfg.queue_capacity.max(1));
     let dropped = Arc::new(AtomicU64::new(0));

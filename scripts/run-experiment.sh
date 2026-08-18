@@ -105,6 +105,43 @@ echo "==> Run $RUN_ID  ($TAG)"
 echo "    ${NUM_POINTS} pts @ ${RATE_HZ} Hz for ${DURATION}s"
 echo "    netem: delay=$NETEM_DELAY jitter=$NETEM_JITTER loss=$NETEM_LOSS"
 
+# --- Capacity check -------------------------------------------------------
+# Zenoh runs over TCP, so netem's packet loss does not drop frames directly:
+# it collapses TCP throughput. The Mathis bound, bandwidth ~ MSS/(RTT*sqrt(p)),
+# is what actually limits the link. Ask for more than that and the publisher's
+# KEEP_LAST(10) queue sheds frames — measured at 98% loss for 30k points at
+# 0.4% loss, while the same impairment at 3k points loses nothing.
+#
+# Warn before burning a run rather than after. The numbers are an estimate,
+# not a promise, so this never blocks: an over-capacity run is a legitimate
+# thing to measure as long as it is deliberate.
+capacity_check() {
+  local delay_ms loss_pct demand capacity
+  delay_ms=$(printf '%s' "$NETEM_DELAY" | tr -dc '0-9.')
+  loss_pct=$(printf '%s' "$NETEM_LOSS" | tr -dc '0-9.')
+  [ -z "$delay_ms" ] && delay_ms=0
+  [ -z "$loss_pct" ] && loss_pct=0
+
+  # 12 bytes per point (three float32s), plus envelope overhead we ignore.
+  demand=$(awk -v n="$NUM_POINTS" -v r="$RATE_HZ" 'BEGIN{printf "%.0f", n*12*r}')
+
+  if awk -v p="$loss_pct" 'BEGIN{exit !(p > 0)}'; then
+    capacity=$(awk -v d="$delay_ms" -v p="$loss_pct" \
+      'BEGIN{rtt=(2*d)/1000; if(rtt<=0) rtt=0.001; printf "%.0f", 1448/(rtt*sqrt(p/100))}')
+    if awk -v a="$demand" -v b="$capacity" 'BEGIN{exit !(a > b)}'; then
+      echo
+      echo "    WARNING: workload looks larger than the impaired link can carry."
+      echo "      offered   ~$(awk -v v="$demand"   'BEGIN{printf "%.2f", v/1048576}') MB/s"
+      echo "      TCP limit ~$(awk -v v="$capacity" 'BEGIN{printf "%.2f", v/1048576}') MB/s" \
+           "(Mathis, ${delay_ms}ms delay, ${loss_pct}% loss)"
+      echo "      Expect heavy frame loss at the edge and queue-inflated latency."
+      echo "      Lower -n / -r, or -L, if you wanted a measurable glass-to-glass number."
+      echo
+    fi
+  fi
+}
+capacity_check
+
 $COMPOSE up -d --build
 
 echo "==> Waiting for logging service"
