@@ -8,7 +8,8 @@
 #     -f deploy/compose/logging.yml -f deploy/compose/local.yml up -d --build
 #
 # Knobs: RUN_ID, NETEM_DELAY (20ms), NETEM_JITTER (5ms), NETEM_LOSS (0.5%),
-#        NUM_POINTS (30000), RATE_HZ (10.0), SEED (42)
+#        NUM_POINTS (30000), RATE_HZ (10.0), SEED (42),
+#        RELIABILITY (reliable | best_effort), QOS_DEPTH (10)
 services:
   zenoh-router:
     image: mec-cast-ros
@@ -26,6 +27,8 @@ services:
       -p num_points:=${NUM_POINTS:-30000}
       -p rate_hz:=${RATE_HZ:-10.0}
       -p seed:=${SEED:-42}
+      -p reliability:=${RELIABILITY:-reliable}
+      -p qos_depth:=${QOS_DEPTH:-10}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
@@ -55,7 +58,12 @@ services:
 
   edge:
     image: mec-cast-ros
-    command: ros2 run mec_cast_edge edge
+    # reliability MUST match lidar-client: a BEST_EFFORT publisher and a
+    # RELIABLE subscriber are incompatible and deliver nothing, silently.
+    command: >
+      ros2 run mec_cast_edge edge --ros-args
+      -p reliability:=${RELIABILITY:-reliable}
+      -p qos_depth:=${QOS_DEPTH:-10}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5

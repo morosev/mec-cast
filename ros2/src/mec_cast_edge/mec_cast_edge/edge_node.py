@@ -6,6 +6,10 @@ voxel count), stamps `process_done_ns`, and feeds the sample to the shared
 telemetry recorder (per-frame CSV + periodic snapshots to the logging
 service).
 
+Parameters:
+    reliability  (str, default best_effort)  must match the publisher's
+    qos_depth    (int, default 10)
+
 Environment:
     RUN_ID       experiment run id (must match the publisher's for joins)
     LOGGING_URL  mec-cast-logging-service base URL (optional)
@@ -19,12 +23,38 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 import mec_cast_telemetry as tel
 from mec_cast_msgs.msg import CloudWithTelemetry
 
 SITE_EDGE = 1
 VOXEL_SIZE = 0.5
+
+
+def cloud_qos(reliability: str, depth: int) -> QoSProfile:
+    """QoS for the point-cloud subscription. Must match the publisher's.
+
+    Deliberately duplicated from the publisher rather than imported: these
+    two nodes run on different hosts (UE and MEC edge), so a code-level
+    dependency between them would be a lie about the deployment. The
+    compatibility rule is the contract, and it is one-directional — a
+    BEST_EFFORT publisher with a RELIABLE subscriber matches nothing and
+    delivers no data at all, silently.
+    """
+    if reliability not in ("reliable", "best_effort"):
+        raise ValueError(
+            f"reliability must be 'reliable' or 'best_effort', got {reliability!r}"
+        )
+    return QoSProfile(
+        reliability=(
+            ReliabilityPolicy.RELIABLE
+            if reliability == "reliable"
+            else ReliabilityPolicy.BEST_EFFORT
+        ),
+        history=HistoryPolicy.KEEP_LAST,
+        depth=depth,
+    )
 
 
 def process_cloud(points: np.ndarray) -> tuple[np.ndarray, int]:
@@ -38,6 +68,11 @@ def process_cloud(points: np.ndarray) -> tuple[np.ndarray, int]:
 class EdgeNode(Node):
     def __init__(self) -> None:
         super().__init__("mec_cast_edge")
+        self.declare_parameter("reliability", "reliable")
+        self.declare_parameter("qos_depth", 10)
+        self.reliability = str(self.get_parameter("reliability").value)
+        self.qos_depth = int(self.get_parameter("qos_depth").value)
+
         self.run_id = os.environ.get("RUN_ID", "dev-run")
         runs_dir = os.environ.get("RUNS_DIR", "runs")
         self.recorder = tel.Recorder(
@@ -50,9 +85,15 @@ class EdgeNode(Node):
         self.seq_gaps = 0
         self.last_seq: int | None = None
         self.sub = self.create_subscription(
-            CloudWithTelemetry, "mec_cast/cloud", self.on_cloud, 10
+            CloudWithTelemetry,
+            "mec_cast/cloud",
+            self.on_cloud,
+            cloud_qos(self.reliability, self.qos_depth),
         )
-        self.get_logger().info(f"edge up (run_id={self.run_id})")
+        self.get_logger().info(
+            f"edge up (run_id={self.run_id}, "
+            f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
+        )
 
     def on_cloud(self, msg: CloudWithTelemetry) -> None:
         recv_ns = tel.now_ns()  # first line: the arrival stamp

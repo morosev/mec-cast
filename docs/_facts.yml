@@ -71,7 +71,7 @@ services:
 
 # --- ports and protocols ----------------------------------------------------
 ports:
-  zenoh_router:   {port: 7447,  proto: tcp,  note: "rendezvous; the UE dials OUT to it"}
+  zenoh_router:   {port: 7447,  proto: udp,  note: "Reliable UDP (QUIC, rel=1) per ADR-0006; rendezvous, the UE dials OUT to it"}
   logging_api:    {port: 8000,  proto: http, note: "published on the host"}
   postgres:       {port: 5432,  proto: tcp,  note: "NOT published by default; internal to the compose network"}
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}

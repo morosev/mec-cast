@@ -106,15 +106,21 @@ echo "    ${NUM_POINTS} pts @ ${RATE_HZ} Hz for ${DURATION}s"
 echo "    netem: delay=$NETEM_DELAY jitter=$NETEM_JITTER loss=$NETEM_LOSS"
 
 # --- Capacity check -------------------------------------------------------
-# Zenoh runs over TCP, so netem's packet loss does not drop frames directly:
-# it collapses TCP throughput. The Mathis bound, bandwidth ~ MSS/(RTT*sqrt(p)),
-# is what actually limits the link. Ask for more than that and the publisher's
-# KEEP_LAST(10) queue sheds frames — measured at 98% loss for 30k points at
-# 0.4% loss, while the same impairment at 3k points loses nothing.
+# netem's packet loss does not drop frames directly on a reliable transport:
+# it drives congestion control to lower the sending rate, and the publisher's
+# KEEP_LAST(10) queue then sheds the backlog — measured at 98% frame loss for
+# 30k points at 0.4% loss, while the same impairment at 3k points loses
+# nothing.
 #
-# Warn before burning a run rather than after. The numbers are an estimate,
-# not a promise, so this never blocks: an over-capacity run is a legitimate
-# thing to measure as long as it is deliberate.
+# CAVEAT: the Mathis bound below models TCP, and the transport is now Reliable
+# UDP (ADR-0006). It is kept as an order-of-magnitude over-subscription
+# warning, NOT as a capacity prediction for the configured transport, and it
+# is due a rework. It is also not a link capacity in any case: nothing caps
+# bandwidth in the compose topology, and the same workload runs loss-free
+# unimpaired.
+#
+# Warn before burning a run rather than after. This never blocks: an
+# over-capacity run is a legitimate thing to measure when it is deliberate.
 capacity_check() {
   local delay_ms loss_pct demand capacity
   delay_ms=$(printf '%s' "$NETEM_DELAY" | tr -dc '0-9.')
@@ -132,8 +138,8 @@ capacity_check() {
       echo
       echo "    WARNING: workload looks larger than the impaired link can carry."
       echo "      offered   ~$(awk -v v="$demand"   'BEGIN{printf "%.2f", v/1048576}') MB/s"
-      echo "      TCP limit ~$(awk -v v="$capacity" 'BEGIN{printf "%.2f", v/1048576}') MB/s" \
-           "(Mathis, ${delay_ms}ms delay, ${loss_pct}% loss)"
+      echo "      rough limit ~$(awk -v v="$capacity" 'BEGIN{printf "%.2f", v/1048576}') MB/s" \
+           "(Mathis/TCP model, ${delay_ms}ms delay, ${loss_pct}% loss)"
       echo "      Expect heavy frame loss at the edge and queue-inflated latency."
       echo "      Lower -n / -r, or -L, if you wanted a measurable glass-to-glass number."
       echo

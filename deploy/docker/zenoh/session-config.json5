@@ -4,8 +4,10 @@
 // multicast does not exist).
 {
   mode: "peer",
+  // Reliable UDP (`rel=1`) — must match the router's scheme and flags
+  // exactly, or the peer never establishes a link. See ADR-0006.
   connect: {
-    endpoints: ["tcp/zenoh-router:7447"],
+    endpoints: ["udp/zenoh-router:7447?rel=1"],
   },
   // Shared memory is deliberately OFF.
   //

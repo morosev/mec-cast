@@ -29,18 +29,27 @@ Packet loss does not cost you a few frames in proportion to the loss rate. It
 collapses throughput, and the frames go missing at the *publisher*, before the
 network is even involved.
 
-Zenoh runs over TCP ([router-config.json5](../../deploy/docker/zenoh/router-config.json5)),
-so a dropped packet is retransmitted rather than losing a frame outright. What
-loss actually does is drive TCP's congestion control, and the achievable
-bandwidth follows the Mathis bound:
+Zenoh runs over Reliable UDP — QUIC without TLS
+([router-config.json5](../../deploy/docker/zenoh/router-config.json5), and
+[ADR-0006](../architecture/adr/0006-quic-transport.md) for why). A dropped
+packet is retransmitted rather than losing a frame outright, so what loss
+actually does is drive congestion control to lower the sending rate. Once the
+offered load exceeds what the transport will pass, the publisher's
+`KEEP_LAST(10)` queue sheds the backlog and the edge sees almost nothing.
+
+The figures below were measured over TCP, whose self-limit follows the Mathis
+bound:
 
 ```
 bandwidth ≈ MSS / (RTT × √loss)     ≈ 1448 / (2·delay × √p)
 ```
 
-At 25 ms delay and 0.4% loss that is about **0.44 MB/s**. A 30,000-point cloud
-at 10 Hz offers 3.4 MB/s — roughly 8× over. TCP cannot drain the publisher's
-queue, `KEEP_LAST(10)` sheds the backlog, and the edge sees almost nothing.
+At 25 ms delay and 0.4% loss that is about **0.44 MB/s**, against 3.4 MB/s
+offered by a 30,000-point cloud at 10 Hz — roughly 8× over. **That formula
+models TCP specifically and is not a property of the link**: nothing caps
+bandwidth in the compose topology, and the same workload runs loss-free once
+the impairment is removed. Treat it as an order-of-magnitude warning about
+over-subscription, not as a capacity figure for the transport now in use.
 
 Measured on the dev box, same code and same run each time:
 
@@ -55,6 +64,14 @@ Delay alone is harmless — the third row is the only one that loses frames, and
 the fourth shows the same impairment is fine once the workload fits. So when a
 run comes back with a huge `missing` count and inflated `network_ns`, suspect
 the offered load against the impaired capacity before suspecting the pipeline.
+
+There is a second ceiling that has nothing to do with the network. Unimpaired,
+delivered throughput tracks offered exactly up to **~17 MB/s** (150,000 points
+at 10 Hz) and decouples above it — 200,000 and 1,000,000-point workloads both
+land in the same ~17–19 MB/s band. That is the Python pipeline —
+serialisation, `PointCloud2` construction, the edge's per-frame numpy pass —
+not the link, and no transport or impairment setting moves it. Measure it on
+each host before attributing a large-payload result to the network.
 
 `run-experiment.sh` prints a warning when the workload exceeds this estimate.
 It does not refuse: measuring an over-capacity link is a legitimate experiment,

@@ -26,6 +26,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 
@@ -33,6 +34,34 @@ import mec_cast_telemetry as tel
 from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
 
 SITE_PUBLISHER = 0
+
+
+def cloud_qos(reliability: str, depth: int) -> QoSProfile:
+    """QoS for the point-cloud topic.
+
+    `best_effort` is the sensor-data convention and the only setting that
+    lets a late frame be *dropped* rather than retransmitted — which is what
+    a latency-critical stream wants, and what makes an unreliable transport
+    (QUIC datagrams via `mixed_rel`) behave differently from a reliable one.
+    Under `reliable`, every transport is asked to guarantee delivery, so the
+    wire protocol barely matters; see ADR-0006.
+
+    Publisher and subscriber must agree: a BEST_EFFORT publisher and a
+    RELIABLE subscriber are an incompatible pair and no data flows at all.
+    """
+    if reliability not in ("reliable", "best_effort"):
+        raise ValueError(
+            f"reliability must be 'reliable' or 'best_effort', got {reliability!r}"
+        )
+    return QoSProfile(
+        reliability=(
+            ReliabilityPolicy.RELIABLE
+            if reliability == "reliable"
+            else ReliabilityPolicy.BEST_EFFORT
+        ),
+        history=HistoryPolicy.KEEP_LAST,
+        depth=depth,
+    )
 
 
 def run_trace_id(run_id: str) -> bytes:
@@ -73,11 +102,15 @@ class PointCloudPublisher(Node):
         self.declare_parameter("num_points", 30000)
         self.declare_parameter("rate_hz", 10.0)
         self.declare_parameter("pattern", "uniform_cube")
+        self.declare_parameter("reliability", "reliable")
+        self.declare_parameter("qos_depth", 10)
 
         self.seed = int(self.get_parameter("seed").value)
         self.num_points = int(self.get_parameter("num_points").value)
         self.rate_hz = float(self.get_parameter("rate_hz").value)
         self.pattern = str(self.get_parameter("pattern").value)
+        self.reliability = str(self.get_parameter("reliability").value)
+        self.qos_depth = int(self.get_parameter("qos_depth").value)
         if self.pattern not in ("uniform_cube", "rotating_plane"):
             raise ValueError(f"unknown pattern {self.pattern!r}")
 
@@ -94,11 +127,16 @@ class PointCloudPublisher(Node):
 
         self.rng = np.random.default_rng(self.seed)
         self.seq = 0
-        self.pub = self.create_publisher(CloudWithTelemetry, "mec_cast/cloud", 10)
+        self.pub = self.create_publisher(
+            CloudWithTelemetry,
+            "mec_cast/cloud",
+            cloud_qos(self.reliability, self.qos_depth),
+        )
         self.timer = self.create_timer(1.0 / self.rate_hz, self.publish_frame)
         self.get_logger().info(
             f"publishing {self.num_points} pts @ {self.rate_hz} Hz "
-            f"(pattern={self.pattern}, seed={self.seed}, run_id={self.run_id})"
+            f"(pattern={self.pattern}, seed={self.seed}, run_id={self.run_id}, "
+            f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
         )
 
     def generate_points(self) -> np.ndarray:

@@ -3,8 +3,15 @@
 // multicast scouting — it would not traverse a UPF/NAT anyway).
 {
   mode: "router",
+  // Reliable UDP (`rel=1`): QUIC's reliability, congestion control and
+  // stream multiplexing over UDP, with no TLS. Chosen over TCP for UE
+  // mobility — a QUIC connection is keyed by connection ID, so it survives
+  // the IP change of a 5G handover or NAT rebinding, where TCP breaks.
+  // No certificates: the 5G user plane is already ciphered and the lab is
+  // a trusted network. See ADR-0006, which also records that this costs
+  // measurable tail latency on a loopback bench.
   listen: {
-    endpoints: ["tcp/[::]:7447"],
+    endpoints: ["udp/[::]:7447?rel=1"],
   },
   // Shared memory is deliberately OFF.
   //
