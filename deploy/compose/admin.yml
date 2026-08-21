@@ -28,6 +28,12 @@ services:
       # Shared with the nodes so manifests land beside the CSVs they describe.
       MECADM_RUNS_DIR: /runs
       MECADM_LOGGING_URL: http://logging:8000
+      # The commit this service is running, compared against each node's to
+      # raise WF_VERSION_SKEW. The check is guarded on BOTH sides being
+      # non-empty (workflow.py), so leaving this unset disables it silently —
+      # the nodes get theirs from the image's ENV, this one is interpolated
+      # from the Makefile's export.
+      VCS_REF: ${VCS_REF:-}
     ports:
       - "8099:8099"
     volumes:

@@ -16,6 +16,21 @@ SHELL := /bin/bash
 VENV    := telemetry/python/.venv
 PYTHON  := $(VENV)/bin/python
 PYTEST  := $(VENV)/bin/pytest
+
+# The admin control plane ships its own package and venv; its tests do not run
+# under the telemetry venv.
+ADMIN_VENV   := services/admin/.venv
+ADMIN_PYTEST := $(ADMIN_VENV)/bin/pytest
+
+# Provenance stamps, exported so `docker compose --build` interpolates them
+# into the build args too. Without the export, a compose build produces an
+# image labelled `unknown`, which silently defeats `make version`'s
+# mismatch detection and the admin's version-skew check.
+VCS_REF := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+VERSION := $(shell git describe --tags --match 'platform-v*' --always --dirty 2>/dev/null || echo unknown)
+export VCS_REF
+export VERSION
+
 COMPOSE := docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml
 # Control plane on top of the data plane. Separate so `up-local` keeps
 # exercising the standalone env-RUN_ID path.
@@ -37,9 +52,7 @@ bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
 
 # Stamp images with the commit they came from, so a container found running on
 # a lab host is traceable without trusting whatever the checkout beside it says.
-BUILD_LABELS = \
-  --build-arg VCS_REF=$(shell git rev-parse HEAD 2>/dev/null || echo unknown) \
-  --build-arg VERSION=$(shell git describe --tags --match 'platform-v*' --always --dirty 2>/dev/null || echo unknown)
+BUILD_LABELS = --build-arg VCS_REF=$(VCS_REF) --build-arg VERSION=$(VERSION)
 
 build: build-telemetry build-ran build-python ## Build everything cheap (no docker, no libwebrtc)
 
@@ -68,19 +81,28 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 	  ninja -C out/release_x64 webrtc
 
 # ─── test ─────────────────────────────────────────────────────────────────
-.PHONY: test test-all test-rust test-python test-ros2 test-e2e test-legacy test-ffi
+.PHONY: test test-all test-rust test-python test-admin test-ros2 test-e2e test-legacy test-ffi
 
-test: test-rust test-ffi test-python ## Fast tests (no docker)
+test: test-rust test-ffi test-python test-admin ## Fast tests (no docker)
 
 # test-legacy is deliberately NOT here: it needs the libwebrtc addon, which
 # is a ~20 GB opt-in build. Run it explicitly when working on Profile B.
-test-all: test-rust test-ffi test-python test-ros2 test-e2e ## Everything, containers included
+test-all: test-rust test-ffi test-python test-admin test-ros2 test-e2e ## Everything, containers included
 
 test-rust: ## Unit + property + integration tests across the workspace
 	cargo test --workspace
 
 test-python: ## PyO3 binding smoke tests
 	$(PYTEST) telemetry/python/tests -v
+
+# These run in CI's `admin` job. Mirrored here so a green local `make test`
+# means the same thing as a green pipeline — otherwise the first sign of a
+# break is a failed push.
+test-admin: ## Admin control-plane tests + the shared ROS2 client
+	@test -x $(ADMIN_PYTEST) || { \
+	  echo "ERROR: $(ADMIN_VENV) missing. Run: make bootstrap"; exit 1; }
+	$(ADMIN_PYTEST) services/admin/tests -q
+	$(ADMIN_PYTEST) ros2/src/mec_cast_admin_client/test -q
 
 # The legacy addon's video path needs a camera, so it cannot be exercised in
 # CI or WSL. This covers the C boundary it depends on, from a C compiler.

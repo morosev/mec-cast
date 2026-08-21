@@ -2,28 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-18
-- **Amended:** 2026-08-20 — see below
-
-> **Amendment, 2026-08-20.** This record originally described the chosen link
-> as QUIC carried over UDP without TLS. That was wrong, and the error is
-> corrected in place rather than superseded because the *decision* did not
-> change — only the mechanism attributed to it.
->
-> `udp/<host>:7447?rel=1` is Zenoh's own UDP link (`zenoh_link_udp`) with
-> Zenoh's transport-level reliability above it. It is not QUIC, which in
-> Zenoh is the separate `quic/` scheme and mandates TLS. Verified on the wire:
-> the handshake datagrams are 35/78/56 bytes where QUIC requires client
-> Initial packets to be padded to ≥1200; keepalives are a single byte, below
-> QUIC's 16-byte AEAD tag alone; there is no QUIC version field; and an
-> identical 25-byte cookie appears in cleartext in both directions, which
-> QUIC's per-direction encryption makes impossible.
->
-> **All measurements below stand** — they were measured, not inferred, and do
-> not depend on what the link is called. What is withdrawn is the forward-
-> looking rationale that assumed QUIC mechanics: connection-ID mobility,
-> stream multiplexing, and user-space congestion control. Those benefits are
-> **not** being obtained. If UE mobility across handover is required, it needs
-> the real `quic/` scheme with TLS, which the sweep below measured as worse.
 
 ## Context
 

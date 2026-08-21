@@ -29,6 +29,12 @@ LABEL org.opencontainers.image.title="mec-cast-ran" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${VERSION}"
 
+# ARG is build-time only. ran/collector/src/admin.rs reads $VCS_REF at runtime
+# to report its commit to the admin control plane; without this the value is
+# empty and the version-skew check cannot fire. Same reason as ros.Dockerfile.
+ENV VCS_REF=${VCS_REF} \
+    VERSION=${VERSION}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*

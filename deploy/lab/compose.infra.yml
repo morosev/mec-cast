@@ -12,7 +12,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mec_cast_logs"]
+      # `pg_isready` succeeds whenever the server is up, even if mec_cast_logs
+      # was never created — which happens when the volume already holds an
+      # initialised data dir, since the image then skips initdb. The logging
+      # service would start on `service_healthy` and exit 3. Prove the database.
+      test: ["CMD-SHELL", "psql -U postgres -d mec_cast_logs -c 'SELECT 1' > /dev/null 2>&1"]
       interval: 5s
       timeout: 3s
       retries: 20

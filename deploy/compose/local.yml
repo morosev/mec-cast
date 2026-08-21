@@ -16,6 +16,14 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/ros.Dockerfile
+      # Without these, `compose up --build` rebuilds the image with the
+      # Dockerfile's `unknown` defaults and overwrites whatever
+      # `make build-ros2` stamped. The Makefile exports both; a bare
+      # `docker compose` outside make falls back to `unknown` honestly
+      # rather than inheriting a stale value.
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
     command: ros2 run rmw_zenoh_cpp rmw_zenohd
     environment:
       ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5

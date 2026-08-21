@@ -37,6 +37,14 @@ LABEL org.opencontainers.image.title="mec-cast-ros" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${VERSION}"
 
+# ARG is build-time only, so it is gone by the time the node runs. The nodes
+# report their commit to the admin control plane from $VCS_REF at runtime
+# (mec_cast_admin_client), and the admin's WF_VERSION_SKEW finding is guarded
+# on a non-empty value — without this promotion the check silently never fires,
+# which is exactly the "one host is on a different commit" case it exists for.
+ENV VCS_REF=${VCS_REF} \
+    VERSION=${VERSION}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-rmw-zenoh-cpp \
         python3-colcon-common-extensions \

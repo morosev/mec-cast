@@ -96,6 +96,29 @@ fi
 "$VENV/bin/pip" install --quiet maturin pytest
 echo "venv ready: $("$VENV/bin/python" --version)"
 
+# --- Admin control plane venv ---------------------------------------------
+# Its own package with its own dependencies (FastAPI, websockets), so it does
+# not share the telemetry venv. Without this, `make test` cannot run the
+# admin suite and the gap only surfaces in CI.
+say "Python venv (services/admin/.venv)"
+ADMIN_VENV="$ROOT_DIR/services/admin/.venv"
+if [ -f "$ROOT_DIR/services/admin/pyproject.toml" ]; then
+  if [ ! -x "$ADMIN_VENV/bin/python" ]; then
+    if have uv; then
+      uv venv --python '>=3.10' --seed "$ADMIN_VENV"
+    else
+      "$VENV/bin/python" -m venv "$ADMIN_VENV"
+    fi
+  fi
+  "$ADMIN_VENV/bin/pip" install --quiet --upgrade pip
+  # The ROS2 admin-client tests import `websockets` directly; it is not a
+  # dependency of the service package itself.
+  "$ADMIN_VENV/bin/pip" install --quiet -e "$ROOT_DIR/services/admin[dev]" "websockets>=12"
+  echo "admin venv ready: $("$ADMIN_VENV/bin/python" --version)"
+else
+  echo "services/admin not present; skipping."
+fi
+
 # --- Submodules -----------------------------------------------------------
 say "Submodules"
 # Small ones first; webrtc is ~20 GB and stays opt-in.
