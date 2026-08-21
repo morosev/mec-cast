@@ -26,6 +26,7 @@ flowchart LR
   subgraph EDGE["MEC edge server"]
     ZR["Zenoh router"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
+    ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
     ZR --> EN
   end
 
@@ -45,12 +46,16 @@ flowchart LR
   SPINE --> CSV
   SPINE -->|"HTTP, joined by trace_id = RUN_ID"| LOG
 
+  ADMIN <-.->|"control · run start/stop, status"| ROSC
+  ADMIN <-.-> EN
+  ADMIN <-.-> RANC
+
   PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC comp
+  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note

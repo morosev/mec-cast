@@ -20,7 +20,9 @@
 set -euo pipefail
 
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+# Guarded: under `set -e` a bare `[ -s … ] && .` aborts the script on a
+# machine where node came from a package manager rather than nvm.
+if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh"; fi
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -15,7 +15,10 @@
 # 2470 KB at 2x) because random noise defeats PNG compression.
 set -euo pipefail
 
-[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+# nvm is one way to get node, not the only one. Guard the source so
+# `set -e` does not abort on a machine where node came from a package
+# manager instead.
+if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
 command -v node >/dev/null || { echo "ERROR: node not on PATH (source nvm)"; exit 1; }
 
 REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"

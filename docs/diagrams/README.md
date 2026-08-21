@@ -73,6 +73,9 @@ Source: [`architecture-overview.mmd`](architecture-overview.mmd) — keep the tw
 copies identical when editing.
 
 ```mermaid
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
 flowchart LR
   classDef comp fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
   classDef spine fill:#2B3136,stroke:#2B3136,color:#FFFFFF
@@ -94,6 +97,7 @@ flowchart LR
   subgraph EDGE["MEC edge server"]
     ZR["Zenoh router"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
+    ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
     ZR --> EN
   end
 
@@ -113,12 +117,16 @@ flowchart LR
   SPINE --> CSV
   SPINE -->|"HTTP, joined by trace_id = RUN_ID"| LOG
 
+  ADMIN <-.->|"control · run start/stop, status"| ROSC
+  ADMIN <-.-> EN
+  ADMIN <-.-> RANC
+
   PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC comp
+  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note
@@ -130,6 +138,10 @@ Source: [`lab-deployment.mmd`](lab-deployment.mmd). Deploy order:
 `infra → edge → gnb → ue`.
 
 ```mermaid
+  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
+  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
+  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
+  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
 flowchart LR
   classDef host fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
   classDef svc fill:#FFFFFF,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
@@ -150,8 +162,9 @@ flowchart LR
 
   subgraph EDGEH["Host 3 — role: edge"]
     direction TB
-    ZR["zenoh-router<br/>listens tcp/:7447"]
+    ZR["zenoh-router<br/>listens udp/:7447?rel=1"]
     ED["edge<br/>ingest + processing"]
+    ADM["mec-cast-admin<br/>:8099 control plane"]
     ZR --> ED
   end
 
@@ -162,10 +175,14 @@ flowchart LR
     LOGS --> PG
   end
 
-  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → tcp/7447"| ZR
+  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → udp/7447?rel=1"| ZR
   LC -.->|"HTTP :8000 snapshots"| LOGS
   ED -.->|"HTTP :8000 snapshots"| LOGS
   RC -.->|"HTTP :8000 snapshots"| LOGS
+
+  LC -.->|"ws :8099 control"| ADM
+  ED -.-> ADM
+  RC -.-> ADM
 
   GM["PTP grandmaster — management / backhaul LAN"]
   GM -->|"ptp4l + phc2sys"| UEH
@@ -178,7 +195,7 @@ flowchart LR
   RC -.-> RUNS
 
   class UEH,GNBH,EDGEH,INFRAH host
-  class LC,SRS,RC,ZR,ED,LOGS,PG,PTPU,RUNS svc
+  class LC,SRS,RC,ZR,ED,ADM,LOGS,PG,PTPU,RUNS svc
   class GM sync
 ```
 

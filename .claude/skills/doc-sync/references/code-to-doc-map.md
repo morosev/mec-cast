@@ -24,6 +24,9 @@ it is a starting point, not a substitute for reading the diff.
 | `scripts/` | `guides/running-an-experiment.md`, `guides/manual-operation.md`, `README.md` | Flags and output layout |
 | `clients/webrtc_native/` | `clients/README.md` + its own README, PPT slide 8 | Note the camera limitation stays stated |
 | `services/logging` (SHA bump) | `operations/logging-submodule.md`, `services/README.md`, PPT slide 4, `_facts.yml` | Schema changes are breaking — `extra="forbid"` |
+| `services/admin/**` | `operations/admin-service.md`, `services/README.md`, root README, `_facts.yml`, PPT slide 4 | Port, protocol version, keepalive/timeout numbers, run states |
+| `ros2/src/mec_cast_admin_client/` | `ros2/README.md`, `operations/admin-service.md`, ADR-0007 | The Python and Rust clients must agree on the envelope — check both, and `vectors.json` |
+| `ran/collector/src/admin.rs` | `ran/collector/README.md`, `operations/admin-service.md`, ADR-0007 | Feature gate: `--no-default-features` must still build without tungstenite |
 | `.github/workflows/` | `README.md` (status), `guides/manual-operation.md` | What CI actually covers |
 | `Cargo.toml` (workspace) | `README.md`, `telemetry/README.md`, `third_party/README.md` | Member and exclude lists |
 
@@ -38,6 +41,18 @@ Not every one is architectural, but each deserves the question:
 - reversing something an existing ADR decided
 - a new security-relevant default (auth, exposure, retention)
 
+## Docs that live in code
+
+A class this map did not previously cover. `services/admin/src/mec_cast_admin/workflow.py`
+holds the operator-facing remedy strings the admin page shows — they embed
+`make up-admin`, `bash deploy/lab/deploy.sh <role> <host>`, port 55555, the
+Zenoh endpoint form, and config keys like `metrics.addr`. They are
+Tier-1-checkable facts sitting in a `.py` file where no doc gate looks.
+
+**Grep `workflow.py` whenever a script, make target, port or path is renamed.**
+The tests assert every finding has a non-empty remedy, but nothing asserts the
+remedy is still true.
+
 ## Claims that rot silently
 
 Grep for these in any doc you touch — no linter catches them, and each has
@@ -49,3 +64,4 @@ already been wrong once in this repo:
 - "X is not installed" / "X is unavailable"
 - counts ("three components", "four roles", "10 slides")
 - status tables in `README.md`
+- remedy strings in `services/admin/src/mec_cast_admin/workflow.py`

@@ -295,7 +295,7 @@
       <path d="M3 23 H56" stroke="url(#gc)" stroke-width="20" stroke-linecap="round"/>
       <path d="M50 7 L89 23 L50 39 Z" fill="#5C7F5E"/>
     </svg>
-    <div class="bot">tcp/7447</div>
+    <div class="bot">udp/7447?rel=1</div>
   </div>
 
   <!-- ============ MEC EDGE SITE ============ -->
@@ -320,6 +320,10 @@
           <div class="t">PostgreSQL</div>
           <div class="s">2 s snapshots<br>trace_id joins</div>
         </div>
+      </div>
+      <div class="chip edge sm">
+        <div class="t">Admin · run control</div>
+        <div class="s">:8099 — nodes subscribe over WebSocket; runs start and stop here</div>
       </div>
     </div>
   </div>
@@ -364,7 +368,7 @@
 
 <div class="foot">
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
-  <span><span class="k">Transport:</span> rmw_zenoh over TCP — NAT traversal and ~2 MB payloads</span>
+  <span><span class="k">Transport:</span> rmw_zenoh over Reliable UDP (rel=1) — NAT traversal and ~2 MB payloads</span>
   <span><span class="k">RAN tap:</span> O-DU MAC KPIs correlated to application latency</span>
   <span class="planned">robotic arm shown as intended deployment; today the path is sensor → edge only</span>
 </div>

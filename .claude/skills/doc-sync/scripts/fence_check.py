@@ -7,7 +7,9 @@ node ids and edges must match, or the rendered page lies about the source.
 import pathlib
 import re
 
-D = pathlib.Path("/home/morosev/mec-cast/docs/diagrams")
+# Derive the repo root the way qa_docs.py and facts_check.py do, so this
+# runs on any checkout rather than only the one it was written on.
+D = pathlib.Path(__file__).resolve().parents[4] / "docs" / "diagrams"
 readme = (D / "README.md").read_text(encoding="utf-8")
 
 fences = re.findall(r"```mermaid\n(.*?)```", readme, re.S)

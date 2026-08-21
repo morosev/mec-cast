@@ -38,11 +38,13 @@ flowchart TB
 
   subgraph H3["HOST — role: edge &nbsp;&nbsp; compose.edge.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
-    ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens tcp/0.0.0.0:7447<br/>restart: unless-stopped"]:::ctr
+    ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens udp/0.0.0.0:7447?rel=1<br/>restart: unless-stopped"]:::ctr
     EDGEC["container: edge<br/>ros2 run mec_cast_edge edge<br/>subscribes over rmw_zenoh_cpp"]:::ctr
+    ADMC["container: admin<br/>mec-cast-admin serve<br/>published :8099 · HTTP + WebSocket<br/>MECADM_RUNS_DIR=/runs"]:::ctr
     EDGEVOL["volume ../../runs → /runs<br/>device /dev/ptp0"]:::vol
     ZR -->|"in-process Zenoh session"| EDGEC
     EDGEC --- EDGEVOL
+    ADMC --- EDGEVOL
   end
 
   subgraph H4["HOST — role: infra &nbsp;&nbsp; compose.infra.yml"]
@@ -53,6 +55,9 @@ flowchart TB
     LOGC -->|"postgresql://postgres@postgres:5432<br/>asyncpg pool"| PGC
     PGC --- PGVOL
   end
+
+  UEC -.->|"ws :8099 · ADMIN_URL"| ADMC
+  RANC -.->|"ws :8099 · ADMIN_URL"| ADMC
 
   subgraph NET5G["5G NETWORK — user plane"]
     direction TB

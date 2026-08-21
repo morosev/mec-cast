@@ -12,6 +12,7 @@ Makefile target for "the UE host only".
 - [Before you start](#before-you-start)
 - [Four concepts first](#four-concepts-first)
 - [Dev: one container per terminal](#dev-one-container-per-terminal)
+- [Running with the admin service](#running-with-the-admin-service)
 - [Keeping six terminals in one window (tmux)](#keeping-six-terminals-in-one-window-tmux)
 - [Lab: one role per host](#lab-one-role-per-host)
 - [Docker and compose command vocabulary](#docker-and-compose-command-vocabulary)
@@ -107,6 +108,13 @@ export COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/l
 ```
 
 Put that in `.run-env` too. Every command below uses `$COMPOSE`.
+
+Those two files are the **data plane**. The admin control plane is a third,
+added only when you want it — see
+[Running with the admin service](#running-with-the-admin-service). If you add
+it to `.run-env`, remember that every terminal exported `$COMPOSE` when it
+sourced the file: **an already-open terminal keeps the old value until you
+`source .run-env` again.**
 
 Because `$COMPOSE` is a *string of arguments*, it only works unquoted in a
 shell that word-splits — bash does, zsh does not. On macOS, where zsh is the
@@ -237,6 +245,66 @@ $COMPOSE down
 ```
 
 Add `-v` to also delete the database volume and start clean next time.
+
+## Running with the admin service
+
+Everything above names the run with `RUN_ID` in the environment. The admin
+service does it from a web page instead: nodes subscribe to it on startup, and
+you create, start and stop runs from a table. Neither replaces the other —
+with no `ADMIN_URL` a node behaves exactly as it does above.
+
+Full operator guide: [admin-service.md](../operations/admin-service.md).
+
+### One extra compose file
+
+```bash
+export COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml -f deploy/compose/admin.yml"
+```
+
+Put that in `.run-env` in place of the two-file line, then **re-source it in
+every terminal that is already open** — the old value is still exported there,
+and compose will report `admin` as an orphan container if you miss one.
+
+```bash
+source .run-env && echo "$COMPOSE"
+```
+
+That must print three `-f` flags.
+
+### What changes
+
+Terminals 1–3 and 6 are unchanged. Terminals 4 and 5 gain `ADMIN_URL`, so they
+must be **recreated**, not just restarted — a running container keeps the
+environment it was created with:
+
+```bash
+${=COMPOSE} up -d --force-recreate --no-deps edge lidar-client
+```
+
+The edge joins the active run on its own. The client waits for you to press
+Start, because a robot should not begin streaming the moment it powers on; set
+`ADMIN_AUTOSTART=true` in `deploy/compose/admin.yml` if you want it automatic.
+
+Then open the page:
+
+```bash
+open http://localhost:8099/admin
+```
+
+Press **Add run**, then **Start**. `RUN_ID` is ignored — the admin mints one.
+
+### When nothing appears on the page
+
+The usual cause is a stale `$COMPOSE`: the nodes were created without
+`ADMIN_URL` and took the standalone path, so they never dialled in and the page
+shows zero nodes. Check what a node actually got:
+
+```bash
+docker inspect compose-edge-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep ADMIN
+```
+
+No output means it is running standalone. Re-source `.run-env` and recreate, as
+above.
 
 ## Keeping six terminals in one window (tmux)
 

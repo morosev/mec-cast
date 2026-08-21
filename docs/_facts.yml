@@ -14,8 +14,8 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "8512cba8cb74ea9c1d9450cc46d7360b5ebd72e7"
-  last_synced_date: "2026-08-17"
+  last_synced_sha: "29aac527cefb1e70f22d79ed5b6789ac80058f7a"
+  last_synced_date: "2026-08-20"
 
 # --- identity ---------------------------------------------------------------
 platform:
@@ -68,15 +68,17 @@ services:
   edge:      mec-cast-edge
   ran:       mec-cast-ran
   media:     mec-cast-media
+  admin:     mec-cast-admin
 
 # --- ports and protocols ----------------------------------------------------
 ports:
-  zenoh_router:   {port: 7447,  proto: udp,  note: "Reliable UDP (QUIC, rel=1) per ADR-0006; rendezvous, the UE dials OUT to it"}
+  zenoh_router:   {port: 7447,  proto: udp,  note: "Reliable UDP (rel=1) per ADR-0006 — Zenoh's UDP link plus transport-level reliability; NOT QUIC, no congestion control, no encryption. Rendezvous: the UE dials OUT to it"}
   logging_api:    {port: 8000,  proto: http, note: "published on the host"}
   postgres:       {port: 5432,  proto: tcp,  note: "NOT published by default; internal to the compose network"}
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this; set in gnb.yml metrics.addr/port"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
+  admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
 
 # --- environment contract (identical across ROS2 nodes, ran-collector, addon)
 env:
@@ -86,16 +88,36 @@ env:
   MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the legacy WebRTC addon"}
   GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
+  ADMIN_URL:   {default: null, note: "ws://<edge>:8099/ws/node; empty = standalone, node reads RUN_ID as before"}
+  ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
 
 # --- output layout ----------------------------------------------------------
 outputs:
   per_frame_csv: "runs/<RUN_ID>/<site>/samples.csv"
   csv_header: "seq,modality,kind,site,capture_ns,send_ns,recv_ns,process_done_ns,payload_bytes,aux_ns,network_ns,e2e_ns,processing_ns,sender_ns"
   run_manifest: "runs/<RUN_ID>/run.json"
+  run_journal: "runs/admin-journal.jsonl"
+  run_manifest_writers: >-
+    Two: scripts/run-experiment.sh and the admin service. The `source` field
+    names which. Admin manifests add seq, label, state, participants, sites,
+    reports and findings; all optional to a reader expecting the script's shape.
   snapshot_interval_s: 2
   routing_rule: >-
     Per-frame samples go to CSV. Aggregated snapshots go to the logging
     service. The firehose never goes to PostgreSQL.
+
+# --- admin control plane ----------------------------------------------------
+# These four live in the service, both node clients and the docs. Wrong in any
+# one of them is silently harmful, which is what earns them a place here.
+admin:
+  protocol_version: 1
+  keepalive_s: 10
+  offline_timeout_s: 30
+  reconnect_s: 30
+  run_id_format: "UUIDv7, canonical hyphenated; minted by the admin"
+  run_states: [draft, starting, running, degraded, stopping, stopped, failed]
+  concurrent_runs: 1
+  protocol_fixture: "services/admin/tests/vectors.json (asserted by all three implementations)"
 
 # --- logging service contract ----------------------------------------------
 logging_service:

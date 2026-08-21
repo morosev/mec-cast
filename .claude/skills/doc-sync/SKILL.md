@@ -32,10 +32,14 @@ Then run stages 1..N for the chosen tier. Two exceptions to asking:
   format.
 
 "Docs" means `docs/**` **and** the component READMEs (`telemetry/`, `ros2/`,
-`clients/`, `edge/`, `ran/collector/`, `deploy/`, `services/`, `third_party/`,
-`tools/`, and the root `README.md`). `services/logging/` and
-`third_party/str0m/` are submodules — never edit their contents; describe them
-from the outside.
+`clients/`, `edge/`, `ran/collector/`, `deploy/`, `services/`,
+`services/admin/`, `third_party/`, `tools/`, and the root `README.md`).
+
+`services/` now holds two different kinds of thing, and the distinction
+matters here: `services/logging/` and `third_party/str0m/` are **submodules** —
+never edit their contents; describe them from the outside. `services/admin/` is
+**in-repo and owned**, so its README is a normal Stage 1 target like any other
+component's.
 
 ---
 
@@ -156,13 +160,19 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | 1 | Architecture overview | `architecture/overview.md` |
 | 2 | Deployment — local | `deploy/compose/local.yml`, `deploy/README.md` |
 | 3 | Deployment — lab | `deploy/lab/`, `operations/lab-topology.md` |
-| 4 | Logging service | `operations/logging-submodule.md`, `services/README.md` |
+| 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `services/README.md` |
 | 5 | ROS2 client | `ros2/README.md` |
 | 6 | Edge | `ros2/README.md`, `telemetry/README.md` |
 | 7 | Zenoh | `adr/0001-zenoh-over-dds.md` |
 | 8 | Profile B — current | `clients/webrtc_native/README.md` |
 | 9 | Profile B — planned str0m | `architecture/str0m-profile.md` |
 | 10 | Applications and future work | `research/README.md`, ADR-0005 |
+
+Slide 4 was re-scoped from "Logging service" when the admin service arrived,
+rather than adding an eleventh slide: `qa_pptx.py` pins `EXPECTED_SLIDES = 10`
+and `PROFILE_B_FIRST_SLIDE = 8`, and those constants encode a content contract
+that should not be loosened casually. Watch slide 4's word count — QA prints
+it — and revisit only if it visibly bursts.
 
 **Slides 1–7 must not mention WebRTC, str0m, SFU, libwebrtc, or "Profile B".**
 Profile B is introduced on slide 8 and nowhere earlier. `qa_pptx.py` enforces

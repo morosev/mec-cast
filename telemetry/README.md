@@ -63,6 +63,18 @@ sort and Welford stddev against a two-pass computation.
 `tests/recorder_loopback.rs` drives 50k samples through the pipeline against
 a stub HTTP server and asserts `rows_written + dropped == pushed`.
 
+## Recorder lifetime
+
+One **active** `Recorder` per process. Building a second after `shutdown()` is
+safe and is how admin-driven runs work: the node creates a Recorder when a run
+starts and drains it when the run stops, rather than holding one for the life
+of the process (ADR-0007).
+
+`samples.csv` is opened for **append**, so a component restarting mid-run adds
+to the run's record instead of erasing it. The cost is that one file may span
+several incarnations and `seq` restarts at 0 each time — sort by `capture_ns`
+across a restart.
+
 ## Consumers
 
 Three bindings, one implementation of the statistics:

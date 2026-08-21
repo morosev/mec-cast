@@ -9,6 +9,7 @@ UPF.
 | str0m SFU | B — media | Planned — [design](../docs/architecture/str0m-profile.md) |
 | Zenoh ingest node | A — robotics | Working — lives in [`../ros2/src/mec_cast_edge/`](../ros2/src/mec_cast_edge/) |
 | Zenoh router | A — robotics | `rmw_zenohd`, run from the ROS image |
+| [`../services/admin/`](../services/admin/) | control plane | Working — run orchestration on :8099, [guide](../docs/operations/admin-service.md) |
 
 The ROS2 ingest node sits in the colcon workspace for the same reason the
 lidar client does — see [clients/README.md](../clients/README.md).

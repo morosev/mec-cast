@@ -10,6 +10,7 @@ code** — that is what keeps them from rotting:
 | Client components | [clients/](../clients/README.md) |
 | MEC server components | [edge/](../edge/README.md) |
 | RAN metrics tap | [ran/collector/](../ran/collector/README.md) |
+| Edge services (logging, admin) | [services/](../services/README.md) |
 | Third-party forks | [third_party/](../third_party/README.md) |
 | Deployment | [deploy/](../deploy/README.md) |
 | Releasing (legacy client only) | [RELEASING.md](../RELEASING.md) |

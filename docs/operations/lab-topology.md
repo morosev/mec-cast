@@ -5,7 +5,7 @@
 | Role | Runs | Deploy |
 |---|---|---|
 | **infra** | Logging service + PostgreSQL | `bash deploy/lab/deploy.sh infra user@host` |
-| **edge** | Zenoh router + ROS2 ingest node | `bash deploy/lab/deploy.sh edge user@host` |
+| **edge** | Zenoh router + ROS2 ingest node + admin service (:8099) | `bash deploy/lab/deploy.sh edge user@host` |
 | **ue** | LiDAR + ROS2 client node, behind the 5G modem | `bash deploy/lab/deploy.sh ue user@host` |
 | **gnb** | srsRAN metrics collector (beside the O-DU) | `bash deploy/lab/deploy.sh gnb user@host` |
 
@@ -18,6 +18,7 @@ buffer-then-drop while it is unreachable.
 │ LiDAR      │   Uu    ┌────────┐  ┌─────────┐   │ zenoh      │   │ logging    │
 │ ros2 client├─modem───┤ srsRAN ├──┤ Open5GS ├───┤ router     │   │ service    │
 │            │  USRP   │ gNB    │  │ core    │UPF│ edge node  ├──►│ postgres   │
+│            │         │        │  │         │   │ admin :8099│   │            │
 └─────┬──────┘         └───┬────┘  └─────────┘   └─────┬──────┘   └─────▲──────┘
       │                    │ metrics UDP               │                │
       │                    ▼                           │                │
@@ -37,13 +38,19 @@ the UE role's environment to the router's reachable address.
 ## Required environment per role
 
 ```bash
-export RUN_ID=$(uuidgen)          # same value across ALL roles for one run
 export LOGGING_HOST=10.0.0.10     # infra host
-export EDGE_HOST=10.0.0.20        # edge host (UE role only)
+export EDGE_HOST=10.0.0.20        # edge host (UE and gNB roles)
+export RUN_ID=$(uuidgen)          # only without the admin; see below
 ```
 
 `RUN_ID` **must match across roles** — it becomes `trace_id`, the join key
 that correlates UE, edge, and RAN records for one experiment.
+
+With the admin service, do not set it. Every role defaults `ADMIN_URL` to
+`ws://${EDGE_HOST}:8099/ws/node`, the admin mints the run id, and the nodes
+ignore `RUN_ID` entirely — which removes the "same value across all roles"
+requirement that is easy to get wrong by hand. See
+[admin-service.md](admin-service.md).
 
 ## Deployment mechanism
 

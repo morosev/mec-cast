@@ -231,11 +231,11 @@ function bullets(s, x, y, w, h, items, size) {
   ], 11.5);
 }
 
-// ================================================== 4. LOGGING SERVICE
+// ================================================== 4. EDGE SERVICES
 {
   const s = slideBase(
-    "Logging service — PostgreSQL + FastAPI",
-    "mec-cast-logging-service: where aggregated results land. FastAPI + asyncpg over PostgreSQL, consumed as a git submodule at services/logging."
+    "Edge services — logging and admin",
+    "Two first-party services on the edge host. Logging is where aggregated results land; admin is where runs are started and stopped."
   );
 
   box(s, { x: M, y: TOP, w: 5.90, h: 2.50, title: "HTTP API  (/api/v1)", lines: [
@@ -258,20 +258,20 @@ function bullets(s, x, y, w, h, items, size) {
     "busy table never skips or duplicates rows.",
   ], fs: 11 });
 
-  box(s, { x: M, y: 4.45, w: 5.90, h: 1.50, title: "Schema is a contract", lines: [
-    "LogEntryCreate is extra=\"forbid\": any unexpected top-level",
-    "field is a runtime 422. Everything mec-cast-specific goes",
-    "inside context. Migrations apply automatically at startup.",
+  box(s, { x: M, y: 4.45, w: 5.90, h: 1.50, title: "Admin — run control plane  (:8099)", lines: [
+    "Nodes subscribe over WebSocket on startup and retry every",
+    "30 s. Runs are created, started and stopped from a page;",
+    "state machine, keep-alive, and workflow diagnostics.",
   ], fs: 11 });
 
-  box(s, { x: M + 6.33, y: 4.45, w: 5.90, h: 1.50, title: "Operational posture", lines: [
-    "No authentication and no rate limiting by design — bind it",
-    "to the management LAN only. Bulk deletion is a CLI command,",
-    "not an endpoint: mec-cast-logs purge --days 30",
+  box(s, { x: M + 6.33, y: 4.45, w: 5.90, h: 1.50, title: "Operational posture — both", lines: [
+    "No authentication on either — bind them to the management",
+    "LAN only. Admin can start and stop experiments, so its",
+    "blast radius is wider than the log store's.",
   ], fs: 11 });
 
   note(s, M, 6.15, CW, 0.55, [
-    "Per-frame samples do NOT go here — that firehose goes to CSV under runs/<RUN_ID>/. This service holds 2-second aggregated snapshots plus lifecycle and error events, which is what makes it queryable rather than merely large.",
+    "Per-frame samples do NOT go here — that firehose goes to CSV under runs/<RUN_ID>/. Logging holds 2-second aggregated snapshots; admin holds run manifests as files, no database, so the page still works when PostgreSQL is down.",
   ], 11);
 }
 
@@ -370,7 +370,8 @@ function bullets(s, x, y, w, h, items, size) {
   box(s, { x: M + 8.3, y: ty, w: 3.93, h: 2.35, title: "Zenoh", lines: [
     "", "router-based unicast dial-out, traverses NAT natively",
     "", "the UE dials out — an outbound connection just works",
-    "", "built for large payloads over lossy links; TCP / QUIC",
+    "", "large payloads over lossy links; here udp/7447?rel=1 —",
+    "retransmit, no congestion control, no TLS",
   ], fs: 10.5 });
 
   note(s, M, 5.75, CW, 1.2, [
