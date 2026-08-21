@@ -90,7 +90,9 @@ fn decode_envelope(py: Python<'_>, data: &[u8]) -> PyResult<Py<PyDict>> {
 
 /// The async recording pipeline, Python-side handle.
 ///
-/// One `Recorder` per process. `record()` never blocks: on a full queue it
+/// One *active* `Recorder` per process — building a second after `shutdown()`
+/// is safe and is how admin-driven runs work (ADR-0007). `record()` never
+/// blocks: on a full queue it
 /// counts a drop and returns False.
 ///
 /// The SPSC producer is single-owner (`Send`, not `Sync`); a mutex makes the

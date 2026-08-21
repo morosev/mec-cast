@@ -102,6 +102,7 @@ why there is no RIC yet.
 | WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
 | RAN metrics tap | Working against a captured fixture |
 | Logging service submodule | Wired at `services/logging` |
+| Admin control plane | Wired at `services/admin`; `make up-admin`, page on :8099 |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |
 | str0m SFU implementation | Not started — [design](docs/architecture/str0m-profile.md) |
 | Draco compression | Not started |

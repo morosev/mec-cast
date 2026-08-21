@@ -18,6 +18,7 @@ on:
       - "telemetry/**"
       - "ran/**"
       - "ros2/**"
+      - "services/**"
       - "deploy/**"
       - "tests/e2e/**"
       - "scripts/**"
@@ -31,6 +32,7 @@ on:
       - "telemetry/**"
       - "ran/**"
       - "ros2/**"
+      - "services/**"
       - "deploy/**"
       - "tests/e2e/**"
       - "scripts/**"
@@ -66,6 +68,23 @@ jobs:
         working-directory: telemetry/python
       - run: pip install telemetry/python/dist/*.whl
       - run: pytest telemetry/python/tests -v
+
+  admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e "services/admin[dev]"
+      # No database and no containers: the state machine, protocol, store and
+      # diagnostics are pure, and the service tests drive TestClient.
+      - run: pytest services/admin/tests -q
+      - run: ruff check services/admin && ruff format --check services/admin
+      # The node-side protocol client is a separate implementation of the same
+      # wire format; its tests assert against the shared fixture.
+      - run: pip install "websockets>=12" pytest
+      - run: pytest ros2/src/mec_cast_admin_client/test -q
 
   ros:
     runs-on: ubuntu-latest

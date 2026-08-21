@@ -10,6 +10,10 @@ Run (docker + built images required; first run builds them):
     make test-e2e            # or: pytest tests/e2e -v
 
 Uses only the standard library so it runs on the bare WSL host python.
+
+This file is also the regression test for the standalone path: it sets RUN_ID
+in the environment and runs with no admin service present. Keep it that way —
+`test_admin_run.py` covers the control-plane path, and the two must not merge.
 """
 
 import csv

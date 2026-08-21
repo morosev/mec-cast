@@ -1,0 +1,49 @@
+# Control plane overlay: the admin service, plus the ADMIN_URL that makes the
+# nodes dial it.
+#
+# Deliberately a third file rather than a service inside local.yml. That file
+# is the Profile A *data plane*, and `make up-local` must keep exercising the
+# standalone env-RUN_ID path — which is what tests/e2e/test_e2e_latency.py
+# depends on.
+#
+#   make up-admin        # local.yml + logging.yml + this
+#
+# Then open http://localhost:8099/admin.
+#
+# With ADMIN_URL set the nodes ignore RUN_ID entirely: runs are created and
+# named by the admin. See ADR-0007 and ADR-0008.
+services:
+  admin:
+    build:
+      context: ../../services/admin
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        WORKDIR /app
+        COPY pyproject.toml README.md LICENSE ./
+        COPY src ./src
+        RUN pip install --no-cache-dir .
+        EXPOSE 8099
+        CMD ["mec-cast-admin", "serve", "--host", "0.0.0.0", "--port", "8099"]
+    environment:
+      # Shared with the nodes so manifests land beside the CSVs they describe.
+      MECADM_RUNS_DIR: /runs
+      MECADM_LOGGING_URL: http://logging:8000
+    ports:
+      - "8099:8099"
+    volumes:
+      - ../../runs:/runs
+
+  lidar-client:
+    environment:
+      ADMIN_URL: ws://admin:8099/ws/node
+      # A robot does not start streaming on power-up; the operator presses
+      # Start. Set true to have it join the active run on connect.
+      ADMIN_AUTOSTART: "false"
+    depends_on:
+      - admin
+
+  edge:
+    environment:
+      ADMIN_URL: ws://admin:8099/ws/node
+    depends_on:
+      - admin

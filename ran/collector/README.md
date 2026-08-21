@@ -63,3 +63,19 @@ first correlated data point. Because this emits into the same recorder and
 snapshot schema, an E2SM-KPM xApp can later be added as an additional
 producer without touching any consumer. See
 [ADR-0005](../../docs/architecture/adr/0005-mac-metrics-tap-before-ric.md).
+
+## Admin control plane
+
+With `ADMIN_URL` set the collector joins the admin service and records only
+between `run.start` and `run.stop`. Datagrams arriving while idle are counted
+but not recorded — that count is what lets the admin distinguish "srsRAN is
+sending nothing" from "we are simply not recording".
+
+The client is synchronous `tungstenite` behind a default-on `admin` feature:
+one thread, a read timeout so the stop flag is observed, and bounded channels
+that drop rather than block — the same shape the telemetry recorder already
+uses. **No async runtime enters the dependency tree**, and CI builds
+`--no-default-features` to keep it that way.
+
+Without `ADMIN_URL` the collector records immediately under the environment's
+`RUN_ID`, exactly as before.

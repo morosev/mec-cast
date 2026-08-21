@@ -1,0 +1,130 @@
+{
+  "_comment": "Shared protocol fixtures. Read by services/admin/tests/test_protocol.py AND by ran/collector/tests/admin_ws.rs, so the Python and Rust implementations cannot drift apart silently. Timestamps and ids are frozen so the file diffs cleanly.",
+
+  "hello_client": {
+    "v": 1, "type": "hello", "msg_id": "00000000-0000-4000-8000-000000000001",
+    "ts_ns": 1787000000000000001, "node_id": "client-ue01-0",
+    "payload": {
+      "node_type": "client", "node_id": "client-ue01-0", "host": "ue01", "pid": 41,
+      "version": {"sha": "f398ec6", "tag": "platform-v0.3.0"},
+      "state": "idle", "run_id": null, "autostart": false,
+      "params": {"rate_hz": 10.0, "num_points": 30000, "seed": 42,
+                 "pattern": "uniform_cube", "reliability": "reliable", "qos_depth": 10}
+    }
+  },
+
+  "status_client": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000002",
+    "ts_ns": 1787000000000000002, "node_id": "client-ue01-0",
+    "payload": {
+      "node_type": "client", "state": "running",
+      "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": true, "subscribed": false, "peers": [],
+      "params": {"rate_hz": 10.0, "num_points": 30000, "reliability": "reliable"},
+      "counters": {"frames_published": 1421, "seq_last": 1420, "samples_dropped": 0},
+      "autostart": false, "last_error": null, "report": {}
+    }
+  },
+
+  "status_edge": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000003",
+    "ts_ns": 1787000000000000003, "node_id": "edge-mec01-0",
+    "payload": {
+      "node_type": "edge", "state": "running",
+      "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": false, "subscribed": true,
+      "peers": [{"peer_id": "/mec_cast_lidar_client",
+                 "first_seen_ns": 1787000000000000000,
+                 "last_seen_ns": 1787000000000000003,
+                 "detail": {"frames": 1200, "seq_gaps": 2}}],
+      "params": {"reliability": "reliable", "qos_depth": 10},
+      "counters": {"frames": 1200, "seq_gaps": 2},
+      "autostart": true, "last_error": null, "report": {}
+    }
+  },
+
+  "status_gnb": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000004",
+    "ts_ns": 1787000000000000004, "node_id": "gnb-gnb01-0",
+    "payload": {
+      "node_type": "gnb", "state": "running",
+      "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": false, "subscribed": false,
+      "peers": [{"peer_id": "rnti=17921", "last_seen_ns": 1787000000000000004,
+                 "detail": {"pci": 1, "dl_mcs": 27, "cqi": 15}}],
+      "params": {"bind": "0.0.0.0:55555"},
+      "counters": {"datagrams": 9021, "malformed": 0,
+                   "batches_posted": 90, "post_failures": 0},
+      "autostart": true, "last_error": null, "report": {}
+    }
+  },
+
+  "ack": {
+    "v": 1, "type": "ack", "msg_id": "00000000-0000-4000-8000-000000000005",
+    "ts_ns": 1787000000000000005, "node_id": "edge-mec01-0",
+    "payload": {"in_reply_to": "00000000-0000-4000-8000-00000000000a",
+                "ok": true, "error": null}
+  },
+
+  "pong": {
+    "v": 1, "type": "pong", "msg_id": "00000000-0000-4000-8000-000000000006",
+    "ts_ns": 1787000000000000006, "node_id": "gnb-gnb01-0", "payload": {}
+  },
+
+  "goodbye": {
+    "v": 1, "type": "goodbye", "msg_id": "00000000-0000-4000-8000-000000000007",
+    "ts_ns": 1787000000000000007, "node_id": "client-ue01-0",
+    "payload": {
+      "reason": "sigterm", "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "final_report": {"samples_written": 1421, "samples_dropped": 0,
+                       "snapshots_built": 12, "snapshots_posted": 12,
+                       "snapshots_dropped": 0, "post_failures": 0}
+    }
+  },
+
+  "welcome": {
+    "v": 1, "type": "welcome", "msg_id": "00000000-0000-4000-8000-000000000008",
+    "ts_ns": 1787000000000000008, "node_id": null,
+    "payload": {
+      "server_version": "0.1.0", "protocol": 1,
+      "keepalive_s": 10.0, "offline_timeout_s": 30.0,
+      "active_run": {"run_id": "0190d1f2-0000-7000-8000-000000000000",
+                     "label": "baseline", "params": {"rate_hz": 10.0}}
+    }
+  },
+
+  "welcome_no_active_run": {
+    "v": 1, "type": "welcome", "msg_id": "00000000-0000-4000-8000-000000000009",
+    "ts_ns": 1787000000000000009, "node_id": null,
+    "payload": {"server_version": "0.1.0", "protocol": 1,
+                "keepalive_s": 10.0, "offline_timeout_s": 30.0, "active_run": null}
+  },
+
+  "command_run_start": {
+    "v": 1, "type": "command", "msg_id": "00000000-0000-4000-8000-00000000000a",
+    "ts_ns": 1787000000000000010, "node_id": null,
+    "payload": {"command": "run.start", "target_node_type": "client",
+                "run_id": "0190d1f2-0000-7000-8000-000000000000",
+                "args": {"rate_hz": 10.0, "num_points": 30000, "seed": 42}}
+  },
+
+  "command_run_stop": {
+    "v": 1, "type": "command", "msg_id": "00000000-0000-4000-8000-00000000000b",
+    "ts_ns": 1787000000000000011, "node_id": null,
+    "payload": {"command": "run.stop", "target_node_type": null,
+                "run_id": "0190d1f2-0000-7000-8000-000000000000", "args": {}}
+  },
+
+  "ping": {
+    "v": 1, "type": "ping", "msg_id": "00000000-0000-4000-8000-00000000000c",
+    "ts_ns": 1787000000000000012, "node_id": null, "payload": {}
+  },
+
+  "error_version": {
+    "v": 1, "type": "error", "msg_id": "00000000-0000-4000-8000-00000000000d",
+    "ts_ns": 1787000000000000013, "node_id": null,
+    "payload": {"code": "unsupported_version",
+                "message": "unsupported protocol version 2; this service speaks 1",
+                "supported_protocol": 1}
+  }
+}

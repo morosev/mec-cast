@@ -20,6 +20,7 @@ Environment:
 
 import os
 import signal
+import socket
 import uuid
 
 import numpy as np
@@ -31,9 +32,13 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 
 import mec_cast_telemetry as tel
+from mec_cast_admin_client import AdminClient
+from mec_cast_admin_client import protocol as ap
 from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
 
 SITE_PUBLISHER = 0
+ADMIN_POLL_S = 0.1
+STATUS_PERIOD_S = 2.0
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -42,7 +47,7 @@ def cloud_qos(reliability: str, depth: int) -> QoSProfile:
     `best_effort` is the sensor-data convention and the only setting that
     lets a late frame be *dropped* rather than retransmitted — which is what
     a latency-critical stream wants, and what makes an unreliable transport
-    (QUIC datagrams via `mixed_rel`) behave differently from a reliable one.
+    (unreliable datagrams via `mixed_rel`) behave differently from a reliable one.
     Under `reliable`, every transport is asked to guarantee delivery, so the
     wire protocol barely matters; see ADR-0006.
 
@@ -114,30 +119,185 @@ class PointCloudPublisher(Node):
         if self.pattern not in ("uniform_cube", "rotating_plane"):
             raise ValueError(f"unknown pattern {self.pattern!r}")
 
-        self.run_id = os.environ.get("RUN_ID", "dev-run")
-        self.trace_id = run_trace_id(self.run_id)
-        runs_dir = os.environ.get("RUNS_DIR", "runs")
-
-        self.recorder = tel.Recorder(
-            self.run_id,
-            "mec-cast-pub",
-            os.path.join(runs_dir, self.run_id, "pub"),
-            logging_url=os.environ.get("LOGGING_URL") or None,
+        self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
+        # A robot must not start streaming the moment it powers on: the
+        # operator decides. The edge defaults the other way.
+        self.declare_parameter(
+            "admin_autostart", os.environ.get("ADMIN_AUTOSTART", "").lower() == "true"
         )
+        self.declare_parameter("admin_instance", 0)
 
+        self.runs_dir = os.environ.get("RUNS_DIR", "runs")
+        self.logging_url = os.environ.get("LOGGING_URL") or None
+
+        self.run_id: str | None = None
+        self.trace_id = b"\x00" * 16
+        self.recorder: tel.Recorder | None = None
+        self.timer = None
         self.rng = np.random.default_rng(self.seed)
         self.seq = 0
+        self.frames_published = 0
+
         self.pub = self.create_publisher(
             CloudWithTelemetry,
             "mec_cast/cloud",
             cloud_qos(self.reliability, self.qos_depth),
         )
+
+        self.admin = AdminClient(
+            node_type=ap.NodeType.CLIENT,
+            host=socket.gethostname(),
+            url=str(self.get_parameter("admin_url").value),
+            instance=int(self.get_parameter("admin_instance").value),
+            version_sha=os.environ.get("VCS_REF", ""),
+            version_tag=os.environ.get("VERSION", ""),
+            pid=os.getpid(),
+        )
+        self.autostart = bool(self.get_parameter("admin_autostart").value)
+        self._last_status: dict | None = None
+
+        if self.admin.enabled:
+            self.admin.update_identity(autostart=self.autostart, params=self.params())
+            self.admin.start()
+            self.create_timer(ADMIN_POLL_S, self._drain_admin)
+            self.create_timer(STATUS_PERIOD_S, self._report_status)
+            self.get_logger().info(
+                f"lidar client up, idle (admin={self.admin.url}, "
+                f"node_id={self.admin.node_id}, autostart={self.autostart})"
+            )
+        else:
+            # Standalone: the environment names the run, exactly as before.
+            self.start_run(os.environ.get("RUN_ID", "dev-run"))
+            self.get_logger().info(
+                f"publishing {self.num_points} pts @ {self.rate_hz} Hz "
+                f"(pattern={self.pattern}, seed={self.seed}, run_id={self.run_id}, "
+                f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
+            )
+
+    # --- run lifecycle ----------------------------------------------------
+
+    def params(self) -> dict:
+        return {
+            "num_points": self.num_points,
+            "rate_hz": self.rate_hz,
+            "seed": self.seed,
+            "pattern": self.pattern,
+            "reliability": self.reliability,
+            "qos_depth": self.qos_depth,
+        }
+
+    @property
+    def streaming(self) -> bool:
+        return self.recorder is not None
+
+    def start_run(self, run_id: str, args: dict | None = None) -> None:
+        """Build a Recorder for this run and start the publish timer.
+
+        Workload knobs arrive with the command rather than from the
+        environment, so a run records the settings it actually used.
+        """
+        if self.streaming:
+            if run_id == self.run_id:
+                return
+            self.stop_run()
+
+        for key in ("num_points", "rate_hz", "seed", "pattern"):
+            if args and key in args and args[key] is not None:
+                setattr(self, key, type(getattr(self, key))(args[key]))
+        if self.pattern not in ("uniform_cube", "rotating_plane"):
+            raise ValueError(f"unknown pattern {self.pattern!r}")
+
+        self.run_id = run_id
+        self.trace_id = run_trace_id(run_id)
+        # A run is reproducible from its seed, so the sequence restarts with it.
+        self.rng = np.random.default_rng(self.seed)
+        self.seq = 0
+        self.frames_published = 0
+        self.recorder = tel.Recorder(
+            run_id,
+            "mec-cast-pub",
+            os.path.join(self.runs_dir, run_id, "pub"),
+            logging_url=self.logging_url,
+        )
         self.timer = self.create_timer(1.0 / self.rate_hz, self.publish_frame)
         self.get_logger().info(
-            f"publishing {self.num_points} pts @ {self.rate_hz} Hz "
-            f"(pattern={self.pattern}, seed={self.seed}, run_id={self.run_id}, "
-            f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
+            f"streaming run {run_id}: {self.num_points} pts @ {self.rate_hz} Hz "
+            f"(pattern={self.pattern}, seed={self.seed})"
         )
+
+    def stop_run(self) -> dict:
+        """Stop the timer first, then drain: publish_frame must not fire into
+        a shut-down recorder."""
+        if not self.streaming:
+            return {}
+        if self.timer is not None:
+            self.destroy_timer(self.timer)
+            self.timer = None
+        report = self.recorder.shutdown()
+        self.recorder = None
+        self.get_logger().info(
+            f"stopped run {self.run_id}: frames={self.frames_published} report={report}"
+        )
+        return report
+
+    # --- admin ------------------------------------------------------------
+
+    def _drain_admin(self) -> None:
+        for frame in self.admin.poll():
+            payload = frame.get("payload") or {}
+            if frame["type"] == ap.MessageType.WELCOME:
+                active = payload.get("active_run")
+                if active and self.autostart:
+                    self.start_run(active["run_id"], active.get("params"))
+                self._report_status(force=True)
+            elif frame["type"] == ap.MessageType.COMMAND:
+                self._apply_command(frame, payload)
+
+    def _apply_command(self, frame: dict, payload: dict) -> None:
+        command = payload.get("command")
+        ok, error, stop_report = True, None, None
+        try:
+            if command in (ap.CommandType.RUN_START, ap.CommandType.STREAM_START):
+                run_id = payload.get("run_id")
+                if not run_id:
+                    raise ValueError("run.start without a run_id")
+                self.start_run(run_id, payload.get("args"))
+            elif command in (ap.CommandType.RUN_STOP, ap.CommandType.STREAM_STOP):
+                stop_report = self.stop_run()
+            elif command != ap.CommandType.STATUS_REPORT:
+                raise ValueError(f"unknown command {command!r}")
+        except Exception as exc:
+            ok, error = False, str(exc)
+            self.get_logger().error(f"admin command {command} failed: {exc}")
+        self.admin.publish_ack(frame["msg_id"], ok=ok, error=error)
+        # The report travels with the status: an admin-driven stop leaves this
+        # process alive, so it must not wait for the goodbye frame.
+        self._report_status(force=True, report=stop_report)
+
+    def _report_status(self, force: bool = False, report: dict | None = None) -> None:
+        if not self.admin.enabled:
+            return
+        dropped = self.recorder.dropped_total() if self.recorder is not None else 0
+        payload = ap.status_payload(
+            node_type=ap.NodeType.CLIENT,
+            state=ap.NodeState.RUNNING if self.streaming else ap.NodeState.IDLE,
+            run_id=self.run_id,
+            streaming=self.streaming,
+            params=self.params(),
+            counters={
+                "frames_published": self.frames_published,
+                "seq_last": max(self.seq - 1, 0),
+                "samples_dropped": dropped,
+            },
+            autostart=self.autostart,
+            report=report or {},
+        )
+        if force or payload != self._last_status:
+            self._last_status = payload
+            self.admin.update_identity(
+                state=payload["state"], run_id=self.run_id, params=self.params()
+            )
+            self.admin.publish_status(payload)
 
     def generate_points(self) -> np.ndarray:
         if self.pattern == "uniform_cube":
@@ -166,6 +326,9 @@ class PointCloudPublisher(Node):
         return np.ascontiguousarray(pts @ rot.T, dtype=np.float32)
 
     def publish_frame(self) -> None:
+        if self.recorder is None:
+            # The run was stopped between this tick being scheduled and fired.
+            return
         capture_ns = tel.now_ns()
         points = self.generate_points()
 
@@ -193,9 +356,13 @@ class PointCloudPublisher(Node):
             trace_id=self.trace_id,
         )
         self.seq += 1
+        self.frames_published += 1
 
     def finish(self) -> None:
-        report = self.recorder.shutdown()
+        """Stop producing, drain, then say goodbye. Tolerant of no active run:
+        an admin-driven client sits idle until it is told to stream."""
+        report = self.stop_run()
+        self.admin.goodbye(reason="shutdown", run_id=self.run_id, final_report=report)
         self.get_logger().info(f"recorder report: {report}")
 
 

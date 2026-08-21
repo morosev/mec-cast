@@ -17,6 +17,9 @@ VENV    := telemetry/python/.venv
 PYTHON  := $(VENV)/bin/python
 PYTEST  := $(VENV)/bin/pytest
 COMPOSE := docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml
+# Control plane on top of the data plane. Separate so `up-local` keeps
+# exercising the standalone env-RUN_ID path.
+COMPOSE_ADMIN := $(COMPOSE) -f deploy/compose/admin.yml
 
 # On macOS, ring's C objects are compiled against the SDK's deployment target
 # while a bare `cc` link defaults to the host's — so ld warns once per object.
@@ -126,11 +129,18 @@ fmt: ## Apply rustfmt
 	cargo fmt --all
 
 # ─── run ──────────────────────────────────────────────────────────────────
-.PHONY: up-local up-logging down logs experiment
+.PHONY: up-local up-admin down-admin up-logging down logs experiment
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)} \
 	  $(COMPOSE) up -d --build
+
+up-admin: build-ros2 ## Local topology + the admin control plane (no RUN_ID needed)
+	$(COMPOSE_ADMIN) up -d --build
+	@echo "admin page: http://localhost:8099/admin"
+
+down-admin: ## Tear down the topology including the admin service
+	$(COMPOSE_ADMIN) down -v --remove-orphans
 
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build

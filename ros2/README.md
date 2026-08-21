@@ -53,3 +53,24 @@ make test-ros2      # builds the image, runs colcon test in-container
 `mec_cast_edge/test/test_pipeline_launch.py` is a `launch_testing` case:
 it starts the router, client, and edge, then asserts messages flow, `seq`
 is gapless, and `recv_ns > send_ns` over the active RMW.
+
+## `mec_cast_admin_client`
+
+The control-plane client both nodes share, the way they already share
+`mec_cast_msgs`. A background thread owns the WebSocket and moves dicts
+through queues; **it never touches rclpy**, and commands are applied from a
+normal timer on the executor thread. That keeps `rclpy.spin` single-threaded —
+no MultiThreadedExecutor, no callback groups.
+
+New parameters on both nodes:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `admin_url` | `$ADMIN_URL`, else empty | Empty = standalone, unchanged behaviour |
+| `admin_autostart` | client `false`, edge `true` | Join the active run on connect |
+| `admin_instance` | `0` | Distinguishes several nodes of one type per host |
+
+With an admin, the Recorder is built **per run** rather than per process:
+`start_run` creates it and the timer or subscription, `stop_run` destroys them
+in that order so nothing fires into a shut-down recorder. See
+[docs/operations/admin-service.md](../docs/operations/admin-service.md).

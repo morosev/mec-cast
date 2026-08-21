@@ -46,7 +46,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=wheel /wheels /wheels
-RUN pip install --no-cache-dir --break-system-packages /wheels/*.whl
+# websockets carries the admin control-plane client. The apt package is
+# 10.4 and websockets.sync.client landed in 12, so it comes from pip.
+# Build-time network only: nothing is fetched when the container runs.
+RUN pip install --no-cache-dir --break-system-packages /wheels/*.whl "websockets>=12"
 
 WORKDIR /ws
 COPY ros2/src ./src

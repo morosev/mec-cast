@@ -186,3 +186,40 @@ fn recorder_without_logging_url_still_writes_csv() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn reusing_a_run_id_appends_instead_of_destroying_earlier_frames() {
+    // Restarting a component mid-experiment reuses RUN_ID, so it reopens the
+    // same samples.csv. Truncating there would silently destroy measurement
+    // data that exists nowhere else — the logging service only ever receives
+    // aggregates.
+    let dir = std::env::temp_dir().join(format!("mec-cast-loopback-reuse-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let mut written = 0u64;
+    for run in 0..2 {
+        let cfg = RecorderConfig::new("run-reused", "mec-cast-test", &dir);
+        let (mut sender, handle) = spawn_recorder(cfg, PtpMonitor::disabled()).expect("spawn");
+        for seq in 0..50 {
+            assert!(sender.try_record(make_sample(run * 50 + seq, [0u8; 16])));
+        }
+        drop(sender);
+        written += handle.shutdown().samples_written;
+    }
+
+    assert_eq!(written, 100);
+    let csv = std::fs::read_to_string(dir.join("samples.csv")).unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+
+    // One header, then every frame from both incarnations.
+    assert_eq!(lines.iter().filter(|l| l.starts_with("seq,")).count(), 1);
+    assert_eq!(lines.len(), 101);
+
+    let seqs: Vec<u64> = lines[1..]
+        .iter()
+        .map(|l| l.split(',').next().unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(seqs, (0..100).collect::<Vec<u64>>());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

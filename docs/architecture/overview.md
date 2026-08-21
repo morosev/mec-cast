@@ -53,6 +53,7 @@ ros2/             Single colcon workspace (see exception below)
 telemetry/        Shared Rust crate + PyO3 bindings — the spine
 ran/collector/    O-DU MAC scheduler metrics tap
 services/logging/ Logging service (submodule)
+services/admin/   Admin service: run orchestration (in-repo)
 third_party/      Vendored forks, excluded from workspace + build contexts
   webrtc/src        forked libwebrtc (submodule) + gclient glue
   str0m             forked str0m (submodule) — sans-IO WebRTC library
@@ -113,6 +114,28 @@ Derived metrics per sample: `network = recv − send`,
 
 `trace_id = RUN_ID` (one UUID per experiment run) joins everything across
 publisher, edge, and RAN.
+
+## Control plane
+
+Data flows UE → edge and everything reports to the logging service. Run
+*lifecycle* is a separate concern, and since ADR-0007 it has its own path:
+`mec-cast-admin` on the edge host, speaking JSON over WebSocket to every node.
+
+```
+              ┌──────────── mec-cast-admin (edge, :8099) ────────────┐
+              │  run table · state machine · workflow diagnostics    │
+              └───▲──────────────────▲───────────────────────▲───────┘
+                  │ ws               │ ws                    │ ws
+            lidar-client          edge node            ran-collector
+               (UE)               (edge)                  (gNB)
+```
+
+Nodes subscribe on startup and retry every 30 s, so start order does not
+matter. The control plane sits on the management LAN, never on the link under
+measurement — the same reasoning that keeps PTP off the user plane (ADR-0003).
+
+A node with no `ADMIN_URL` records under the environment's `RUN_ID` exactly as
+before. The admin is additive.
 
 ## Clock synchronization
 

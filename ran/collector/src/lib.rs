@@ -17,6 +17,11 @@
 //! `context.kpi`; only non-JSON datagrams are counted as malformed and
 //! dropped.
 
+/// Control-plane client. Behind a feature so `--no-default-features` stays
+/// free of the websocket dependency, which CI builds to prove.
+#[cfg(feature = "admin")]
+pub mod admin;
+
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -145,62 +150,284 @@ impl Batcher {
     }
 }
 
+/// Everything one run owns: the recorder, the KPI batcher, and the trace id.
+///
+/// Extracted from `run` so a collector driven by the admin can start and stop
+/// recording without restarting the process. `run` itself keeps one session
+/// for its whole life, which is exactly what it did before.
+pub struct RunSession {
+    run_id: String,
+    sender: mec_cast_telemetry::SampleSender,
+    handle: mec_cast_telemetry::RecorderHandle,
+    batcher: Batcher,
+    trace_id: [u8; 16],
+    report: RunReport,
+}
+
+impl RunSession {
+    /// Open a session for `run_id`, writing under `cfg.out_dir`.
+    pub fn start(run_id: &str, cfg: &CollectorConfig) -> std::io::Result<Self> {
+        let mut rec_cfg =
+            RecorderConfig::new(run_id.to_string(), "mec-cast-ran", cfg.out_dir.clone());
+        rec_cfg.logging_url = None; // KPI entries go through the batcher instead
+        let (sender, handle) = mec_cast_telemetry::spawn_recorder(rec_cfg, PtpMonitor::disabled())?;
+
+        let mut trace_id = [0u8; 16];
+        let src = run_id.as_bytes();
+        let n = src.len().min(16);
+        trace_id[..n].copy_from_slice(&src[..n]);
+
+        Ok(Self {
+            run_id: run_id.to_string(),
+            sender,
+            handle,
+            batcher: Batcher::new(cfg),
+            trace_id,
+            report: RunReport::default(),
+        })
+    }
+
+    pub fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    pub fn report(&self) -> RunReport {
+        let mut report = self.report;
+        report.batches_posted = self.batcher.batches_posted;
+        report.post_failures = self.batcher.post_failures;
+        report
+    }
+
+    /// Record one datagram: timing sample plus a KPI entry for the batch.
+    pub fn record(&mut self, payload: &[u8], recv_ns: i64) {
+        self.report.datagrams += 1;
+        let mut envelope =
+            TimingEnvelope::new(Modality::Generic, self.report.datagrams, self.trace_id);
+        envelope.recv_ns = recv_ns;
+        self.sender.try_record(Sample {
+            envelope,
+            kind: SampleKind::Event,
+            site: SITE_RAN,
+            payload_bytes: payload.len() as u32,
+            aux_ns: 0,
+        });
+        match kpi_entry(payload, &self.run_id, recv_ns) {
+            Some(entry) => self.batcher.push(entry),
+            None => self.report.malformed += 1,
+        }
+    }
+
+    pub fn maybe_flush(&mut self) {
+        self.batcher.maybe_flush();
+    }
+
+    /// Flush, drain the recorder, and return the final accounting.
+    pub fn stop(mut self) -> RunReport {
+        self.batcher.flush();
+        let mut report = self.report();
+        drop(self.sender);
+        report.samples_written = self.handle.shutdown().samples_written;
+        report
+    }
+}
+
 /// Receive loop. Returns when `stop` is set (checked between reads; the
 /// socket must have a read timeout so the loop can observe it).
+///
+/// This is the standalone path: the run id comes from the environment and
+/// recording begins immediately. Unchanged by the admin work.
 pub fn run(
     socket: UdpSocket,
     cfg: CollectorConfig,
     stop: &AtomicBool,
 ) -> std::io::Result<RunReport> {
     socket.set_read_timeout(Some(Duration::from_millis(200)))?;
-
-    let mut rec_cfg = RecorderConfig::new(cfg.run_id.clone(), "mec-cast-ran", cfg.out_dir.clone());
-    rec_cfg.logging_url = None; // KPI entries go through the batcher instead
-    let (mut sender, handle) = mec_cast_telemetry::spawn_recorder(rec_cfg, PtpMonitor::disabled())?;
-
-    let mut batcher = Batcher::new(&cfg);
+    let mut session = RunSession::start(&cfg.run_id.clone(), &cfg)?;
     let clock = RealtimeClock;
-    let mut trace_id = [0u8; 16];
-    let src = cfg.run_id.as_bytes();
-    let n = src.len().min(16);
-    trace_id[..n].copy_from_slice(&src[..n]);
-
-    let mut report = RunReport::default();
     let mut buf = vec![0u8; 65536];
+
     while !stop.load(Ordering::SeqCst) {
         match socket.recv_from(&mut buf) {
-            Ok((len, _peer)) => {
-                let recv_ns = clock.now_ns();
-                report.datagrams += 1;
-                let mut envelope =
-                    TimingEnvelope::new(Modality::Generic, report.datagrams, trace_id);
-                envelope.recv_ns = recv_ns;
-                sender.try_record(Sample {
-                    envelope,
-                    kind: SampleKind::Event,
-                    site: SITE_RAN,
-                    payload_bytes: len as u32,
-                    aux_ns: 0,
-                });
-                match kpi_entry(&buf[..len], &cfg.run_id, recv_ns) {
-                    Some(entry) => batcher.push(entry),
-                    None => report.malformed += 1,
-                }
-            }
+            Ok((len, _peer)) => session.record(&buf[..len], clock.now_ns()),
             Err(e)
                 if e.kind() == std::io::ErrorKind::WouldBlock
                     || e.kind() == std::io::ErrorKind::TimedOut => {}
             Err(e) => return Err(e),
         }
-        batcher.maybe_flush();
+        session.maybe_flush();
     }
-    batcher.flush();
-    drop(sender);
-    let rec_report = handle.shutdown();
-    report.batches_posted = batcher.batches_posted;
-    report.post_failures = batcher.post_failures;
-    report.samples_written = rec_report.samples_written;
-    Ok(report)
+    Ok(session.stop())
+}
+
+/// Receive loop driven by the admin service.
+///
+/// Recording starts and stops on command rather than at process start, so the
+/// collector can sit idle between runs. Datagrams arriving while idle are
+/// counted but not recorded — and that count is exactly what lets the admin
+/// tell "srsRAN is sending nothing" from "we are simply not recording".
+#[cfg(feature = "admin")]
+pub fn run_with_admin(
+    socket: UdpSocket,
+    cfg: CollectorConfig,
+    stop: std::sync::Arc<AtomicBool>,
+    admin_cfg: admin::AdminConfig,
+) -> std::io::Result<RunReport> {
+    use std::sync::mpsc::TryRecvError;
+
+    socket.set_read_timeout(Some(Duration::from_millis(200)))?;
+    let bind = socket
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+    let (handle, commands) = admin::spawn(admin_cfg, std::sync::Arc::clone(&stop));
+
+    let clock = RealtimeClock;
+    let mut buf = vec![0u8; 65536];
+    let mut session: Option<RunSession> = None;
+    let mut total = RunReport::default();
+    let mut idle_datagrams: u64 = 0;
+    let mut last_status = Instant::now();
+
+    while !stop.load(Ordering::SeqCst) {
+        match commands.try_recv() {
+            Ok(admin::Command::Start { run_id }) => {
+                if session.as_ref().map(RunSession::run_id) != Some(run_id.as_str()) {
+                    if let Some(previous) = session.take() {
+                        total = accumulate(total, previous.stop());
+                    }
+                    match RunSession::start(&run_id, &cfg) {
+                        Ok(new) => {
+                            eprintln!("[ran-collector] recording run {run_id}");
+                            session = Some(new);
+                            handle.set_identity("running", Some(&run_id));
+                        }
+                        Err(e) => eprintln!("[ran-collector] cannot start run {run_id}: {e}"),
+                    }
+                }
+                send_status(
+                    &handle,
+                    &session,
+                    &bind,
+                    idle_datagrams,
+                    serde_json::json!({}),
+                );
+            }
+            Ok(admin::Command::Stop) => {
+                let report = match session.take() {
+                    Some(active) => {
+                        let report = active.stop();
+                        total = accumulate(total, report);
+                        report
+                    }
+                    None => RunReport::default(),
+                };
+                handle.set_identity("idle", None);
+                send_status(
+                    &handle,
+                    &session,
+                    &bind,
+                    idle_datagrams,
+                    report_json(&report),
+                );
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => break,
+        }
+
+        match socket.recv_from(&mut buf) {
+            Ok((len, _peer)) => match session.as_mut() {
+                Some(active) => active.record(&buf[..len], clock.now_ns()),
+                None => idle_datagrams += 1,
+            },
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(e) => return Err(e),
+        }
+        if let Some(active) = session.as_mut() {
+            active.maybe_flush();
+        }
+
+        if last_status.elapsed() >= Duration::from_secs(2) {
+            last_status = Instant::now();
+            send_status(
+                &handle,
+                &session,
+                &bind,
+                idle_datagrams,
+                serde_json::json!({}),
+            );
+        }
+    }
+
+    if let Some(active) = session.take() {
+        total = accumulate(total, active.stop());
+    }
+    handle.goodbye(None, report_json(&total));
+    let admin_report = handle.shutdown();
+    eprintln!("[ran-collector] admin: {admin_report:?}");
+    Ok(total)
+}
+
+#[cfg(feature = "admin")]
+fn accumulate(mut total: RunReport, one: RunReport) -> RunReport {
+    total.datagrams += one.datagrams;
+    total.malformed += one.malformed;
+    total.batches_posted += one.batches_posted;
+    total.post_failures += one.post_failures;
+    total.samples_written += one.samples_written;
+    total
+}
+
+#[cfg(feature = "admin")]
+fn report_json(report: &RunReport) -> Value {
+    json!({
+        "samples_written": report.samples_written,
+        "datagrams": report.datagrams,
+        "malformed": report.malformed,
+        "batches_posted": report.batches_posted,
+        "post_failures": report.post_failures,
+    })
+}
+
+/// Peers are the UEs in the last metrics datagram; until one has been parsed
+/// there are none to report.
+#[cfg(feature = "admin")]
+fn send_status(
+    handle: &admin::AdminHandle,
+    session: &Option<RunSession>,
+    bind: &str,
+    idle_datagrams: u64,
+    report: Value,
+) {
+    let (state, run_id, counters) = match session {
+        Some(active) => {
+            let r = active.report();
+            (
+                "running",
+                Some(active.run_id()),
+                json!({
+                    "datagrams": r.datagrams,
+                    "malformed": r.malformed,
+                    "batches_posted": r.batches_posted,
+                    "post_failures": r.post_failures,
+                }),
+            )
+        }
+        None => (
+            "idle",
+            None,
+            json!({"datagrams": idle_datagrams, "malformed": 0}),
+        ),
+    };
+    handle.status(admin::status_payload(
+        state,
+        run_id,
+        bind,
+        Vec::new(),
+        counters,
+        report,
+    ));
 }
 
 #[cfg(test)]

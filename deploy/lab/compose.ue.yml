@@ -23,7 +23,9 @@ services:
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
       # Dial the router on the edge host across the 5G user plane.
       ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/${EDGE_HOST}:7447"]'
-      RUN_ID: ${RUN_ID:?set RUN_ID}
+      RUN_ID: ${RUN_ID:-}
+      # The admin runs on the edge host; without it the node needs RUN_ID.
+      ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
     volumes:

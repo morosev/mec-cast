@@ -117,3 +117,20 @@ Four hosts, each running one or two containers, operated by the people who
 wrote them. Compose plus `rsync` is debuggable at 2am in the lab; a control
 plane is not. Revisit if the host count grows past a handful or if the
 platform ever needs to survive unattended.
+
+## Control plane overlay
+
+`compose/admin.yml` adds the admin service and points the nodes at it:
+
+```bash
+make up-admin
+```
+
+A third file rather than a service inside `local.yml`, because `local.yml` is
+the Profile A data plane and `make up-local` must keep exercising the
+standalone env-`RUN_ID` path. With `ADMIN_URL` set the nodes ignore `RUN_ID` —
+the admin names the runs. Port 8099, no authentication; see
+[docs/operations/admin-service.md](../docs/operations/admin-service.md).
+
+In the lab the admin is part of the **edge** role, so no new role or deploy
+target is needed.

@@ -6,8 +6,18 @@ license.workspace = true
 repository.workspace = true
 description = "srsRAN gNB metrics tap: UDP JSON in, per-datagram timing CSV + KPI entries to the mec-cast logging service"
 
+[features]
+# On by default so a normal build talks to the admin. CI also builds with
+# --no-default-features, which must stay free of the websocket dependency.
+default = ["admin"]
+admin = ["dep:tungstenite"]
+
 [dependencies]
 libc = "0.2"
 mec-cast-telemetry = { path = "../../telemetry", default-features = false }
 serde_json = "1"
+# The synchronous client, deliberately not tokio-tungstenite: this crate has
+# no async runtime and does not need one. No TLS feature — ws:// on the
+# management LAN, the same posture as the logging service. See ADR-0007.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"], optional = true }
 ureq = "2"

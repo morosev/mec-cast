@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mec-cast · admin</title>
+<link rel="stylesheet" href="/static/admin.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>🎛️</text></svg>">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Run control</h1>
+      <p id="subtitle">Connecting…</p>
+    </div>
+    <div>
+      <span id="link" class="pill draft">offline</span>
+    </div>
+  </header>
+
+  <div id="error" class="banner hidden"></div>
+
+  <section class="card">
+    <h2>Runs <span id="runCount" class="dim"></span></h2>
+
+    <div style="margin-bottom:14px">
+      <button id="addToggle" class="primary" type="button">Add run</button>
+    </div>
+
+    <form id="addForm" class="addform" autocomplete="off">
+      <div class="field">
+        <label for="f_label">Label</label>
+        <input id="f_label" class="wide" placeholder="baseline" maxlength="200">
+      </div>
+      <div class="field">
+        <label for="f_points">Points</label>
+        <input id="f_points" type="number" min="1" value="30000">
+      </div>
+      <div class="field">
+        <label for="f_rate">Rate (Hz)</label>
+        <input id="f_rate" type="number" min="0.1" step="0.1" value="10">
+      </div>
+      <div class="field">
+        <label for="f_seed">Seed</label>
+        <input id="f_seed" type="number" value="42">
+      </div>
+      <div class="field">
+        <label for="f_reliability">Reliability</label>
+        <select id="f_reliability">
+          <option value="reliable" selected>reliable</option>
+          <option value="best_effort">best_effort</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f_depth">QoS depth</label>
+        <input id="f_depth" type="number" min="1" value="10">
+      </div>
+      <button type="submit" class="primary">Create</button>
+      <button type="button" id="addCancel">Cancel</button>
+    </form>
+
+    <table id="runsTable">
+      <thead>
+        <tr>
+          <th>#</th><th>Run</th><th>Label</th><th>Status</th>
+          <th>Participants</th><th>Started</th><th>Findings</th><th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="runsEmpty" class="empty hidden">
+      No runs yet. Press <strong>Add run</strong> to create one.
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Workflow <span id="findingCount" class="dim"></span></h2>
+    <div id="findings"></div>
+  </section>
+
+  <section class="card">
+    <h2>Nodes</h2>
+    <table id="nodesTable">
+      <thead>
+        <tr>
+          <th>Node</th><th>Type</th><th>State</th><th>Run</th>
+          <th>Peers</th><th>Counters</th><th>Version</th><th>Seen</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="nodesEmpty" class="empty hidden">
+      No nodes connected. They subscribe on startup and retry every 30&nbsp;s, so
+      one will appear here shortly after it starts — check <code>ADMIN_URL</code>
+      if none does.
+    </div>
+  </section>
+
+  <footer>
+    mec-cast admin · no authentication — bind to the management LAN only ·
+    <a href="/docs" style="color:var(--text-muted)">API docs</a>
+  </footer>
+
+</div>
+<script src="/static/admin.js"></script>
+</body>
+</html>

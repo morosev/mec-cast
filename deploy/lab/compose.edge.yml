@@ -3,7 +3,11 @@
 # Hosts the Zenoh router (the rendezvous point the UE dials into) and the
 # ingest node that stamps arrival and computes latency.
 #
-# Required env: RUN_ID, LOGGING_HOST
+# Also hosts the admin service: the control plane belongs on the management
+# LAN beside the edge, not across the UPF (same reasoning as ADR-0003 for PTP).
+#
+# Required env: LOGGING_HOST. RUN_ID is required only without the admin —
+# with ADMIN_URL set the admin names the runs, so it defaults to empty.
 services:
   zenoh-router:
     image: mec-cast-ros
@@ -24,9 +28,10 @@ services:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
-      RUN_ID: ${RUN_ID:?set RUN_ID}
+      RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      ADMIN_URL: ${ADMIN_URL:-ws://127.0.0.1:8099/ws/node}
     volumes:
       - ../../runs:/runs
       - /dev/ptp0:/dev/ptp0
@@ -34,3 +39,24 @@ services:
       - /dev/ptp0
     depends_on:
       - zenoh-router
+
+  admin:
+    build:
+      context: ../../services/admin
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        WORKDIR /app
+        COPY pyproject.toml README.md LICENSE ./
+        COPY src ./src
+        RUN pip install --no-cache-dir .
+        EXPOSE 8099
+        CMD ["mec-cast-admin", "serve", "--host", "0.0.0.0", "--port", "8099"]
+    network_mode: host
+    environment:
+      MECADM_RUNS_DIR: /runs
+      MECADM_LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+    volumes:
+      # The manifests live here, on the edge host. Each node's CSVs live on
+      # its own machine — the admin records which, in the manifest's `sites`.
+      - ../../runs:/runs
+    restart: unless-stopped
