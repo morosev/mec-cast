@@ -11,7 +11,9 @@ alternatives lost, and what the decision costs.
 | [0003](0003-ptp-on-management-lan.md) | PTP over the management LAN, not the 5G user plane | Accepted |
 | [0004](0004-exact-percentiles.md) | Exact windowed percentiles, not a streaming estimator | Accepted |
 | [0005](0005-mac-metrics-tap-before-ric.md) | MAC metrics tap before an E2/RIC xApp | Accepted |
-| [0006](0006-quic-transport.md) | QUIC (Reliable UDP) for the Zenoh transport | Accepted |
+| [0006](0006-reliable-udp-transport.md) | Reliable UDP for the Zenoh transport | Accepted (amended 2026-08-20) |
+| [0007](0007-websocket-control-plane.md) | A WebSocket control plane for run orchestration | Accepted |
+| [0008](0008-run-identity-and-store.md) | Run identity is a UUIDv7, stored in `run.json` | Accepted |
 
 ## Writing a new one
 

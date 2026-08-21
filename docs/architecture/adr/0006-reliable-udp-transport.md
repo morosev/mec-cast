@@ -1,7 +1,29 @@
-# ADR-0006: QUIC (Reliable UDP) for the Zenoh transport
+# ADR-0006: Reliable UDP for the Zenoh transport
 
 - **Status:** Accepted
 - **Date:** 2026-08-18
+- **Amended:** 2026-08-20 — see below
+
+> **Amendment, 2026-08-20.** This record originally described the chosen link
+> as QUIC carried over UDP without TLS. That was wrong, and the error is
+> corrected in place rather than superseded because the *decision* did not
+> change — only the mechanism attributed to it.
+>
+> `udp/<host>:7447?rel=1` is Zenoh's own UDP link (`zenoh_link_udp`) with
+> Zenoh's transport-level reliability above it. It is not QUIC, which in
+> Zenoh is the separate `quic/` scheme and mandates TLS. Verified on the wire:
+> the handshake datagrams are 35/78/56 bytes where QUIC requires client
+> Initial packets to be padded to ≥1200; keepalives are a single byte, below
+> QUIC's 16-byte AEAD tag alone; there is no QUIC version field; and an
+> identical 25-byte cookie appears in cleartext in both directions, which
+> QUIC's per-direction encryption makes impossible.
+>
+> **All measurements below stand** — they were measured, not inferred, and do
+> not depend on what the link is called. What is withdrawn is the forward-
+> looking rationale that assumed QUIC mechanics: connection-ID mobility,
+> stream multiplexing, and user-space congestion control. Those benefits are
+> **not** being obtained. If UE mobility across handover is required, it needs
+> the real `quic/` scheme with TLS, which the sweep below measured as worse.
 
 ## Context
 
@@ -38,8 +60,24 @@ under the GIL. No transport choice moves it.
 ## Decision
 
 Use **Reliable UDP** — `udp/<host>:7447?rel=1` — as the Zenoh link for
-Profile A. This is QUIC's reliability, congestion control and stream
-multiplexing carried over UDP with **no TLS**.
+Profile A: Zenoh's UDP link, with Zenoh's transport-level reliability
+(sequence numbers and retransmission) layered above it.
+
+What that does and does not give:
+
+| Property | Present? |
+|---|---|
+| Retransmission of lost fragments | **Yes**, at the Zenoh transport layer |
+| Network congestion control | **No** — no cwnd, no pacing, no rate estimate |
+| Queue congestion policy | Yes, but only `drop`/`block` on a full tx queue |
+| Encryption | **No** |
+| Connection survives an IP change | **No** — a 4-tuple UDP socket |
+
+The absence of network congestion control is the point: TCP's collapse under
+random loss is the failure this platform kept hitting, and a link that does
+not interpret loss as congestion does not collapse that way. It also means
+nothing throttles a publisher that outruns the path — backpressure comes from
+the tx queue and `KEEP_LAST`, not from the network.
 
 Point-cloud QoS stays `RELIABLE` + `KEEP_LAST(10)`, now expressed as the
 `reliability` parameter on both nodes (default `reliable`) rather than an
@@ -52,7 +90,7 @@ for experiments that want drop-stale semantics.
 **The bench measurements do not penalise this choice, but neither do they
 compel it.** An earlier comparison appeared to show TCP with half the tail
 latency — but it varied transport *and* QoS together (TCP+`RELIABLE`
-against QUIC+`BEST_EFFORT`) and was therefore confounded. Held at
+against the datagram arm + `BEST_EFFORT`) and was therefore confounded. Held at
 `RELIABLE` on both arms, 120 s runs of ~1,425 frames, Reliable UDP
 measured equal or better in both repeats: p99 141.5 / 120.4 ms against
 TCP's 261.9 / 124.5, jitter 21.2 / 18.7 against 36.4 / 21.6, with loss
@@ -60,33 +98,45 @@ identical to within one frame. TCP's own two runs differ by 2× at p99, so
 run-to-run variance exceeds the between-transport gap in the second
 repeat. Read this as *no measured penalty*, not as a demonstrated win.
 
-The decision therefore rests on what loopback plus `netem` **cannot**
-measure, which is precisely the environment this platform exists to study:
+The decision rests on the measured result above plus one property TCP
+cannot offer:
 
-- **UE mobility.** QUIC connections are identified by connection ID, not
-  by the 4-tuple, so they survive an IP change. A UE behind a 5G modem
-  changes IP on handover and on NAT rebinding; a TCP connection breaks and
-  must be re-established, losing the stream mid-measurement. This is the
-  strongest argument and it is untestable on a bench.
+- **No congestion collapse under random loss.** TCP treats every lost packet
+  as congestion and halves its window. On a link whose loss is radio error
+  rather than queue overflow that is the wrong inference, and it is the
+  failure this platform kept hitting: a 30,000-point workload that runs at
+  0.00% loss unimpaired collapses to a fraction of its offered rate under
+  0.4% netem loss. Reliable UDP retransmits the lost fragment without
+  throttling the sender. The cost is the mirror image — nothing throttles a
+  publisher that outruns the path either.
 - **UPF/NAT traversal**, the same reason
   [ADR-0001](0001-zenoh-over-dds.md) chose Zenoh over raw DDS. UDP-based
   transports traverse carrier NAT more predictably than long-lived TCP.
-- **Head-of-line blocking.** One loss stalls an entire TCP stream. QUIC's
-  `multistream=1` maps each Zenoh priority to its own stream, so a stalled
-  bulk flow cannot block control traffic. This matters once the testbed
-  carries mixed traffic classes, which it does not yet.
-- **Positioning for congestion control.** QUIC's CC lives in user space.
-  When Zenoh exposes it (see the gap below), BBR — which paces to an
-  estimated bottleneck bandwidth instead of reacting to loss — is
-  selectable without touching the kernel. TCP's CC is not reachable from
-  this stack at all.
 
-**No TLS**, via `rel=1` rather than the `quic/` scheme, because the cost
-buys nothing here: the 5G user plane is already ciphered, the lab is a
-trusted network, and certificate management is real operational weight —
-a self-signed cert must be a leaf (`CA:FALSE`), or Zenoh's TLS stack
-rejects it as `CaUsedAsEndEntity`. Encrypted `quic/` also measured worse
-than `rel=1` at every size, consistent with the added framing overhead.
+**Withdrawn by the 2026-08-20 amendment.** Three arguments in the original
+record assumed QUIC and do not hold:
+
+- *UE mobility via connection ID* — originally called "the strongest
+  argument". `zenoh_link_udp` is keyed by the 4-tuple, so a handover or NAT
+  rebinding breaks the link exactly as TCP would. **This benefit is not
+  being obtained**, and it is the one that would justify paying for `quic/`
+  and TLS if mobility turns out to matter on the real radio.
+- *Stream multiplexing via `multistream=1`* — there are no QUIC streams, so
+  head-of-line blocking is not addressed by this choice.
+- *Positioning for BBR in user space* — there is no quinn congestion
+  controller to select. Selecting BBR would mean the kernel's, which reaches
+  only TCP, or the `quic/` scheme.
+
+**No encryption**, because `rel=1` offers none and the alternative that does
+— the `quic/` scheme — costs more than it buys here: the 5G user plane is
+already ciphered, the lab is a trusted network, and certificate management is
+real operational weight (a self-signed cert must be a leaf, `CA:FALSE`, or
+Zenoh's TLS stack rejects it as `CaUsedAsEndEntity`). `quic/` also measured
+worse than `rel=1` at every size in the sweep below.
+
+Note this is a *consequence* of the link choice, not an independent decision:
+there is no encrypted `rel=1` and no unencrypted `quic/`. QUIC mandates
+TLS 1.3.
 
 **Alternatives rejected.** Plain `udp/` has no congestion control at all —
 the Eclipse Zenoh wiki is explicit that "no retransmission mechanism, nor
@@ -108,21 +158,21 @@ a parameter, not adopted as the default.
   decision still rests on properties only a real radio exercises: if the
   lab link does not show the mobility/NAT benefit, this ADR is wrong and
   should be superseded.
-- **QUIC's congestion control is not tunable, and no bandwidth estimate is
-  exposed.** This build has no `transport.link.quic` section at all —
-  `transport.link.*` accepts only `protocols, tx, rx, tls, tcp,
-  unixpipe` — so BBR is not selectable, and quinn's `cwnd`/RTT/delivery-rate
-  never surface through zenoh-c → zenoh-cpp → rmw_zenoh. The platform must
-  derive throughput itself from `payload_bytes` and `recv_ns`, which every
-  per-frame CSV already carries. For a measurement testbed that is
-  arguably the better source anyway: it is end-to-end goodput, not a
-  transport's internal guess.
+- **There is no congestion control to tune, and no bandwidth estimate is
+  exposed.** `transport.link.*` accepts only `protocols, tx, rx, tls, tcp,
+  unixpipe` — the absence of a `quic` section was originally read as "QUIC's
+  CC is not tunable"; it is in fact one of the signs that this link is not
+  QUIC at all. Either way the platform must derive throughput itself from
+  `payload_bytes` and `recv_ns`, which every per-frame CSV already carries.
+  For a measurement testbed that is arguably the better source: it is
+  end-to-end goodput, not a transport's internal guess.
 - **`capacity_check()` in
   [`scripts/run-experiment.sh`](../../../scripts/run-experiment.sh) now
   models the wrong transport.** Its Mathis formula describes TCP's
-  congestion response and does not govern a QUIC link. It is left in place
-  as a rough over-subscription warning, but its output is no longer a
-  prediction for the configured transport and must be reworked.
+  congestion response and does not govern this link, which has no congestion
+  control at all. It is left in place as a rough over-subscription warning,
+  but its output is not a prediction for the configured transport and must be
+  reworked.
 - **The pipeline ceiling (~17 MB/s) is unchanged by this decision** and
   remains the binding constraint on large-payload experiments. It is
   CPU/serialisation-bound; a lab host will sit elsewhere on that curve, so
@@ -133,20 +183,26 @@ a parameter, not adopted as the default.
   `tx.queue.batching.{enabled,time_limit}`, `tx.threads`,
   `unicast.qos.enabled`, and per-endpoint `#so_sndbuf`/`#so_rcvbuf`,
   `#initial_mtu`, `#dscp`. `#dscp` is the one to reach for when the 5G
-  bearer should classify the point-cloud flow. Zenoh's own
-  `congestion_control.wait_before_drop`/`wait_before_close` are **not**
-  present in this version.
-- **Revisit if:** a Zenoh release exposes QUIC CC selection or link stats
-  (which would let this decision stand on its merits rather than its
-  promise); the real srsRAN link fails to show the mobility/NAT benefit;
-  or `multistream=1` becomes worth enabling once mixed traffic classes
-  exist.
+  bearer should classify the point-cloud flow.
+
+  Corrected 2026-08-20: `transport.link.tx.queue.congestion_control` **is**
+  present in this build, contrary to the original text — a live config dump
+  shows `drop.wait_before_drop: 1000`,
+  `drop.max_wait_before_drop_fragments: 50000` and
+  `block.wait_before_close: 5000000`. It governs what happens when the local
+  tx queue fills (drop the sample or block the publisher); it is not network
+  congestion control and does not pace the sender.
+- **Revisit if:** UE mobility across handover turns out to matter on the real
+  radio — that requires the `quic/` scheme with TLS, and this link cannot
+  provide it; a Zenoh release exposes link stats or a congestion controller
+  for the UDP link; or mixed traffic classes make head-of-line blocking worth
+  addressing, which again means `quic/`.
 
 ## Measurements
 
 Sweep: 10 Hz, `netem delay=25ms jitter=5ms loss=0.4%`. Frame loss, 30 s runs:
 
-| Points | TCP | UDP | QUIC+TLS | RelUDP | RelUDP+MS |
+| Points | TCP | UDP | `quic/`+TLS | RelUDP | RelUDP+MS |
 |---:|---:|---:|---:|---:|---:|
 | 500 | 0.00% | 0.00% | 0.00% | 0.00% | 0.00% |
 | 1,000 | 0.00% | 0.00% | 0.00% | 0.21% | 0.21% |
@@ -166,7 +222,10 @@ configuration against the transport it replaces. n=3,000, 120 s,
 
 A **confounded** comparison, kept only as a caution: it varies transport
 and QoS together, and the apparent TCP advantage here does not survive
-holding QoS constant above.
+holding QoS constant above. The "QUIC-dgram" label predates the 2026-08-20
+amendment and was not re-verified; it denotes the unreliable-datagram arm
+(`mixed_rel=1`), not the `quic/` scheme. Treat the label, not the numbers,
+as uncertain.
 
 | Config | n | loss | p50 ms | p99 ms | jitter ms |
 |---|---:|---:|---:|---:|---:|
@@ -194,7 +253,10 @@ Unimpaired, TCP, to locate the pipeline ceiling:
 
 ```bash
 # Reliable UDP is the committed default; compare against TCP by swapping
-# the endpoint in both configs and nothing else.
+# the endpoint in both configs and nothing else. To confirm what is actually
+# on the wire, run the router with RUST_LOG=zenoh=debug and read the module
+# name in the "Accepted ... connection" line: zenoh_link_udp, not
+# zenoh_link_quic.
 #   router-config.json5:  listen.endpoints  ["udp/[::]:7447?rel=1"]
 #   session-config.json5: connect.endpoints ["udp/zenoh-router:7447?rel=1"]
 bash scripts/run-experiment.sh -n 3000 -r 10.0 -d 120 -l 25ms -j 5ms -L 0.4%

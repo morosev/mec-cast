@@ -4,8 +4,10 @@
 // multicast does not exist).
 {
   mode: "peer",
-  // Reliable UDP (`rel=1`) — must match the router's scheme and flags
-  // exactly, or the peer never establishes a link. See ADR-0006.
+  // Reliable UDP (`rel=1`) — Zenoh's UDP link plus Zenoh transport-level
+  // reliability. Not QUIC, and not encrypted. Must match the router's
+  // scheme and flags exactly, or the peer never establishes a link.
+  // See ADR-0006.
   connect: {
     endpoints: ["udp/zenoh-router:7447?rel=1"],
   },

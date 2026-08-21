@@ -3,13 +3,17 @@
 // multicast scouting — it would not traverse a UPF/NAT anyway).
 {
   mode: "router",
-  // Reliable UDP (`rel=1`): QUIC's reliability, congestion control and
-  // stream multiplexing over UDP, with no TLS. Chosen over TCP for UE
-  // mobility — a QUIC connection is keyed by connection ID, so it survives
-  // the IP change of a 5G handover or NAT rebinding, where TCP breaks.
-  // No certificates: the 5G user plane is already ciphered and the lab is
-  // a trusted network. See ADR-0006, which also records that this costs
-  // measurable tail latency on a loopback bench.
+  // Reliable UDP (`rel=1`): Zenoh's own UDP link, with Zenoh's transport
+  // reliability (sequence numbers and retransmission) layered above it.
+  //
+  // This is NOT QUIC. The link is handled by `zenoh_link_udp`; the `quic/`
+  // scheme is a separate implementation and requires TLS. There is no
+  // network congestion control here — only the per-queue drop/block policy
+  // under transport.link.tx.queue.congestion_control — and no encryption.
+  //
+  // Chosen over TCP because it measured equal or better on p99 and jitter
+  // with identical loss, and because TCP's congestion collapse under random
+  // loss is the failure this platform kept hitting. See ADR-0006.
   listen: {
     endpoints: ["udp/[::]:7447?rel=1"],
   },
