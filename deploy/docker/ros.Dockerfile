@@ -57,7 +57,17 @@ COPY --from=wheel /wheels /wheels
 # websockets carries the admin control-plane client. The apt package is
 # 10.4 and websockets.sync.client landed in 12, so it comes from pip.
 # Build-time network only: nothing is fetched when the container runs.
-RUN pip install --no-cache-dir --break-system-packages /wheels/*.whl "websockets>=12"
+#
+# rerun-sdk is the render node's viewer (ADR-0009). Only mec_cast_render
+# imports it, and only when sink=rerun — the default sink is `null`, so every
+# other node in this image ignores it. `--ignore-installed psutil` is required
+# because rerun depends on psutil and apt already placed one here without a
+# RECORD file, which pip cannot uninstall.
+ARG WITH_RERUN=1
+RUN pip install --no-cache-dir --break-system-packages /wheels/*.whl "websockets>=12" \
+    && if [ "$WITH_RERUN" = "1" ]; then \
+         pip install --no-cache-dir --break-system-packages --ignore-installed psutil "rerun-sdk>=0.36,<0.37"; \
+       fi
 
 WORKDIR /ws
 COPY ros2/src ./src

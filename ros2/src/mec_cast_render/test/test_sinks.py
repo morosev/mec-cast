@@ -54,7 +54,8 @@ class FakeNode:
 
 
 def make(kind: str, node=None):
-    return build_sink(kind, node=node, run_id="test-run", serve=False, address="")
+    # serve=False: constructing the sink must not bind ports in a test.
+    return build_sink(kind, node=node, run_id="test-run", serve=False)
 
 
 class TestSelection:

@@ -9,7 +9,7 @@
 #   make up-render-admin    # same plus the control plane
 #
 # Knobs: RENDER_SINK (null | rerun | ros), RESULT_RELIABILITY (best_effort),
-#        RESULT_QOS_DEPTH (1), RENDER_PORT (9876)
+#        RESULT_QOS_DEPTH (1), RENDER_PORT (9876), RENDER_GRPC_PORT (9877)
 #
 # RENDER_SINK defaults to `null` here as well: it measures the full round trip
 # and draws nothing, which is what CI and any host without a GPU need. Set
@@ -36,6 +36,8 @@ services:
       -p sink:=${RENDER_SINK:-null}
       -p reliability:=${RESULT_RELIABILITY:-best_effort}
       -p qos_depth:=${RESULT_QOS_DEPTH:-1}
+      -p web_port:=${RENDER_PORT:-9876}
+      -p grpc_port:=${RENDER_GRPC_PORT:-9877}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
@@ -50,7 +52,11 @@ services:
       # arrives.
       ADMIN_URL: ${ADMIN_URL:-}
     ports:
+      # Both, not just the web port. The viewer page runs in the operator's
+      # browser and connects back to the gRPC stream itself, so publishing
+      # only 9876 yields a page that loads and never fills in.
       - "${RENDER_PORT:-9876}:9876"
+      - "${RENDER_GRPC_PORT:-9877}:9877"
     volumes:
       - ../../runs:/runs
     depends_on:

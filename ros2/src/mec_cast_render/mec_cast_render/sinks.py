@@ -87,7 +87,8 @@ class RerunSink:
 
     name = "rerun"
 
-    def __init__(self, run_id: str, serve: bool = True, address: str = "0.0.0.0:9876"):
+    def __init__(self, run_id: str, serve: bool = True, web_port: int = 9876,
+                 grpc_port: int = 9877, viewer_host: str = "localhost"):
         try:
             import rerun as rr
         except ImportError as exc:  # pragma: no cover - depends on the image
@@ -97,32 +98,52 @@ class RerunSink:
                 "without drawing"
             ) from exc
         self.rr = rr
+        self.viewer_host = viewer_host
         # recording_id = run_id keeps one viewer session per experiment, so
         # switching runs does not silently append to the previous one's timeline.
         rr.init("mec-cast-render", recording_id=run_id)
         if serve:
-            self._serve(address)
+            self._serve(web_port, grpc_port)
 
-    def _serve(self, address: str) -> None:
-        """Start the web viewer. The call has been spelled several ways across
-        rerun releases; try them in order and report every failure at once
-        rather than dying on whichever name this version dropped."""
-        errors = []
-        for attempt in ("serve_web", "serve_grpc", "serve"):
-            fn = getattr(self.rr, attempt, None)
-            if fn is None:
-                errors.append(f"{attempt}: not present")
-                continue
-            try:
-                fn()
-                return
-            except Exception as exc:  # signature drift between releases
-                errors.append(f"{attempt}: {exc}")
-        raise RuntimeError(
-            "could not start the rerun web viewer; tried "
-            + "; ".join(errors)
-            + ". Pin rerun-sdk, or run with sink='null' and no viewer."
-        )
+    def _serve(self, web_port: int, grpc_port: int) -> None:
+        """Serve the browsable viewer.
+
+        Two servers, and both are needed: `serve_grpc` carries the log stream,
+        `serve_web_viewer` serves the HTML/WASM page that connects back to it.
+        The page runs in the operator's browser, so **both ports must be
+        reachable from there**, not just the web one — publishing only 9876
+        gives a page that loads and then never fills in.
+
+        This spelling is specific to rerun 0.36; `serve_web` existed in
+        earlier releases and is gone. The version is pinned in the Dockerfile
+        for that reason, and the check below fails loudly rather than
+        half-working if it drifts again.
+        """
+        rr = self.rr
+        missing = [n for n in ("serve_grpc", "serve_web_viewer") if not hasattr(rr, n)]
+        if missing:
+            raise RuntimeError(
+                f"rerun {getattr(rr, '__version__', '?')} lacks {', '.join(missing)}; "
+                "this sink targets the 0.36 API pinned in deploy/docker/ros.Dockerfile. "
+                "Use sink='ros' (RViz2/Foxglove) or sink='null' meanwhile."
+            )
+        uri = rr.serve_grpc(grpc_port=grpc_port, server_memory_limit="512MiB")
+        # open_browser defaults to True and there is no browser in a container.
+        rr.serve_web_viewer(web_port=web_port, open_browser=False, connect_to=uri)
+
+        # `connect_to` does not put the source into the served page — verified
+        # against 0.36.2: the bare page loads a viewer with no data source and
+        # never attempts a connection. The viewer does honour a `?url=` query
+        # parameter, so build the address that actually works and let the node
+        # log it, rather than handing the operator a URL that opens an empty
+        # viewer and looks like the renderer is broken.
+        #
+        # The host in the query is resolved by the *browser*, not this
+        # container, so it must be the address the operator reaches the UE on.
+        # localhost is right when browsing on the same machine; override
+        # `viewer_host` when the UE is a different box, as it is in the lab.
+        source = f"rerun%2Bhttp://{self.viewer_host}:{grpc_port}/proxy"
+        self.url = f"http://{self.viewer_host}:{web_port}/?url={source}"
 
     def _set_frame(self, seq: int) -> None:
         """`set_time(..., sequence=)` replaced `set_time_sequence` partway
@@ -140,6 +161,11 @@ class RerunSink:
     def draw(self, seq: int, points: np.ndarray, meta: dict) -> None:
         rr = self.rr
         self._set_frame(seq)
+        if points.shape[0] == 0:
+            # An all-points-in-one-voxel frame degenerates to nothing to draw.
+            # np.max on an empty array raises, so bail before colouring.
+            rr.log("world/cloud", rr.Points3D(points))
+            return
         # Colour by height so the structure is legible without a texture.
         z = points[:, 2]
         span = float(z.max() - z.min()) or 1.0
@@ -183,11 +209,14 @@ class RosSink:
             self.pub = None
 
 
-def build_sink(kind: str, *, node, run_id: str, serve: bool, address: str) -> Sink:
+def build_sink(kind: str, *, node, run_id: str, serve: bool = False,
+               web_port: int = 9876, grpc_port: int = 9877,
+               viewer_host: str = "localhost") -> Sink:
     if kind == "null":
         return NullSink()
     if kind == "rerun":
-        return RerunSink(run_id=run_id, serve=serve, address=address)
+        return RerunSink(run_id=run_id, serve=serve, web_port=web_port,
+                         grpc_port=grpc_port, viewer_host=viewer_host)
     if kind == "ros":
         return RosSink(node)
     raise ValueError(f"unknown sink {kind!r}, expected one of {SINKS}")

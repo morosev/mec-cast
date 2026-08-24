@@ -21,7 +21,12 @@ is local, so it is not.
 Parameters:
     sink            (str,  default null)  null | rerun | ros
     serve           (bool, default true)  rerun only: host the web viewer
-    serve_address   (str,  default 0.0.0.0:9876)
+    web_port        (int,  default 9876)  the page
+    grpc_port       (int,  default 9877)  the stream the page connects back to.
+                    Both must be reachable from the operator's browser
+    viewer_host     (str,  default localhost)  how the *browser* reaches this
+                    host. Set it to the UE's address when browsing from
+                    another machine, as in the lab
     reliability     (str,  default best_effort)  must match the edge's
                     `result_reliability`
     qos_depth       (int,  default 1)  display semantics: newest frame wins
@@ -102,7 +107,9 @@ class RenderNode(Node):
         super().__init__("mec_cast_render")
         self.declare_parameter("sink", os.environ.get("RENDER_SINK", "null"))
         self.declare_parameter("serve", True)
-        self.declare_parameter("serve_address", "0.0.0.0:9876")
+        self.declare_parameter("web_port", 9876)
+        self.declare_parameter("grpc_port", 9877)
+        self.declare_parameter("viewer_host", os.environ.get("VIEWER_HOST", "localhost"))
         self.declare_parameter("reliability", "best_effort")
         self.declare_parameter("qos_depth", 1)
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
@@ -113,7 +120,9 @@ class RenderNode(Node):
         if self.sink_kind not in SINKS:
             raise ValueError(f"unknown sink {self.sink_kind!r}, expected one of {SINKS}")
         self.serve = bool(self.get_parameter("serve").value)
-        self.serve_address = str(self.get_parameter("serve_address").value)
+        self.web_port = int(self.get_parameter("web_port").value)
+        self.grpc_port = int(self.get_parameter("grpc_port").value)
+        self.viewer_host = str(self.get_parameter("viewer_host").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
 
@@ -201,7 +210,9 @@ class RenderNode(Node):
             node=self,
             run_id=run_id,
             serve=self.serve,
-            address=self.serve_address,
+            web_port=self.web_port,
+            grpc_port=self.grpc_port,
+            viewer_host=self.viewer_host,
         )
         self.sub = self.create_subscription(
             CloudWithTelemetry,
@@ -209,7 +220,11 @@ class RenderNode(Node):
             self.on_result,
             cloud_qos(self.reliability, self.qos_depth),
         )
-        self.get_logger().info(f"render recording run {run_id} (sink={self.sink_kind})")
+        where = getattr(self.sink, "url", None)
+        self.get_logger().info(
+            f"render recording run {run_id} (sink={self.sink_kind})"
+            + (f" — viewer at {where}" if where else "")
+        )
 
     def stop_run(self) -> dict:
         """Unsubscribe, close the sink, then drain the recorder. Order matters:

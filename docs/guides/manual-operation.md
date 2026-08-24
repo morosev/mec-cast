@@ -22,6 +22,7 @@ Makefile target for "the UE host only".
 - [Checking system status](#checking-system-status)
 - [Routine admin tasks](#routine-admin-tasks)
 - [Troubleshooting](#troubleshooting)
+- [Opening the renderer](#opening-the-renderer)
 - [When the renderer looks broken but is not](#when-the-renderer-looks-broken-but-is-not)
 
 ## Before you start
@@ -57,7 +58,9 @@ absent the scripts fall back to `/proc/sys/kernel/random/uuid`, which exists
 on Linux only — hence the `uuidgen ||` ordering, which is what keeps the
 snippets working on macOS.
 
-The ROS image is large (~1.4 GB) and is built once:
+The ROS image is large (~2.4 GB, of which ~1 GB is the rerun viewer) and
+is built once. Build with `--build-arg WITH_RERUN=0` on hosts that never
+render — the edge, gNB and infra roles do not need it:
 
 ```bash
 make build-ros2
@@ -976,6 +979,42 @@ first after a change that touches the logging schema.
 | Renderer logs in bursts with big `seq` gaps, round trips in the hundreds of ms | Uplink in congestion collapse — the edge is receiving a fraction of what is published. Not a renderer fault | `wc -l runs/$RUN_ID/*/samples.csv`: compare `pub` to `edge`. See below |
 | Router floods `Route data with unknown scope N!` / `Declare token N for unknown scope M` | rmw_zenoh discovery declarations lost on the impaired link. More nodes and topics mean more declarations crossing it, so adding the renderer makes it more likely | Check delivery, not the log — data is unaffected. Lower `NETEM_LOSS`, or restart the stack so discovery re-runs |
 | Client warns `Didn't receive DeclareFinal for interest …: Timeout(10s)!` | Same cause: the graph query did not complete over the lossy link | As above |
+
+### Opening the renderer
+
+The measurement path never depends on a renderer, so the default sink is
+`null`: it records the full round trip and draws nothing. To see the cloud,
+ask for the viewer:
+
+```bash
+NUM_POINTS=3000 NETEM_LOSS=0% RENDER_SINK=rerun compose -f deploy/compose/render.yml up -d
+```
+
+The node logs the address on startup, and **it is not the bare port** — open
+what it prints:
+
+```
+render recording run <id> (sink=rerun) — viewer at
+  http://localhost:9876/?url=rerun%2Bhttp://localhost:9877/proxy
+```
+
+Two ports, both published and both needed. 9876 serves the page; 9877 carries
+the log stream, and the page connects to it *from your browser*, so it has to
+be reachable from there too. Opening `http://localhost:9876` on its own gives
+a viewer with no data source — rerun's `connect_to` does not bake the source
+into the served page, which is why the node builds the query string for you.
+
+Browsing from another machine — the lab UE is headless — set `VIEWER_HOST` to
+the address you reach it on, or the URL will tell your own laptop to connect
+to itself:
+
+```bash
+VIEWER_HOST=10.0.0.30 RENDER_SINK=rerun ...
+```
+
+`RENDER_SINK=ros` is the alternative: it republishes a plain
+`sensor_msgs/PointCloud2` on `mec_cast/render/cloud` for RViz2 or Foxglove,
+and needs no rerun at all.
 
 ### When the renderer looks broken but is not
 

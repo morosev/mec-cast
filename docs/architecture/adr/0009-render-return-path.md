@@ -79,6 +79,31 @@ The `ros` sink is what makes that choice non-binding. If Rerun's Python API
 churns — it has, across its 0.x line, which is why `RerunSink` probes for the
 call it needs instead of importing one — the cost of moving is one class.
 
+## What serving the viewer actually required
+
+Written down because two of the three were only discovered by running it, and
+the first two fail in ways that look like the renderer is broken.
+
+`rerun.serve_web()` does not exist in 0.36 — it was the pre-0.3x spelling. The
+working sequence is two servers: `serve_grpc()` for the stream and
+`serve_web_viewer()` for the page. A probe-and-fallback that tried
+`serve_web`, then `serve_grpc`, then `serve` "succeeded" on the second and
+served no page at all, which is worse than failing. The version is pinned and
+`RerunSink._serve` now asserts both names up front.
+
+**Both ports must be published**, 9876 and 9877. The page runs in the
+operator's browser and opens the gRPC stream itself, so publishing only the
+web port gives a page that loads and never fills in.
+
+**`connect_to` does not put the source into the served page.** Verified
+against 0.36.2: the bare page boots a viewer with no data source and never
+attempts a connection. The viewer does honour a `?url=` query parameter, so
+the node builds that address and logs it. The host in it is resolved by the
+browser, not the container, which is why `viewer_host` exists — `localhost` is
+wrong the moment the UE is a different machine, as it is in the lab.
+
+`open_browser` defaults to true, and there is no browser in a container.
+
 ## Consequences
 
 **Measured, local compose, 30,000 points at 10 Hz, 20 ms netem:** uplink
