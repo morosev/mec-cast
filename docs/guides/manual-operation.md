@@ -1012,7 +1012,14 @@ to itself:
 VIEWER_HOST=10.0.0.30 RENDER_SINK=rerun ...
 ```
 
-`RENDER_SINK=ros` is the alternative: it republishes a plain
+**Every rerun run also writes `runs/<RUN_ID>/render/session.rrd`**, beside
+`samples.csv`. That is the reliable path and usually the better one: the live
+viewer needs two reachable ports, a browser that can run WebGPU or WebGL, and
+you at the keyboard while the run happens. The file needs none of that — drag
+it onto any Rerun viewer, including the page this node serves, and replay the
+run afterwards. Set `record_rrd:=false` to skip it.
+
+`RENDER_SINK=ros` is the third option: it republishes a plain
 `sensor_msgs/PointCloud2` on `mec_cast/render/cloud` for RViz2 or Foxglove,
 and needs no rerun at all.
 

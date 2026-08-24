@@ -88,7 +88,8 @@ class RerunSink:
     name = "rerun"
 
     def __init__(self, run_id: str, serve: bool = True, web_port: int = 9876,
-                 grpc_port: int = 9877, viewer_host: str = "localhost"):
+                 grpc_port: int = 9877, viewer_host: str = "localhost",
+                 rrd_path: str | None = None):
         try:
             import rerun as rr
         except ImportError as exc:  # pragma: no cover - depends on the image
@@ -102,8 +103,34 @@ class RerunSink:
         # recording_id = run_id keeps one viewer session per experiment, so
         # switching runs does not silently append to the previous one's timeline.
         rr.init("mec-cast-render", recording_id=run_id)
+        self.rrd_path = rrd_path
         if serve:
             self._serve(web_port, grpc_port)
+        if rrd_path:
+            self._also_record(rrd_path)
+
+    def _also_record(self, rrd_path: str) -> None:
+        """Write the session to a .rrd beside samples.csv, as well as serving it.
+
+        The live viewer depends on two ports, a browser that can run WebGPU or
+        WebGL, and the operator being at the keyboard while the run happens. A
+        file depends on none of that: drag it onto any Rerun viewer — including
+        the one this node already serves — and replay the run afterwards. For a
+        measurement testbed that is the more useful artefact, and it is what
+        makes a headless lab UE worth pointing a renderer at.
+
+        `set_sinks` replaces the sink set, so the gRPC sink has to be named
+        again here or serving stops the moment the file sink is added.
+        """
+        rr = self.rr
+        if not hasattr(rr, "set_sinks"):
+            self.rr.get_global_data_recording().save(rrd_path)
+            return
+        sinks = []
+        if getattr(self, "grpc_uri", None):
+            sinks.append(rr.GrpcSink(url=self.grpc_uri))
+        sinks.append(rr.FileSink(rrd_path))
+        rr.set_sinks(*sinks)
 
     def _serve(self, web_port: int, grpc_port: int) -> None:
         """Serve the browsable viewer.
@@ -128,6 +155,7 @@ class RerunSink:
                 "Use sink='ros' (RViz2/Foxglove) or sink='null' meanwhile."
             )
         uri = rr.serve_grpc(grpc_port=grpc_port, server_memory_limit="512MiB")
+        self.grpc_uri = uri
         # open_browser defaults to True and there is no browser in a container.
         rr.serve_web_viewer(web_port=web_port, open_browser=False, connect_to=uri)
 
@@ -211,12 +239,13 @@ class RosSink:
 
 def build_sink(kind: str, *, node, run_id: str, serve: bool = False,
                web_port: int = 9876, grpc_port: int = 9877,
-               viewer_host: str = "localhost") -> Sink:
+               viewer_host: str = "localhost", rrd_path: str | None = None) -> Sink:
     if kind == "null":
         return NullSink()
     if kind == "rerun":
         return RerunSink(run_id=run_id, serve=serve, web_port=web_port,
-                         grpc_port=grpc_port, viewer_host=viewer_host)
+                         grpc_port=grpc_port, viewer_host=viewer_host,
+                         rrd_path=rrd_path)
     if kind == "ros":
         return RosSink(node)
     raise ValueError(f"unknown sink {kind!r}, expected one of {SINKS}")

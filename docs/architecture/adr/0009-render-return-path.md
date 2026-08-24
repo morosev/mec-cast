@@ -104,6 +104,14 @@ wrong the moment the UE is a different machine, as it is in the lab.
 
 `open_browser` defaults to true, and there is no browser in a container.
 
+Every rerun run also writes `runs/<RUN_ID>/render/session.rrd` next to
+`samples.csv`, via `set_sinks(GrpcSink, FileSink)` — the gRPC sink has to be
+named again there, because `set_sinks` replaces the set rather than adding to
+it. The live viewer depends on two reachable ports, a GPU-capable browser and
+an operator present while the run happens; the file depends on none of those,
+and for a testbed a replayable artefact beside the CSV is the more useful of
+the two.
+
 ## Consequences
 
 **Measured, local compose, 30,000 points at 10 Hz, 20 ms netem:** uplink

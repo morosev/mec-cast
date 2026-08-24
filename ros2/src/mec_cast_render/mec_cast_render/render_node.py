@@ -110,6 +110,7 @@ class RenderNode(Node):
         self.declare_parameter("web_port", 9876)
         self.declare_parameter("grpc_port", 9877)
         self.declare_parameter("viewer_host", os.environ.get("VIEWER_HOST", "localhost"))
+        self.declare_parameter("record_rrd", True)
         self.declare_parameter("reliability", "best_effort")
         self.declare_parameter("qos_depth", 1)
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
@@ -123,6 +124,7 @@ class RenderNode(Node):
         self.web_port = int(self.get_parameter("web_port").value)
         self.grpc_port = int(self.get_parameter("grpc_port").value)
         self.viewer_host = str(self.get_parameter("viewer_host").value)
+        self.record_rrd = bool(self.get_parameter("record_rrd").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
 
@@ -199,11 +201,9 @@ class RenderNode(Node):
         self.seq_gaps = 0
         self.last_seq = None
         self._progress_mark = 0
+        out_dir = os.path.join(self.runs_dir, run_id, "render")
         self.recorder = tel.Recorder(
-            run_id,
-            "mec-cast-render",
-            os.path.join(self.runs_dir, run_id, "render"),
-            logging_url=self.logging_url,
+            run_id, "mec-cast-render", out_dir, logging_url=self.logging_url
         )
         self.sink = build_sink(
             self.sink_kind,
@@ -213,6 +213,7 @@ class RenderNode(Node):
             web_port=self.web_port,
             grpc_port=self.grpc_port,
             viewer_host=self.viewer_host,
+            rrd_path=(os.path.join(out_dir, "session.rrd") if self.record_rrd else None),
         )
         self.sub = self.create_subscription(
             CloudWithTelemetry,
