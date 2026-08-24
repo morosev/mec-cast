@@ -990,6 +990,29 @@ ask for the viewer:
 NUM_POINTS=3000 NETEM_LOSS=0% RENDER_SINK=rerun compose -f deploy/compose/render.yml up -d
 ```
 
+Or, bringing the whole topology up in one command:
+
+```bash
+RUN_ID=$(uuidgen) RENDER_SINK=rerun NETEM_LOSS=0% PATTERN=sphere make up-render
+```
+
+Every variable there is load-bearing, and leaving any of them off fails in a
+way that looks like a broken renderer:
+
+- **`RUN_ID`** — `up-render` does not mint one the way `up-local` does, so
+  without it the run is `dev-run`. That is not an error, but the recorder
+  *appends*, so every unnamed run piles into the same `runs/dev-run/` and no
+  new directory ever appears. Set it when the run is worth keeping.
+- **`NETEM_LOSS=0%`** — the default is `0.5%`, which against the default
+  30,000 points at 10 Hz is about 7× over what the impaired link carries. The
+  frames die on the uplink before the edge sees them, and the renderer draws
+  nothing while reporting itself perfectly healthy. See
+  [Choosing an impairment the link can carry](running-an-experiment.md#choosing-an-impairment-the-link-can-carry).
+- **`RENDER_SINK=rerun`** — without it the sink is `null`: the node measures
+  and draws nothing, so the published ports accept nothing.
+- **`PATTERN`** — optional. `sphere` reads as a shape; the default
+  `uniform_cube` is noise, and barely compresses on the downlink.
+
 The node logs the address on startup, and **it is not the bare port** — open
 what it prints:
 

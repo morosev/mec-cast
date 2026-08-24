@@ -169,13 +169,62 @@ up-admin: build-ros2 ## Local topology + the admin control plane (no RUN_ID need
 down-admin: ## Tear down the topology including the admin service
 	$(COMPOSE_ADMIN) down -v --remove-orphans
 
+# Printed by BOTH render targets. Two things it has to get right, because
+# getting either wrong looks like a broken renderer rather than a default:
+#
+#   * Report the sink actually in force. `null` is the default at every layer
+#     (here, render.yml, and the node itself), and under it the node measures
+#     the round trip and draws nothing — healthy, but no viewer is served, so
+#     the published ports accept nothing and the page never loads.
+#   * Never print a bare `http://localhost:9876`. The node builds the real URL
+#     from viewer_host and BOTH ports, and the page needs the `?url=` stream
+#     parameter to have any data source at all. Point at the node's own log
+#     instead of printing something that looks right and is not.
+#
+# A third trap, specific to the admin: the sink is built in start_run(), so
+# under the control plane the node is IDLE until a run starts and no viewer
+# exists yet — the URL is logged at run start, not at container start.
+#
+# $(1) is the compose invocation, $(2) the target name to suggest re-running,
+# $(3) non-empty when the control plane owns the run lifecycle.
+define render_hint
+sink=$${RENDER_SINK:-null}; \
+echo "render sink=$$sink"; \
+if [ "$$sink" = rerun ]; then \
+  if [ -n "$(3)" ]; then \
+    echo "  the renderer is IDLE until a run starts — start one on the admin page."; \
+    echo "  the viewer URL is logged at that point, not now:"; \
+    echo "    $(1) logs render | grep -o 'http://[^ ]*proxy'"; \
+  else \
+    printf "  waiting for the viewer URL"; \
+    url=""; \
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+      url=$$($(1) logs render 2>/dev/null | grep -o 'http://[^ ]*proxy' | tail -1); \
+      [ -n "$$url" ] && break; \
+      printf "."; sleep 1; \
+    done; \
+    echo; \
+    if [ -n "$$url" ]; then \
+      echo "  viewer: $$url"; \
+    else \
+      echo "  not logged yet — the node may still be starting. Check with:"; \
+      echo "    $(1) logs render | grep -o 'http://[^ ]*proxy'"; \
+    fi; \
+  fi; \
+else \
+  echo "  measuring the round trip, drawing nothing."; \
+  echo "  for a viewer:  RENDER_SINK=rerun make $(2)"; \
+fi
+endef
+
 up-render: build-ros2 ## Local topology + the return path and a renderer at the UE
 	$(COMPOSE_RENDER) up -d --build
-	@echo "sink=$${RENDER_SINK:-null}; set RENDER_SINK=rerun and open http://localhost:$${RENDER_PORT:-9876}"
+	@$(call render_hint,$(COMPOSE_RENDER),up-render)
 
 up-render-admin: build-ros2 ## Return path + renderer, driven by the control plane
 	ADMIN_URL=ws://admin:8099/ws/node $(COMPOSE_RENDER_ADMIN) up -d --build
 	@echo "admin page: http://localhost:8099/admin"
+	@$(call render_hint,$(COMPOSE_RENDER_ADMIN),up-render-admin,admin)
 
 down-render: ## Tear down the topology including the renderer
 	$(COMPOSE_RENDER_ADMIN) down -v --remove-orphans
