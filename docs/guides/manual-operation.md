@@ -995,6 +995,15 @@ it delivered 1.53% and 1.54% to the edge — the difference is noise. The
 downlink runs at 100% even while the uplink is collapsing, because it carries
 a quarter of the bytes and is not behind the impairment.
 
+Since it now logs a heartbeat every 5 s, that ambiguity is gone — a starved
+renderer says so in words rather than falling silent:
+
+```
+[WARN] render alive but received NOTHING in 5s (total=1). The process is fine.
+       Either the edge is not sending — it needs publish_result:=true, off by
+       default — or the uplink is dropping frames before they reach it.
+```
+
 **`local.yml`'s defaults are over capacity on purpose.** 30,000 points at
 10 Hz with 0.5% loss is the documented congestion-collapse case — see
 [running-an-experiment.md](running-an-experiment.md#choosing-an-impairment-the-link-can-carry).

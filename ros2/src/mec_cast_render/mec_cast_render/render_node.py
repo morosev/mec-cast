@@ -66,6 +66,11 @@ RESULT_TOPIC = "mec_cast/result"
 
 ADMIN_POLL_S = 0.1
 STATUS_PERIOD_S = 2.0
+#: How often the node says whether it is receiving anything. It logs one line
+#: per frame, so on a congested uplink it can go tens of seconds between
+#: lines — which is indistinguishable from a dead process in a `compose up`
+#: view where other services are scrolling. This makes silence explicit.
+PROGRESS_PERIOD_S = 5.0
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -135,6 +140,8 @@ class RenderNode(Node):
         )
         self.autostart = bool(self.get_parameter("admin_autostart").value)
         self._last_status: dict | None = None
+        self._progress_mark = 0
+        self.create_timer(PROGRESS_PERIOD_S, self._log_progress)
 
         if self.admin.enabled:
             self.admin.update_identity(autostart=self.autostart, params=self.params())
@@ -182,6 +189,7 @@ class RenderNode(Node):
         self.drawn = 0
         self.seq_gaps = 0
         self.last_seq = None
+        self._progress_mark = 0
         self.recorder = tel.Recorder(
             run_id,
             "mec-cast-render",
@@ -288,6 +296,34 @@ class RenderNode(Node):
                 state=payload["state"], run_id=self.run_id, params=self.params()
             )
             self.admin.publish_status(payload)
+
+    def _log_progress(self) -> None:
+        """Say whether frames are arriving, whether or not any did.
+
+        A renderer with nothing to draw is silent, and silence is the one
+        state an operator cannot tell from a crash. Rather than make them run
+        `docker inspect` to find RestartCount=0, say it here — and when
+        nothing is arriving, name the two things that actually cause it.
+        """
+        if not self.running:
+            self.get_logger().info("render idle: no active run (waiting for the admin, or RUN_ID unset)")
+            return
+        delta = self.frames - self._progress_mark
+        self._progress_mark = self.frames
+        if delta:
+            self.get_logger().info(
+                f"render alive: {delta} frames in {PROGRESS_PERIOD_S:.0f}s "
+                f"({delta / PROGRESS_PERIOD_S:.1f} Hz), total={self.frames} "
+                f"drawn={self.drawn} seq_gaps={self.seq_gaps}"
+            )
+        else:
+            self.get_logger().warning(
+                f"render alive but received NOTHING in {PROGRESS_PERIOD_S:.0f}s "
+                f"(total={self.frames}). The process is fine. Either the edge is not "
+                f"sending — it needs publish_result:=true, off by default — or the "
+                f"uplink is dropping frames before they reach it. Compare row counts: "
+                f"wc -l runs/{self.run_id}/pub/samples.csv runs/{self.run_id}/edge/samples.csv"
+            )
 
     # --- the hot path -----------------------------------------------------
 
