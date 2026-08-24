@@ -7,7 +7,7 @@ name = "mec-cast-admin-service"
 version = "0.1.0"
 description = "Run orchestration for mec-cast: a WebSocket control plane and operator page."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
