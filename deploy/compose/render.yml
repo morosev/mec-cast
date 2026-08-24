@@ -1,0 +1,57 @@
+# The return path (Profile A): the edge sends its processed cloud back down
+# and a renderer at the UE draws it.
+#
+# Overlay on top of local.yml — it turns on the edge's downlink (off by
+# default, so that local.yml alone keeps producing measurements comparable
+# with every run recorded before this existed) and adds the render node.
+#
+#   make up-render          # standalone, env-RUN_ID path
+#   make up-render-admin    # same plus the control plane
+#
+# Knobs: RENDER_SINK (null | rerun | ros), RESULT_RELIABILITY (best_effort),
+#        RESULT_QOS_DEPTH (1), RENDER_PORT (9876)
+#
+# RENDER_SINK defaults to `null` here as well: it measures the full round trip
+# and draws nothing, which is what CI and any host without a GPU need. Set
+# RENDER_SINK=rerun to actually see the cloud, and open the port below.
+services:
+  edge:
+    environment:
+      PUBLISH_RESULT: "1"
+    command: >
+      ros2 run mec_cast_edge edge --ros-args
+      -p reliability:=${RELIABILITY:-reliable}
+      -p qos_depth:=${QOS_DEPTH:-10}
+      -p publish_result:=true
+      -p result_reliability:=${RESULT_RELIABILITY:-best_effort}
+      -p result_qos_depth:=${RESULT_QOS_DEPTH:-1}
+
+  render:
+    image: mec-cast-ros
+    # reliability MUST match the edge's result_reliability, for the same
+    # reason the uplink pair must match: a mismatched pair delivers nothing
+    # and reports no error.
+    command: >
+      ros2 run mec_cast_render render --ros-args
+      -p sink:=${RENDER_SINK:-null}
+      -p reliability:=${RESULT_RELIABILITY:-best_effort}
+      -p qos_depth:=${RESULT_QOS_DEPTH:-1}
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      RUN_ID: ${RUN_ID:-dev-run}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://logging:8000
+      # Empty by default, so `make up-render` keeps the standalone env-RUN_ID
+      # path. `make up-render-admin` sets it. Hardcoding the admin's address
+      # here instead would leave the node idle forever whenever the control
+      # plane is not deployed, since it would wait for a welcome that never
+      # arrives.
+      ADMIN_URL: ${ADMIN_URL:-}
+    ports:
+      - "${RENDER_PORT:-9876}:9876"
+    volumes:
+      - ../../runs:/runs
+    depends_on:
+      - zenoh-router

@@ -10,6 +10,24 @@ Ubuntu 25.x and ROS2 Jazzy targets 24.04.
 | `mec_cast_msgs` | `TimingEnvelope`, `CloudWithTelemetry` | both |
 | `mec_cast_lidar_client` | Synthetic/real point-cloud source | UE |
 | `mec_cast_edge` | Zenoh ingest, stamps arrival, computes latency | edge |
+| `mec_cast_admin_client` | WebSocket client for the control plane (ADR-0007) | all |
+| `mec_cast_render` | Draws the edge's result, measures the round trip (ADR-0009) | UE |
+
+## The return path
+
+`mec_cast_edge` is a terminal consumer by default. With `publish_result:=true`
+it republishes its voxel-downsampled result on `mec_cast/result`, and
+`mec_cast_render` draws it on the UE.
+
+That is worth more than a picture. The returned envelope carries the original
+`capture_ns` forward, and the renderer stamps `process_done_ns` on the **same
+host that captured the frame** — so its `e2e_ns` is a round trip measured on
+one clock, and the only latency figure here that does not depend on PTP. See
+[ADR-0009](../docs/architecture/adr/0009-render-return-path.md).
+
+Both halves are off by default: `publish_result` is false, and the renderer's
+`sink` is `null` (measures everything, draws nothing). Set `sink:=rerun` to
+see the cloud, or `sink:=ros` to republish plainly for RViz2 or Foxglove.
 
 ## Why one workspace across two deployment locations
 

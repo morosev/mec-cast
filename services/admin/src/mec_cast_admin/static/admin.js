@@ -126,12 +126,13 @@ async function act(runId, action) {
 
 function roleChips(run, nodes) {
   const participants = Object.values(run.participants || {});
-  const counts = { client: 0, edge: 0, gnb: 0 };
+  const counts = { client: 0, edge: 0, gnb: 0, render: 0 };
   for (const p of participants) if (p.role in counts) counts[p.role] += 1;
-  // A run needs at least one client and one edge; a gNB is optional.
-  const required = { client: true, edge: true, gnb: false };
+  // A run needs at least one client and one edge; a gNB and a renderer are
+  // both optional — a run with no viewer attached is perfectly legitimate.
+  const required = { client: true, edge: true, gnb: false, render: false };
   const active = ['starting', 'running', 'degraded'].includes(run.state);
-  return `<span class="roles">${['client', 'edge', 'gnb'].map((role) => {
+  return `<span class="roles">${['client', 'edge', 'gnb', 'render'].map((role) => {
     const n = counts[role];
     const cls = !active ? '' : n > 0 ? 'on' : (required[role] ? 'off' : '');
     return `<span class="role ${cls}">${role} ${n}</span>`;

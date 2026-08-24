@@ -24,6 +24,7 @@ class NodeType:
     CLIENT = "client"
     EDGE = "edge"
     GNB = "gnb"
+    RENDER = "render"
 
 
 class MessageType:

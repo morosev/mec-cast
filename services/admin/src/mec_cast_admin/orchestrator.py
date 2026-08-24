@@ -267,7 +267,12 @@ class Orchestrator:
                     "version_sha": record.version_sha,
                 },
             )
-            site = {"client": "pub", "edge": "edge", "gnb": "ran"}.get(str(record.node_type))
+            site = {
+                "client": "pub",
+                "edge": "edge",
+                "gnb": "ran",
+                "render": "render",
+            }.get(str(record.node_type))
             if site and record.state is p.NodeState.RUNNING:
                 run.sites.setdefault(
                     site, {"host": record.host, "path": f"runs/{run.run_id}/{site}"}

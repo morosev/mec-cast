@@ -9,6 +9,10 @@ service).
 Parameters:
     reliability      (str,  default reliable)  must match the publisher's
     qos_depth        (int,  default 10)
+    publish_result   (bool, default false) republish the processed cloud on
+                     `mec_cast/result` for a renderer at the UE
+    result_reliability (str, default best_effort)  downlink QoS
+    result_qos_depth (int,  default 1)  display semantics: newest frame wins
     admin_url        (str,  default $ADMIN_URL)  empty = standalone
     admin_autostart  (bool, default true)  join the active run on connect
     admin_instance   (int,  default 0)  distinguishes edges on one host
@@ -18,6 +22,12 @@ Environment:
     LOGGING_URL  mec-cast-logging-service base URL (optional)
     RUNS_DIR     base directory for per-run output (default ./runs)
     ADMIN_URL    admin service, e.g. ws://admin:8099/ws/node (optional)
+
+With `publish_result` false — the default — this node is a terminal consumer
+exactly as it always was, and the uplink measurements are byte-for-byte
+comparable with every run recorded before the downlink existed. Turning it on
+adds a return path so `mec_cast_render` can measure a round trip that never
+leaves the UE's clock; see ADR-0009.
 
 With no `admin_url` the node behaves exactly as it always has: one Recorder
 built at startup from the environment's RUN_ID, one subscription, recording
@@ -34,15 +44,21 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import PointCloud2, PointField
+from std_msgs.msg import Header
 
 import mec_cast_telemetry as tel
 from mec_cast_admin_client import AdminClient
 from mec_cast_admin_client import protocol as ap
-from mec_cast_msgs.msg import CloudWithTelemetry
+from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
 
 SITE_EDGE = 1
 VOXEL_SIZE = 0.5
 CLOUD_TOPIC = "mec_cast/cloud"
+#: Downlink: the processing result, for a renderer at the UE. Off by default
+#: — see the `publish_result` parameter.
+RESULT_TOPIC = "mec_cast/result"
+RESULT_FRAME_ID = "mec_cast_edge"
 
 #: How often commands from the admin are applied. Everything the admin asks
 #: for happens on the executor thread, in this callback.
@@ -77,12 +93,50 @@ def cloud_qos(reliability: str, depth: int) -> QoSProfile:
     )
 
 
-def process_cloud(points: np.ndarray) -> tuple[np.ndarray, int]:
-    """Deterministic stand-in for real edge processing: centroid + number of
-    occupied voxels at VOXEL_SIZE resolution."""
+def process_cloud(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Deterministic stand-in for real edge processing: centroid + the
+    occupied voxels at VOXEL_SIZE resolution.
+
+    Returns the voxel *indices*, not just their count. They were always
+    computed here and thrown away; the downlink is that array turned back
+    into coordinates, which is why the return path costs one multiply-add
+    rather than a second pass over the cloud.
+    """
     centroid = points.mean(axis=0)
     voxels = np.unique(np.floor(points / VOXEL_SIZE).astype(np.int32), axis=0)
-    return centroid, int(voxels.shape[0])
+    return centroid, voxels
+
+
+def voxel_centres(voxels: np.ndarray) -> np.ndarray:
+    """Voxel indices -> the coordinate at the centre of each voxel."""
+    return ((voxels.astype(np.float32) + 0.5) * VOXEL_SIZE).astype(np.float32)
+
+
+def make_pointcloud2(points: np.ndarray, stamp, frame_id: str) -> PointCloud2:
+    """Build a PointCloud2 from an (N, 3) float32 array without per-point
+    Python overhead.
+
+    Deliberately duplicated from the publisher rather than imported, for the
+    same reason `cloud_qos` is: that node runs on the UE and this one on the
+    MEC edge, so a code-level dependency between them would be a lie about
+    the deployment.
+    """
+    assert points.dtype == np.float32 and points.ndim == 2 and points.shape[1] == 3
+    msg = PointCloud2()
+    msg.header = Header(stamp=stamp, frame_id=frame_id)
+    msg.height = 1
+    msg.width = points.shape[0]
+    msg.fields = [
+        PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+    ]
+    msg.is_bigendian = False
+    msg.point_step = 12
+    msg.row_step = 12 * points.shape[0]
+    msg.data = points.tobytes()
+    msg.is_dense = True
+    return msg
 
 
 class EdgeNode(Node):
@@ -93,8 +147,18 @@ class EdgeNode(Node):
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
         self.declare_parameter("admin_autostart", True)
         self.declare_parameter("admin_instance", 0)
+        # Downlink. Off by default: turning it on changes what the edge does
+        # with every frame, and old runs must stay comparable.
+        self.declare_parameter(
+            "publish_result", os.environ.get("PUBLISH_RESULT", "").lower() in ("1", "true")
+        )
+        self.declare_parameter("result_reliability", "best_effort")
+        self.declare_parameter("result_qos_depth", 1)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
+        self.publish_result = bool(self.get_parameter("publish_result").value)
+        self.result_reliability = str(self.get_parameter("result_reliability").value)
+        self.result_qos_depth = int(self.get_parameter("result_qos_depth").value)
 
         self.runs_dir = os.environ.get("RUNS_DIR", "runs")
         self.logging_url = os.environ.get("LOGGING_URL") or None
@@ -102,7 +166,9 @@ class EdgeNode(Node):
         self.run_id: str | None = None
         self.recorder: tel.Recorder | None = None
         self.sub = None
+        self.result_pub = None
         self.frames = 0
+        self.results_published = 0
         self.seq_gaps = 0
         self.last_seq: int | None = None
 
@@ -138,7 +204,13 @@ class EdgeNode(Node):
     # --- run lifecycle ----------------------------------------------------
 
     def params(self) -> dict:
-        return {"reliability": self.reliability, "qos_depth": self.qos_depth}
+        return {
+            "reliability": self.reliability,
+            "qos_depth": self.qos_depth,
+            "publish_result": self.publish_result,
+            "result_reliability": self.result_reliability,
+            "result_qos_depth": self.result_qos_depth,
+        }
 
     @property
     def running(self) -> bool:
@@ -158,6 +230,7 @@ class EdgeNode(Node):
 
         self.run_id = run_id
         self.frames = 0
+        self.results_published = 0
         self.seq_gaps = 0
         self.last_seq = None
         self.recorder = tel.Recorder(
@@ -172,7 +245,16 @@ class EdgeNode(Node):
             self.on_cloud,
             cloud_qos(self.reliability, self.qos_depth),
         )
-        self.get_logger().info(f"edge recording run {run_id}")
+        if self.publish_result:
+            self.result_pub = self.create_publisher(
+                CloudWithTelemetry,
+                RESULT_TOPIC,
+                cloud_qos(self.result_reliability, self.result_qos_depth),
+            )
+        self.get_logger().info(
+            f"edge recording run {run_id}"
+            + (f" (result -> {RESULT_TOPIC})" if self.publish_result else "")
+        )
 
     def stop_run(self) -> dict:
         """Unsubscribe, then drain the recorder. Order matters: a callback
@@ -182,6 +264,9 @@ class EdgeNode(Node):
         if self.sub is not None:
             self.destroy_subscription(self.sub)
             self.sub = None
+        if self.result_pub is not None:
+            self.destroy_publisher(self.result_pub)
+            self.result_pub = None
         report = self.recorder.shutdown()
         self.recorder = None
         self.get_logger().info(
@@ -250,7 +335,11 @@ class EdgeNode(Node):
             subscribed=self.sub is not None,
             peers=self.peers(),
             params=self.params(),
-            counters={"frames": self.frames, "seq_gaps": self.seq_gaps},
+            counters={
+                "frames": self.frames,
+                "seq_gaps": self.seq_gaps,
+                "results_published": self.results_published,
+            },
             autostart=self.autostart,
             report=report or {},
         )
@@ -264,13 +353,51 @@ class EdgeNode(Node):
             )
             self.admin.publish_status(payload)
 
+    def publish_result_cloud(self, env, voxels: np.ndarray) -> None:
+        """Send the processed cloud back down to a renderer at the UE.
+
+        The envelope carries the **original** `capture_ns`, `seq` and
+        `trace_id` forward and takes a fresh `send_ns`. That is the whole
+        trick: `capture_ns` was stamped by the publisher on the UE and the
+        renderer stamps `process_done_ns` on the same host, so the round trip
+        is measured on one clock and owes nothing to PTP. `recv_ns` and
+        `process_done_ns` are left at 0 for the renderer to fill — the
+        recorder already treats 0 as "not stamped yet" and leaves the derived
+        column empty.
+
+        Publishing happens after `record()` so the edge's own sample is never
+        delayed by work done on the renderer's behalf.
+        """
+        if self.result_pub is None:
+            return
+        out = CloudWithTelemetry()
+        # A fresh envelope, not a reference to the inbound one: assigning the
+        # message field would alias it, and stamping send_ns below would then
+        # rewrite the value this callback still needs.
+        out.envelope = TimingEnvelope(
+            capture_ns=env.capture_ns,
+            recv_ns=0,
+            process_done_ns=0,
+            seq=env.seq,
+            modality=env.modality,
+            trace_id=env.trace_id,
+        )
+        out.cloud = make_pointcloud2(
+            voxel_centres(voxels), self.get_clock().now().to_msg(), RESULT_FRAME_ID
+        )
+        # Stamped as late as possible: everything above is sender pipeline.
+        out.envelope.send_ns = tel.now_ns()
+        self.result_pub.publish(out)
+        self.results_published += 1
+
     def on_cloud(self, msg: CloudWithTelemetry) -> None:
         recv_ns = tel.now_ns()  # first line: the arrival stamp
         env = msg.envelope
 
         n = msg.cloud.width * msg.cloud.height
         points = np.frombuffer(msg.cloud.data, dtype=np.float32).reshape(n, 3)
-        centroid, voxel_count = process_cloud(points)
+        centroid, voxels = process_cloud(points)
+        voxel_count = int(voxels.shape[0])
         process_done_ns = tel.now_ns()
 
         if self.last_seq is not None and env.seq != self.last_seq + 1:
@@ -289,6 +416,7 @@ class EdgeNode(Node):
             trace_id=bytes(env.trace_id),
         )
         self.frames += 1
+        self.publish_result_cloud(env, voxels)
         # Parseable progress line — the launch test and humans both read it.
         self.get_logger().info(
             f"processed seq={env.seq} n={n} voxels={voxel_count} "

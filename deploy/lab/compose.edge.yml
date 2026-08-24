@@ -23,7 +23,14 @@ services:
   edge:
     image: mec-cast-ros
     network_mode: host
-    command: ros2 run mec_cast_edge edge
+    # PUBLISH_RESULT sends the processed cloud back down for the UE's
+    # renderer. Off unless asked for: it changes what the edge does with
+    # every frame, and campaigns recorded without it must stay comparable.
+    command: >
+      ros2 run mec_cast_edge edge --ros-args
+      -p publish_result:=${PUBLISH_RESULT:-false}
+      -p result_reliability:=${RESULT_RELIABILITY:-best_effort}
+      -p result_qos_depth:=${RESULT_QOS_DEPTH:-1}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5

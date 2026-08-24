@@ -6,6 +6,9 @@
 # over multicast DDS discovery — see docs/architecture/adr/0001).
 #
 # Required env: RUN_ID, EDGE_HOST, LOGGING_HOST
+# Optional: RENDER_SINK (null | rerun | ros) turns on the renderer beside the
+# client. It needs PUBLISH_RESULT=1 on the edge role or it will sit starved —
+# the admin page says so with WF_RENDER_STARVED.
 services:
   lidar-client:
     image: mec-cast-ros
@@ -21,8 +24,10 @@ services:
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
-      # Dial the router on the edge host across the 5G user plane.
-      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["tcp/${EDGE_HOST}:7447"]'
+      # Dial the router on the edge host across the 5G user plane. The
+      # scheme must match what the router listens on — udp/...?rel=1 per
+      # ADR-0006. It said tcp/ here, which no router in this repo accepts.
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/${EDGE_HOST}:7447?rel=1"]'
       RUN_ID: ${RUN_ID:-}
       # The admin runs on the edge host; without it the node needs RUN_ID.
       ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
@@ -31,6 +36,36 @@ services:
     volumes:
       - ../../runs:/runs
       # Read the PTP hardware clock for capture timestamps.
+      - /dev/ptp0:/dev/ptp0
+    devices:
+      - /dev/ptp0
+
+  # The renderer: draws what the edge sends back, and measures a round trip
+  # that never leaves this host's clock. Both capture_ns (stamped by
+  # lidar-client above) and process_done_ns (stamped here) come off the same
+  # CLOCK_REALTIME, so its e2e_ns is the one latency figure in the lab that
+  # does not depend on PTP discipline. See ADR-0009.
+  #
+  # Only started when RENDER_SINK is set: `docker compose --profile render up`.
+  render:
+    image: mec-cast-ros
+    profiles: ["render"]
+    network_mode: host
+    command: >
+      ros2 run mec_cast_render render --ros-args
+      -p sink:=${RENDER_SINK:-null}
+      -p reliability:=${RESULT_RELIABILITY:-best_effort}
+      -p qos_depth:=${RESULT_QOS_DEPTH:-1}
+    environment:
+      RMW_IMPLEMENTATION: rmw_zenoh_cpp
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/${EDGE_HOST}:7447?rel=1"]'
+      RUN_ID: ${RUN_ID:-}
+      ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+    volumes:
+      - ../../runs:/runs
       - /dev/ptp0:/dev/ptp0
     devices:
       - /dev/ptp0

@@ -75,6 +75,7 @@ def diagnose(
     clients = [r for r in online if r.node_type == NodeType.CLIENT]
     edges = [r for r in online if r.node_type == NodeType.EDGE]
     gnbs = [r for r in online if r.node_type == NodeType.GNB]
+    renderers = [r for r in online if r.node_type == NodeType.RENDER]
 
     run_is_active = run is not None and run.state in {
         RunState.STARTING,
@@ -115,6 +116,30 @@ def diagnose(
                 "or accept the run without RAN metrics — it is still a valid latency run.",
             )
         )
+
+    # A renderer is optional like the gNB, so its absence is not reported at
+    # all — only a renderer that is present and starved, which means the edge
+    # is not sending the downlink it is being asked to draw.
+    for render in renderers:
+        if not run_is_active or not render.subscribed:
+            continue
+        edge_producing = any(_rising(e, "frames") for e in edges)
+        if edge_producing and not _rising(render, "frames"):
+            findings.append(
+                Finding(
+                    "WF_RENDER_STARVED",
+                    "error",
+                    render.node_id,
+                    f"Renderer {render.node_id} is subscribed but receiving nothing "
+                    "while the edge is processing frames.",
+                    "The edge only sends the downlink when `publish_result` is true — "
+                    "it is off by default. Set PUBLISH_RESULT=1 on the edge (or "
+                    "`-p publish_result:=true`) and recreate the container. Also "
+                    "confirm the renderer's `reliability` matches the edge's "
+                    "`result_reliability`: a best_effort publisher with a reliable "
+                    "subscriber is an incompatible pair and delivers nothing.",
+                )
+            )
 
     # --- connected but not doing their job --------------------------------
     for edge in edges:

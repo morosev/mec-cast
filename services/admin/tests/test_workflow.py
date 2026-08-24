@@ -250,3 +250,67 @@ class TestContract:
         join(registry, NodeType.CLIENT, "ue01", streaming=True)
         for finding in diagnose(registry, make_run()):
             assert set(finding.to_dict()) == {"code", "severity", "subject", "message", "remedy"}
+
+
+class TestRenderer:
+    """The renderer is optional, so only a *starved* one is a fault."""
+
+    def _registry_with(self, render_frames_second: int) -> Registry:
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True, counters={"frames_published": 100})
+        join(
+            registry,
+            NodeType.EDGE,
+            "mec01",
+            subscribed=True,
+            peers=[Peer(peer_id="/mec_cast_lidar_client")],
+            counters={"frames": 100},
+        )
+        join(registry, NodeType.RENDER, "ue01", subscribed=True, counters={"frames": 10})
+        registry.snapshot_counters()
+        # Second pass: the edge keeps processing; the renderer may or may not
+        # be receiving.
+        registry.on_status(
+            "edge-mec01-0",
+            StatusPayload(
+                node_type=NodeType.EDGE,
+                state=NodeState.RUNNING,
+                subscribed=True,
+                run_id=make_run().run_id,
+                peers=[Peer(peer_id="/mec_cast_lidar_client")],
+                counters={"frames": 200},
+            ),
+        )
+        registry.on_status(
+            "render-ue01-0",
+            StatusPayload(
+                node_type=NodeType.RENDER,
+                state=NodeState.RUNNING,
+                subscribed=True,
+                run_id=make_run().run_id,
+                counters={"frames": render_frames_second},
+            ),
+        )
+        return registry
+
+    def test_a_starved_renderer_is_detected(self):
+        # The edge is processing but sending nothing down — publish_result is
+        # off by default, which is exactly the trap this catches.
+        found = [
+            f
+            for f in diagnose(self._registry_with(10), make_run())
+            if f.code == "WF_RENDER_STARVED"
+        ]
+        assert found
+        assert "publish_result" in found[0].remedy
+
+    def test_a_fed_renderer_is_not_reported(self):
+        assert "WF_RENDER_STARVED" not in codes(self._registry_with(60), make_run())
+
+    def test_a_missing_renderer_is_not_reported_at_all(self):
+        # Unlike the gNB there is not even a warning: a run with no viewer is
+        # the normal case, not a degraded one.
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(registry, NodeType.EDGE, "mec01", subscribed=True)
+        assert not any("RENDER" in c for c in codes(registry, make_run()))

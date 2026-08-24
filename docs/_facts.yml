@@ -69,6 +69,7 @@ services:
   ran:       mec-cast-ran
   media:     mec-cast-media
   admin:     mec-cast-admin
+  render:    mec-cast-render
 
 # --- ports and protocols ----------------------------------------------------
 ports:
@@ -79,6 +80,7 @@ ports:
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this; set in gnb.yml metrics.addr/port"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
+  render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer on the UE; only with sink=rerun; management LAN only, no auth"}
 
 # --- environment contract (identical across ROS2 nodes, ran-collector, addon)
 env:
@@ -90,10 +92,17 @@ env:
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
   ADMIN_URL:   {default: null, note: "ws://<edge>:8099/ws/node; empty = standalone, node reads RUN_ID as before"}
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
+  PUBLISH_RESULT:  {default: "false", note: "edge only; opt into the mec_cast/result downlink (ADR-0009). Off keeps runs comparable with pre-downlink campaigns"}
+  RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
 
 # --- output layout ----------------------------------------------------------
 outputs:
   per_frame_csv: "runs/<RUN_ID>/<site>/samples.csv"
+  sites:
+    pub:    {code: 0, note: "lidar client, on the UE"}
+    edge:   {code: 1, note: "MEC edge"}
+    render: {code: 2, note: "renderer, on the UE. Its e2e_ns is a ROUND TRIP and is the only latency figure that does not depend on PTP — both stamps are taken on the UE (ADR-0009)"}
+    ran:    {note: "srsRAN collector; KPIs, not per-frame samples"}
   csv_header: "seq,modality,kind,site,capture_ns,send_ns,recv_ns,process_done_ns,payload_bytes,aux_ns,network_ns,e2e_ns,processing_ns,sender_ns"
   run_manifest: "runs/<RUN_ID>/run.json"
   run_journal: "runs/admin-journal.jsonl"
