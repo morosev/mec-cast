@@ -62,18 +62,29 @@ The ROS image is large (~1.4 GB) and is built once:
 make build-ros2
 ```
 
-### macOS
+### Linux and macOS
 
-The pipeline itself runs in containers and behaves identically, but the host
-side differs in two ways worth knowing before you start:
+The pipeline runs in containers and behaves identically on both. Only the host
+side differs, and every difference is called out inline where it matters. The
+whole list:
 
-- **Your shell is zsh, not bash.** zsh does not word-split an unquoted
-  `$VAR` into separate arguments, so the `$COMPOSE` idiom used throughout
-  this guide fails with `no such file or directory: docker compose -f …`
-  unless `.run-env` opts into it. [Concept 2](#four-concepts-first) below
-  has the one line that fixes it.
-- **Docker is a VM.** Docker Desktop (or colima) must be running before any
-  `$COMPOSE` command; there is no daemon to add yourself to a group for.
+| | Linux | macOS |
+|---|---|---|
+| Default shell | bash | **zsh** — which is why this guide defines `compose` as a function, not a `$COMPOSE` variable ([Concept 2](#four-concepts-first)) |
+| Docker | daemon on the host | Docker Desktop or colima — **a VM that must be running first**; there is no group to add yourself to |
+| `uuidgen` | `sudo apt install uuid-runtime` | built in |
+| `jq` | `sudo apt install jq` | `brew install jq` |
+| `watch` | built in | not present — use the `while` loop shown inline, or `brew install watch` |
+| Listening sockets | `ss -ltn` | `lsof -iTCP -sTCP:LISTEN -n -P` |
+| Open a URL | `xdg-open <url>` | `open <url>` |
+| tmux | `sudo apt install tmux` | `brew install tmux` |
+
+Everything else — every `compose` command, every `docker exec`, every SQL
+query, every path under `runs/` — is identical on both.
+
+One macOS gotcha that is not really a difference, just a trap: **start Docker
+Desktop before the first command**, or everything fails with `Cannot connect
+to the Docker daemon`. It is a VM and it takes a moment to come up.
 
 ## Four concepts first
 
@@ -101,38 +112,39 @@ fine for poking at the system but useless for a measurement campaign.
 
 **2. Two compose files, always passed together.** `logging.yml` has the
 backend, `local.yml` has the pipeline. They must be one compose project so
-the containers share a network and `http://logging:8000` resolves:
+the containers share a network and `http://logging:8000` resolves.
 
-```bash
-export COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml"
-```
-
-Put that in `.run-env` too. Every command below uses `$COMPOSE`.
-
-Those two files are the **data plane**. The admin control plane is a third,
-added only when you want it — see
-[Running with the admin service](#running-with-the-admin-service). If you add
-it to `.run-env`, remember that every terminal exported `$COMPOSE` when it
-sourced the file: **an already-open terminal keeps the old value until you
-`source .run-env` again.**
-
-Because `$COMPOSE` is a *string of arguments*, it only works unquoted in a
-shell that word-splits — bash does, zsh does not. On macOS, where zsh is the
-default, add one more line to `.run-env` so the rest of this guide works
-verbatim:
+Define it as a shell **function**, and add it to `.run-env`:
 
 ```bash
 cat >> .run-env <<'EOF'
-# zsh does not word-split an unquoted $VAR the way bash does, which would
-# make every `$COMPOSE ...` below try to exec one long filename.
-[ -n "$ZSH_VERSION" ] && setopt SH_WORD_SPLIT
+compose() { docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml "$@"; }
 EOF
 ```
 
-That option applies to the whole shell session, not just `$COMPOSE` — fine
-in the dedicated terminals this guide asks you to open, worth knowing if you
-reuse them for other work. Without it, prefix each invocation with zsh's
-explicit split flag instead: `${=COMPOSE} up --no-deps postgres`.
+Every command below calls `compose`. It works identically on Linux and macOS.
+
+A function rather than `export COMPOSE="docker compose -f …"` because a
+variable holding *a string of arguments* only expands into separate words in
+a shell that word-splits. **bash does; zsh does not** — and zsh is the default
+on macOS. There, `$COMPOSE up` tries to execute one long filename and fails
+with `no such file or directory: docker compose -f …`. The zsh-only escape
+`${=COMPOSE}` works but is easy to mistype as `$(=COMPOSE)`, which fails
+differently and more confusingly:
+
+```
+zsh: COMPOSE not found
+zsh: command not found: up
+```
+
+A function sidesteps all of it: no `setopt`, no `${=}`, no per-shell variant.
+
+Those two files are the **data plane**. The admin control plane is a third,
+added only when you want it — see
+[Running with the admin service](#running-with-the-admin-service). Functions
+are per-shell just as exports are, so if you change the definition remember
+that **an already-open terminal keeps the old one until you `source .run-env`
+again.**
 
 **3. Service name vs container name.** Compose commands take the *service*
 name (`postgres`); raw `docker` commands take the *container* name
@@ -167,15 +179,31 @@ cd ~/mec-cast && source .run-env
 ### Terminal 1 — PostgreSQL
 
 ```bash
-$COMPOSE up --no-deps postgres
+compose up --no-deps postgres
 ```
 
 Wait for `database system is ready to accept connections`.
 
+If instead you get `✔ Container compose-postgres-1 Running` followed by
+`Attaching to postgres-1` and then **nothing**, it is not hung: the container
+was already up, so `up` had nothing to start and simply attached to the log
+stream — and attaching only shows output produced *from that moment on*. An
+idle PostgreSQL says nothing. To see what it printed while starting:
+
+```bash
+compose logs --tail 40 postgres
+```
+
+**`Ctrl-C` in an attached `up` stops the container**, including one that was
+already running before you attached — compose prints `Gracefully Stopping…`
+and it exits. There is no detach-without-stopping for `up`. When you want the
+container left alone, read its logs with `compose logs -f postgres` instead,
+or start it with `-d` in the first place.
+
 ### Terminal 2 — logging service
 
 ```bash
-$COMPOSE up --no-deps --build logging
+compose up --no-deps --build logging
 ```
 
 Applies migrations at startup (`MECLOG_AUTO_MIGRATE=true`) — you never run
@@ -189,7 +217,7 @@ curl -s http://localhost:8000/health/ready
 ### Terminal 3 — Zenoh router
 
 ```bash
-$COMPOSE up --no-deps --build zenoh-router
+compose up --no-deps --build zenoh-router
 ```
 
 The rendezvous point. Both the client and the edge dial into it; nothing
@@ -199,7 +227,7 @@ see [ADR-0001](../architecture/adr/0001-zenoh-over-dds.md)).
 ### Terminal 4 — edge ingest node
 
 ```bash
-$COMPOSE up --no-deps edge
+compose up --no-deps edge
 ```
 
 Start the **consumer before the producer** so the first clouds are not
@@ -209,19 +237,19 @@ published into the void. It stamps arrival, computes latency, writes
 ### Terminal 5 — LiDAR client (the producer)
 
 ```bash
-$COMPOSE up --no-deps lidar-client
+compose up --no-deps lidar-client
 ```
 
 Override the workload without editing anything:
 
 ```bash
-NUM_POINTS=60000 RATE_HZ=5.0 $COMPOSE up --no-deps lidar-client
+NUM_POINTS=60000 RATE_HZ=5.0 compose up --no-deps lidar-client
 ```
 
 ### Terminal 6 — netem impairment (optional)
 
 ```bash
-$COMPOSE up --no-deps netem
+compose up --no-deps netem
 ```
 
 Shares the client's network namespace and impairs its egress, modelling the
@@ -229,7 +257,7 @@ Shares the client's network namespace and impairs its egress, modelling the
 impairment:
 
 ```bash
-NETEM_DELAY=50ms NETEM_JITTER=10ms NETEM_LOSS=1% $COMPOSE up --no-deps netem
+NETEM_DELAY=50ms NETEM_JITTER=10ms NETEM_LOSS=1% compose up --no-deps netem
 ```
 
 It applies `tc` once and then sleeps, so restarting *it* alone is how you
@@ -241,7 +269,7 @@ change impairment mid-run — the qdisc uses `replace`, so it is idempotent.
 drain and flush). Then, from any terminal:
 
 ```bash
-$COMPOSE down
+compose down
 ```
 
 Add `-v` to also delete the database volume and start clean next time.
@@ -258,18 +286,20 @@ Full operator guide: [admin-service.md](../operations/admin-service.md).
 ### One extra compose file
 
 ```bash
-export COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml -f deploy/compose/admin.yml"
+compose() { docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml -f deploy/compose/admin.yml "$@"; }
 ```
 
 Put that in `.run-env` in place of the two-file line, then **re-source it in
-every terminal that is already open** — the old value is still exported there,
+every terminal that is already open** — the old definition is still live there,
 and compose will report `admin` as an orphan container if you miss one.
 
 ```bash
-source .run-env && echo "$COMPOSE"
+source .run-env && compose config --services | sort | tr '\n' ' '
 ```
 
-That must print three `-f` flags.
+That must list `admin` among the services. Checking what compose *resolves* is
+better than checking what you typed: it catches a missing file as well as a
+stale definition.
 
 ### What changes
 
@@ -278,7 +308,7 @@ must be **recreated**, not just restarted — a running container keeps the
 environment it was created with:
 
 ```bash
-${=COMPOSE} up -d --force-recreate --no-deps edge lidar-client
+compose up -d --force-recreate --no-deps edge lidar-client
 ```
 
 The edge joins the active run on its own. The client waits for you to press
@@ -288,14 +318,18 @@ Start, because a robot should not begin streaming the moment it powers on; set
 Then open the page:
 
 ```bash
-open http://localhost:8099/admin
+open http://localhost:8099/admin        # macOS
+```
+
+```bash
+xdg-open http://localhost:8099/admin    # Linux
 ```
 
 Press **Add run**, then **Start**. `RUN_ID` is ignored — the admin mints one.
 
 ### When nothing appears on the page
 
-The usual cause is a stale `$COMPOSE`: the nodes were created without
+The usual cause is a stale `compose`: the nodes were created without
 `ADMIN_URL` and took the standalone path, so they never dialled in and the page
 shows zero nodes. Check what a node actually got:
 
@@ -308,8 +342,9 @@ above.
 
 ## Keeping six terminals in one window (tmux)
 
-`tmux`, `screen`, and `byobu` are all installed. tmux is the one worth
-learning.
+tmux is the one worth learning. It ships on most Linux boxes; on macOS
+install it with `brew install tmux`. (`byobu` is Linux-only and not needed
+here.)
 
 ```bash
 tmux new -s meccast
@@ -421,14 +456,14 @@ noticing during the run is cheaper.
 
 ## Docker and compose command vocabulary
 
-The commands you will actually use, with what they mean. `$COMPOSE` is the
+The commands you will actually use, with what they mean. `compose` is the
 two-file invocation from above; in the lab substitute
 `docker compose -f deploy/lab/compose.<role>.yml`.
 
 ### Seeing what exists
 
 ```bash
-$COMPOSE ps
+compose ps
 ```
 
 Compose's view: service name, state, ports. Add `-a` to include stopped.
@@ -452,19 +487,19 @@ want to know whether it is CPU-bound.
 
 | Command | Effect |
 |---|---|
-| `$COMPOSE up -d` | all services, background |
-| `$COMPOSE up --no-deps <svc>` | one service, foreground, its logs |
-| `$COMPOSE stop <svc>` | SIGTERM, container kept |
-| `$COMPOSE start <svc>` | start a stopped container |
-| `$COMPOSE restart <svc>` | stop + start, same container |
-| `$COMPOSE down` | stop and remove containers + network |
-| `$COMPOSE down -v` | …and delete volumes (**database contents**) |
+| `compose up -d` | all services, background |
+| `compose up --no-deps <svc>` | one service, foreground, its logs |
+| `compose stop <svc>` | SIGTERM, container kept |
+| `compose start <svc>` | start a stopped container |
+| `compose restart <svc>` | stop + start, same container |
+| `compose down` | stop and remove containers + network |
+| `compose down -v` | …and delete volumes (**database contents**) |
 
 `stop` is graceful — 10 s by default. The recorders flush on shutdown, so
 give them room when a run has data worth keeping:
 
 ```bash
-$COMPOSE stop -t 15 lidar-client edge
+compose stop -t 15 lidar-client edge
 ```
 
 ### Getting inside a container
@@ -498,14 +533,14 @@ docker exec compose-edge-1 ls -la /runs
 Compose does not rebuild automatically:
 
 ```bash
-$COMPOSE up -d --build edge
+compose up -d --build edge
 ```
 
 For changes to the telemetry crate or the ROS packages, rebuild the shared
 image first — both the client and edge use it:
 
 ```bash
-make build-ros2 && $COMPOSE up -d edge lidar-client
+make build-ros2 && compose up -d edge lidar-client
 ```
 
 ## Accessing the database
@@ -625,23 +660,23 @@ There are three distinct output streams and they answer different questions.
 ### 1. Container stdout — "is this component alive and what is it doing?"
 
 ```bash
-$COMPOSE logs -f edge
+compose logs -f edge
 ```
 
 `-f` follows. Useful variants:
 
 ```bash
-$COMPOSE logs --tail 50 edge
+compose logs --tail 50 edge
 ```
 
 ```bash
-$COMPOSE logs -f --timestamps edge lidar-client
+compose logs -f --timestamps edge lidar-client
 ```
 
 All services at once, colour-coded by service:
 
 ```bash
-$COMPOSE logs -f
+compose logs -f
 ```
 
 Raw docker equivalent, by container name:
@@ -665,11 +700,14 @@ ls -la runs/$RUN_ID/*/
 head -3 runs/$RUN_ID/edge/samples.csv
 ```
 
-Watch it grow live — the fastest confirmation that data is flowing:
+Watch it grow live — the fastest confirmation that data is flowing. This
+loop works on both platforms; `watch` is not installed on macOS:
 
 ```bash
-watch -n 2 "wc -l runs/$RUN_ID/*/samples.csv"
+while :; do clear; wc -l runs/$RUN_ID/*/samples.csv; sleep 2; done
 ```
+
+On Linux, `watch -n 2 "wc -l runs/$RUN_ID/*/samples.csv"` is the shorthand.
 
 Median network delay in ms, without loading pandas:
 
@@ -701,7 +739,7 @@ tail -f clients/webrtc_native/log/alice_webrtc.log
 **Restart one component, keep the rest running:**
 
 ```bash
-$COMPOSE restart edge
+compose restart edge
 ```
 
 The recorder starts a fresh CSV section but keeps the same `RUN_ID`, so the
@@ -711,7 +749,7 @@ visible in analysis.
 **Restart after a code change** (restart alone will not pick it up):
 
 ```bash
-make build-ros2 && $COMPOSE up -d --build edge
+make build-ros2 && compose up -d --build edge
 ```
 
 **The logging service is down and components are running.** Nothing is lost
@@ -720,20 +758,20 @@ buffer fills, counting every drop. Per-frame CSV is unaffected — it never
 goes through HTTP. Bring the service back and snapshots resume:
 
 ```bash
-$COMPOSE up -d postgres logging
+compose up -d postgres logging
 ```
 
 **PostgreSQL is unhealthy.** Check its own logs first — a corrupt or
 version-mismatched volume is the usual cause:
 
 ```bash
-$COMPOSE logs --tail 50 postgres
+compose logs --tail 50 postgres
 ```
 
 Last resort in dev, destroying all stored logs:
 
 ```bash
-$COMPOSE down -v && $COMPOSE up -d postgres logging
+compose down -v && compose up -d postgres logging
 ```
 
 Never do that in the lab without a dump — see below.
@@ -741,7 +779,7 @@ Never do that in the lab without a dump — see below.
 **Everything is wedged and you want a clean slate (dev):**
 
 ```bash
-$COMPOSE down -v --remove-orphans && make build-ros2 && make up-local
+compose down -v --remove-orphans && make build-ros2 && make up-local
 ```
 
 ## Checking system status
@@ -767,7 +805,7 @@ the code in front of you. Redeploy the role, or pull the matching image tag.
 Then a quick pass, top to bottom:
 
 ```bash
-$COMPOSE ps
+compose ps
 ```
 
 ```bash
@@ -795,7 +833,7 @@ curl -sG http://localhost:8000/api/v1/stats | python3 -m json.tool
 Is anything being dropped?
 
 ```bash
-$COMPOSE logs edge | grep -i drop
+compose logs edge | grep -i drop
 ```
 
 ## Routine admin tasks
@@ -925,15 +963,15 @@ first after a change that touches the logging schema.
 
 | Symptom | Likely cause | Check |
 |---|---|---|
-| `password authentication failed for user "postgres"` | Talking to a *host* PostgreSQL, not the container | `ss -ltn \| grep 5432`; use `docker exec … psql` |
-| No `samples.csv` appears | Producer and consumer disagree on `RUN_ID` | `$COMPOSE exec edge printenv RUN_ID` in each |
-| Edge sees no clouds | Router not up, or client started first | `$COMPOSE logs zenoh-router`; restart `edge` then `lidar-client` |
+| `password authentication failed for user "postgres"` | Talking to a *host* PostgreSQL, not the container | `ss -ltn \| grep 5432` (Linux) or `lsof -iTCP:5432 -sTCP:LISTEN` (macOS); use `docker exec … psql` |
+| No `samples.csv` appears | Producer and consumer disagree on `RUN_ID` | `compose exec edge printenv RUN_ID` in each |
+| Edge sees no clouds | Router not up, or client started first | `compose logs zenoh-router`; restart `edge` then `lidar-client` |
 | Snapshots missing, CSV fine | Logging service unreachable | `curl -s localhost:8000/health/ready` |
 | `422` from the logging service | Extra top-level field; schema is `extra="forbid"` | [logging-submodule.md](../operations/logging-submodule.md) |
 | Nonzero drop counters | Consumer slower than producer | `docker stats`; lower `RATE_HZ` or `NUM_POINTS` |
 | `ptp.reliable: false` on a lab run | phc2sys not disciplining | `bash deploy/lab/ptp/verify-ptp.sh` |
-| Port 8000 already allocated | Previous stack still up | `$COMPOSE down`; `docker ps -a` |
-| Code change has no effect | Image not rebuilt | `make build-ros2 && $COMPOSE up -d --build` |
+| Port 8000 already allocated | Previous stack still up | `compose down`; `docker ps -a` |
+| Code change has no effect | Image not rebuilt | `make build-ros2 && compose up -d --build` |
 
 ## See also
 
