@@ -21,6 +21,7 @@ services:
       -p num_points:=${NUM_POINTS:-30000}
       -p rate_hz:=${RATE_HZ:-10.0}
       -p seed:=${SEED:-42}
+      -p pattern:=${PATTERN:-uniform_cube}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"

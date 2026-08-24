@@ -37,6 +37,11 @@ from mec_cast_admin_client import protocol as ap
 from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
 
 SITE_PUBLISHER = 0
+#: Cloud shapes. Every one is deterministic in (seed, seq), so a run is
+#: reproducible frame for frame. They voxel-compress very differently, which
+#: makes the choice an experimental variable and not only a visual one — see
+#: ADR-0009 for what that does to the downlink.
+PATTERNS = ("uniform_cube", "rotating_plane", "sphere", "lidar_scan")
 ADMIN_POLL_S = 0.1
 STATUS_PERIOD_S = 2.0
 
@@ -106,7 +111,7 @@ class PointCloudPublisher(Node):
         self.declare_parameter("seed", 42)
         self.declare_parameter("num_points", 30000)
         self.declare_parameter("rate_hz", 10.0)
-        self.declare_parameter("pattern", "uniform_cube")
+        self.declare_parameter("pattern", os.environ.get("PATTERN", "uniform_cube"))
         self.declare_parameter("reliability", "reliable")
         self.declare_parameter("qos_depth", 10)
 
@@ -116,8 +121,8 @@ class PointCloudPublisher(Node):
         self.pattern = str(self.get_parameter("pattern").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
-        if self.pattern not in ("uniform_cube", "rotating_plane"):
-            raise ValueError(f"unknown pattern {self.pattern!r}")
+        if self.pattern not in PATTERNS:
+            raise ValueError(f"unknown pattern {self.pattern!r}, expected one of {PATTERNS}")
 
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
         # A robot must not start streaming the moment it powers on: the
@@ -204,8 +209,8 @@ class PointCloudPublisher(Node):
         for key in ("num_points", "rate_hz", "seed", "pattern"):
             if args and key in args and args[key] is not None:
                 setattr(self, key, type(getattr(self, key))(args[key]))
-        if self.pattern not in ("uniform_cube", "rotating_plane"):
-            raise ValueError(f"unknown pattern {self.pattern!r}")
+        if self.pattern not in PATTERNS:
+            raise ValueError(f"unknown pattern {self.pattern!r}, expected one of {PATTERNS}")
 
         self.run_id = run_id
         self.trace_id = run_trace_id(run_id)
@@ -305,6 +310,17 @@ class PointCloudPublisher(Node):
             return (self.rng.random((self.num_points, 3), dtype=np.float32) * 10.0).astype(
                 np.float32
             )
+        if self.pattern == "sphere":
+            # Points on a sphere's surface: normalised Gaussians are uniform
+            # on the shell. Voxelises to a hollow shell rather than a solid,
+            # so it compresses far better than the cube at the same count.
+            v = self.rng.standard_normal((self.num_points, 3)).astype(np.float32)
+            v /= np.linalg.norm(v, axis=1, keepdims=True)
+            return np.ascontiguousarray(v * 4.0 + 5.0, dtype=np.float32)
+
+        if self.pattern == "lidar_scan":
+            return self.lidar_scan()
+
         # rotating_plane: a flat sheet rotating with frame index — compresses
         # very differently from noise, deterministic per (seed, seq).
         angle = (self.seq % 360) * np.pi / 180.0
@@ -324,6 +340,38 @@ class PointCloudPublisher(Node):
             dtype=np.float32,
         )
         return np.ascontiguousarray(pts @ rot.T, dtype=np.float32)
+
+    def lidar_scan(self) -> np.ndarray:
+        """A spinning multi-beam sweep inside a 10 m room.
+
+        The closest thing here to what the platform actually carries: rings of
+        returns off walls, floor and ceiling, rotating with the frame index.
+        Rays leave a sensor at the centre and are cut against the box with the
+        slab method, so every point is a real surface hit rather than free
+        space — which is what makes it voxelise like a scan instead of a fog.
+        """
+        beams = 16
+        per_beam = max(1, self.num_points // beams)
+        elev = np.linspace(-15.0, 15.0, beams, dtype=np.float32) * (np.pi / 180.0)
+        # One degree of azimuth per frame: a full revolution every 360 frames.
+        azim = (
+            np.linspace(0.0, 2 * np.pi, per_beam, endpoint=False, dtype=np.float32)
+            + (self.seq % 360) * (np.pi / 180.0)
+        )
+        el, az = np.meshgrid(elev, azim, indexing="ij")
+        d = np.stack(
+            [np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), np.sin(el)], axis=-1
+        ).reshape(-1, 3).astype(np.float32)
+
+        origin = np.array([5.0, 5.0, 5.0], dtype=np.float32)
+        # Slab method against [0, 10]^3. A ray parallel to an axis never meets
+        # that pair of planes, so its t must not win the minimum.
+        parallel = np.abs(d) < 1e-6
+        safe = np.where(parallel, 1e-6, d)
+        bound = np.where(d > 0.0, 10.0, 0.0).astype(np.float32)
+        t = np.where(parallel, np.inf, (bound - origin) / safe)
+        t = np.min(t, axis=1, keepdims=True)
+        return np.ascontiguousarray(origin + d * t, dtype=np.float32)
 
     def publish_frame(self) -> None:
         if self.recorder is None:

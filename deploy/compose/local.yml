@@ -9,6 +9,7 @@
 #
 # Knobs: RUN_ID, NETEM_DELAY (20ms), NETEM_JITTER (5ms), NETEM_LOSS (0.5%),
 #        NUM_POINTS (30000), RATE_HZ (10.0), SEED (42),
+#        PATTERN (uniform_cube | rotating_plane | sphere | lidar_scan),
 #        RELIABILITY (reliable | best_effort), QOS_DEPTH (10)
 services:
   zenoh-router:
@@ -35,6 +36,7 @@ services:
       -p num_points:=${NUM_POINTS:-30000}
       -p rate_hz:=${RATE_HZ:-10.0}
       -p seed:=${SEED:-42}
+      -p pattern:=${PATTERN:-uniform_cube}
       -p reliability:=${RELIABILITY:-reliable}
       -p qos_depth:=${QOS_DEPTH:-10}
     environment:
