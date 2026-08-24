@@ -22,6 +22,7 @@ Makefile target for "the UE host only".
 - [Checking system status](#checking-system-status)
 - [Routine admin tasks](#routine-admin-tasks)
 - [Troubleshooting](#troubleshooting)
+- [When the renderer looks broken but is not](#when-the-renderer-looks-broken-but-is-not)
 
 ## Before you start
 
@@ -972,6 +973,53 @@ first after a change that touches the logging schema.
 | `ptp.reliable: false` on a lab run | phc2sys not disciplining | `bash deploy/lab/ptp/verify-ptp.sh` |
 | Port 8000 already allocated | Previous stack still up | `compose down`; `docker ps -a` |
 | Code change has no effect | Image not rebuilt | `make build-ros2 && compose up -d --build` |
+| Renderer logs in bursts with big `seq` gaps, round trips in the hundreds of ms | Uplink in congestion collapse — the edge is receiving a fraction of what is published. Not a renderer fault | `wc -l runs/$RUN_ID/*/samples.csv`: compare `pub` to `edge`. See below |
+| Router floods `Route data with unknown scope N!` / `Declare token N for unknown scope M` | rmw_zenoh discovery declarations lost on the impaired link. More nodes and topics mean more declarations crossing it, so adding the renderer makes it more likely | Check delivery, not the log — data is unaffected. Lower `NETEM_LOSS`, or restart the stack so discovery re-runs |
+| Client warns `Didn't receive DeclareFinal for interest …: Timeout(10s)!` | Same cause: the graph query did not complete over the lossy link | As above |
+
+### When the renderer looks broken but is not
+
+Measured on the local topology, 3,000 points at 10 Hz with 20 ms netem, with
+and without the renderer running:
+
+| Setting | pub → edge | edge → render | Router `unknown scope` |
+|---|---|---|---|
+| 30,000 points, 0.5% loss | **1.9%** | 100% | many |
+| 3,000 points, 0.5% loss | 93.7% | 100% | many |
+| 3,000 points, 0% loss | 100% | 100% | 1 |
+
+Three things fall out of that, and each answers a different false alarm.
+
+**The renderer never causes uplink loss.** The same workload with and without
+it delivered 1.53% and 1.54% to the edge — the difference is noise. The
+downlink runs at 100% even while the uplink is collapsing, because it carries
+a quarter of the bytes and is not behind the impairment.
+
+**`local.yml`'s defaults are over capacity on purpose.** 30,000 points at
+10 Hz with 0.5% loss is the documented congestion-collapse case — see
+[running-an-experiment.md](running-an-experiment.md#choosing-an-impairment-the-link-can-carry).
+It is a legitimate experiment and a useless latency measurement. The renderer
+simply makes it *visible*: it prints one line per frame received, so at 1.9%
+delivery it appears to hang for seconds at a time and then emit a burst. Check
+`RestartCount` before believing a node died:
+
+```bash
+docker inspect compose-render-1 --format '{{.RestartCount}} {{.State.Status}}'
+```
+
+**The router's `unknown scope` errors are discovery, not data.** Every one
+observed was on the *client's* face — the only container behind netem — and
+none referenced `mec_cast/cloud` or `mec_cast/result`. They are liveliness
+tokens and interest declarations (`@ros2_lv/**`) whose key-expression
+declarations were lost or reordered on the impaired link. They cluster in the
+first second or two while the graph is being discovered; when that race goes
+badly the router never resolves the scope and then logs once per message
+thereafter, which looks alarming and changes nothing. Frame delivery was
+identical with 11 errors and with 410.
+
+Adding the renderer makes them more frequent because it puts one more node and
+one more topic into the graph the client must discover — more declarations
+across a lossy link — not because the return path is at fault.
 
 ## See also
 
