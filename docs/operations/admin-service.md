@@ -48,7 +48,7 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 | `#` | Monotonic run number, for talking about a run out loud |
 | Run | Last eight characters of the id; click to copy the whole thing |
 | Status | The state machine's current state |
-| Participants | client / edge / gnb counts, red when a required role is missing |
+| Participants | client / edge / gnb / render counts, red when a *required* role is missing |
 | Findings | Count of errors currently detected for the active run |
 
 **Add run** creates a run in `draft` with the workload it will carry —
@@ -78,6 +78,12 @@ draft ──start──► starting ──quorum──► running ◄──recov
 | `draft` | Created, never started | Start, Remove |
 | `starting` | Command sent, waiting for participants | Stop |
 | `running` | At least one client and one edge are recording | Stop |
+
+Quorum is one client and one edge. The gNB and the renderer are both
+optional — a run with no RAN KPIs, or with nobody watching, is a legitimate
+run, so neither absence degrades it. A renderer that is present but starved
+*is* a fault: `WF_RENDER_STARVED`, whose remedy names the default that causes
+it, since the edge's `publish_result` is off unless asked for.
 | `degraded` | A participant went silent; the rest keep recording | Stop |
 | `stopping` | Stop sent, waiting for the nodes to let go | — |
 | `stopped` | Finished cleanly | Remove |

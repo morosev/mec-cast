@@ -30,6 +30,12 @@ flowchart TB
     SWRITE["Writer thread"]:::work
     SCSV[("runs/&lt;RUN_ID&gt;/pub/samples.csv")]:::sink
     T2 -.-> SREC --> SRING --> SWRITE --> SCSV
+
+    REND["Render node — draws the edge's result<br/>optional, off by default"]:::work
+    T5(["process_done_ns — on THIS host<br/>same CLOCK_REALTIME that stamped capture_ns"]):::stamp
+    RCSV[("runs/&lt;RUN_ID&gt;/render/samples.csv<br/>site 2 · e2e_ns is a ROUND TRIP")]:::sink
+    REND --> T5 --> RCSV
+    T1 -.->|"round trip needs no PTP:<br/>both stamps taken here"| T5
   end
 
   subgraph AIR["2 &nbsp; 5G USER PLANE — the impairment under test"]
@@ -38,6 +44,8 @@ flowchart TB
     GNB2["srsRAN O-DU → O-CU → Open5GS core → UPF / N6"]:::wire
     UU --> GNB2
   end
+
+  T4 ==>|"mec_cast/result — voxel cloud<br/>publish_result, off by default"| REND
 
   subgraph EDGEHOST["3 &nbsp; EDGE HOST — MEC application server"]
     direction TB
@@ -76,8 +84,8 @@ flowchart TB
     SRSM -->|"UDP JSON"| RCOL --> RKPI
   end
 
-  PUB ==>|"Zenoh over TCP, dialled OUT to the router"| UU
-  GNB2 ==>|"tcp/EDGE_HOST:7447"| ZR2
+  PUB ==>|"Zenoh over Reliable UDP, dialled OUT to the router"| UU
+  GNB2 ==>|"udp/EDGE_HOST:7447?rel=1"| ZR2
   UPL -->|"HTTP JSON batch · service=mec-cast-edge · trace_id=RUN_ID"| API
   RCOL -->|"service=mec-cast-ran · same trace_id"| API
 

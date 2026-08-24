@@ -14,10 +14,11 @@ it is a starting point, not a substitute for reading the diff.
 | `telemetry/src/ffi.rs`, `include/` | `clients/webrtc_native/README.md`, `telemetry/README.md`, PPT slide 8 | The C ABI is a published contract |
 | `telemetry/src/py.rs` | `telemetry/README.md`, `ros2/README.md` | trace_id derivation must stay identical to the C binding |
 | `ros2/src/mec_cast_msgs/` | `ros2/README.md`, `_facts.yml`, both dataflow diagrams | Message shape is the transport contract |
-| `ros2/src/mec_cast_lidar_client/` | `ros2/README.md`, PPT slide 5, `guides/running-an-experiment.md` | Parameter names/defaults are the experiment's sweep variables |
-| `ros2/src/mec_cast_edge/` | `ros2/README.md`, PPT slide 6, lifecycle diagram | Where the stamps happen |
+| `ros2/src/mec_cast_lidar_client/` | `ros2/README.md`, PPT slide 5, `guides/running-an-experiment.md`, `_facts.yml` `workload.patterns` | Parameter names/defaults are the experiment's sweep variables. A new `pattern` changes downlink volume too, so its compression ratio belongs in the facts file |
+| `ros2/src/mec_cast_edge/` | `ros2/README.md`, PPT slide 6, lifecycle diagram | Where the stamps happen. `publish_result` also drives the return path in both dataflow diagrams |
+| `ros2/src/mec_cast_render/` | `ros2/README.md`, PPT slide 5, ADR-0009, both dataflow diagrams, hero UE zone, `_facts.yml` `outputs.sites` | Site 2. Its `e2e_ns` is a ROUND TRIP, not a one-way — any doc calling it glass-to-glass without saying so is wrong |
 | `ran/collector/` | `ran/collector/README.md`, ADR-0005, PPT slides 1 & 10 | KPI list and UDP contract |
-| `deploy/compose/` | `deploy/README.md`, `guides/manual-operation.md`, PPT slide 2, topology diagram | Service names, ports, volumes appear in many places |
+| `deploy/compose/` | `deploy/README.md`, `guides/manual-operation.md`, PPT slide 2, topology diagram | Service names, ports, volumes appear in many places. A new overlay (`render.yml`) needs a row in `deploy/README.md` and a Makefile target |
 | `deploy/lab/` | `operations/lab-topology.md`, `guides/manual-operation.md`, PPT slide 3, `lab-deployment.mmd` | Roles, start order, env requirements |
 | `deploy/docker/` | `deploy/README.md`, `ros2/README.md` | Image names and entrypoints |
 | `Makefile` | `README.md`, `guides/manual-operation.md`, most component READMEs | Every doc that shows a `make` command |
@@ -65,3 +66,21 @@ already been wrong once in this repo:
 - counts ("three components", "four roles", "10 slides")
 - status tables in `README.md`
 - remedy strings in `services/admin/src/mec_cast_admin/workflow.py`
+
+
+## Facts that live in more than text
+
+Some claims are duplicated into formats a prose grep will not reach. When one
+of these changes, the diagrams and the deck hold their own copies:
+
+| Fact | Also stored in |
+|---|---|
+| Transport scheme and port (`udp/…:7447?rel=1`) | both `.mmd` dataflow diagrams — as endpoint strings *and* as prose edge labels |
+| Env var names and defaults | `dataflow-runtime-topology.mmd` ENV node, `manual-operation.md`, compose files |
+| Published ports | topology diagram, `deploy/README.md`, `_facts.yml`, hero MEC zone |
+| Site directory names and codes | lifecycle diagram sinks, `running-an-experiment.md` outputs table |
+
+The lesson that produced this table: after ADR-0006 corrected the transport,
+a grep for `tcp/` fixed three endpoint strings and missed `"Zenoh over TCP,
+dialled OUT to the router"` — a label saying the same thing in words. **Search
+for the claim, not the syntax**, and render the diagram to check.

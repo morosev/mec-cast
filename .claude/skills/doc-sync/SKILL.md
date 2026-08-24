@@ -161,18 +161,22 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | 2 | Deployment — local | `deploy/compose/local.yml`, `deploy/README.md` |
 | 3 | Deployment — lab | `deploy/lab/`, `operations/lab-topology.md` |
 | 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `services/README.md` |
-| 5 | ROS2 client | `ros2/README.md` |
+| 5 | ROS2 on the UE — client and renderer | `ros2/README.md`, `adr/0009-render-return-path.md` |
 | 6 | Edge | `ros2/README.md`, `telemetry/README.md` |
 | 7 | Zenoh | `adr/0001-zenoh-over-dds.md` |
 | 8 | Profile B — current | `clients/webrtc_native/README.md` |
 | 9 | Profile B — planned str0m | `architecture/str0m-profile.md` |
 | 10 | Applications and future work | `research/README.md`, ADR-0005 |
 
-Slide 4 was re-scoped from "Logging service" when the admin service arrived,
-rather than adding an eleventh slide: `qa_pptx.py` pins `EXPECTED_SLIDES = 10`
-and `PROFILE_B_FIRST_SLIDE = 8`, and those constants encode a content contract
-that should not be loosened casually. Watch slide 4's word count — QA prints
-it — and revisit only if it visibly bursts.
+**Pair related components on one slide; do not add an eleventh.** This has now
+happened twice — slide 4 absorbed the admin service beside logging, slide 5 the
+render node beside the lidar client — and both times the pairing held because
+the two things genuinely share a location and a role. `qa_pptx.py` pins
+`EXPECTED_SLIDES = 10` and `PROFILE_B_FIRST_SLIDE = 8`; a new slide inserted
+before 8 shifts Profile B and forces both constants, which is a content
+contract, not a formatting detail. Watch the word counts QA prints — slides 4
+(232), 10 (234), 6 (200) and 5 (193) are the dense ones — and revisit only if
+one visibly bursts.
 
 **Slides 1–7 must not mention WebRTC, str0m, SFU, libwebrtc, or "Profile B".**
 Profile B is introduced on slide 8 and nowhere earlier. `qa_pptx.py` enforces
@@ -269,9 +273,17 @@ This drives the format policy; do not "simplify" it away:
 bash docs/diagrams/render.sh
 ```
 
-**View every changed diagram as an image.** Parsing proves nothing: a version
-of the lifecycle diagram parsed cleanly while missing the edge carrying the
-payload from the gNB to the edge host — the data flow was silently wrong.
+**View every changed diagram as an image.** Parsing proves nothing, and
+neither does grep. Two different failures, both real:
+
+- A version of the lifecycle diagram parsed cleanly while missing the edge
+  carrying the payload from the gNB to the edge host — the data flow was
+  silently wrong.
+- After ADR-0006 corrected the transport, a grep for `tcp/` cleaned the
+  endpoint strings but left `"Zenoh over TCP, dialled OUT to the router"` — a
+  prose label the pattern never matched. It surfaced only on looking at the
+  render. **When a fact changes, search for the claim, not the syntax**: the
+  diagrams hold their own copies of ports, schemes and env vars.
 
 Check specifically: every logical connection present (trace the payload path
 end to end); no cluster fill other than white (Mermaid's default is pale
@@ -331,8 +343,11 @@ Rules that keep it working:
 - **Soft depth only** — one diffuse shadow and a faint top sheen. No bevels or
   isometric extrusion; they date badly and undercut a research context.
 - **Say what is aspirational.** The robotic arm is drawn as intended
-  deployment; the footer states the platform is sensor → edge one-way today.
-  If that changes, update both.
+  deployment. The footer states what is real: results now return to the UE for
+  the renderer (ADR-0009), but nothing on the UE is *commanded* — a return of
+  results is not actuation. If that changes, update the tagline, the footer and
+  the UE zone's chips together; leaving the tagline claiming a loop the picture
+  does not show is how this drifted the first time.
 
 ### Traps, all already hit once
 
@@ -448,6 +463,14 @@ than lowering the bar.
 to a context it cannot see (inside a release zip, inside `runs/<RUN_ID>/`).
 Every entry has a stated reason. Add to it only with one — a suppression
 nobody can justify is how a gate rots.
+
+Its `make X` check looks **only inside backticks and fenced blocks**. In prose
+"make" is an ordinary verb, and matching it there flagged ADR-0006's "mixed
+traffic classes make head-of-line blocking worth addressing" on every run for
+three syncs. The old defence was a stoplist of words that may follow "make",
+which cannot be completed — any noun in the language can. If a gate reports the
+same false positive twice, fix the gate; a finding everyone has learned to
+ignore is worth less than no finding at all.
 
 ## Environment
 

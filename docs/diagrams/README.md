@@ -73,9 +73,6 @@ Source: [`architecture-overview.mmd`](architecture-overview.mmd) — keep the tw
 copies identical when editing.
 
 ```mermaid
-  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
-  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
-  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
 flowchart LR
   classDef comp fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
   classDef spine fill:#2B3136,stroke:#2B3136,color:#FFFFFF
@@ -85,6 +82,7 @@ flowchart LR
   subgraph UE["UE — robot compute"]
     LIDAR["LiDAR sensor<br/>(synthetic source today)"]
     ROSC["ROS2 client<br/>stamps capture_ns, send_ns"]
+    RENDER["ROS2 render node<br/>stamps process_done_ns · draws the result"]
     LIDAR --> ROSC
   end
 
@@ -108,10 +106,12 @@ flowchart LR
 
   ROSC -->|"Uu — PointCloud2"| GNB
   CORE -->|"UPF / N6"| ZR
+  EN -.->|"mec_cast/result — voxel cloud, opt-in"| RENDER
   GNB -.->|"UDP JSON metrics"| RANC
 
   ROSC --- SPINE
   EN --- SPINE
+  RENDER --- SPINE
   RANC --- SPINE
 
   SPINE --> CSV
@@ -120,13 +120,14 @@ flowchart LR
   ADMIN <-.->|"control · run start/stop, status"| ROSC
   ADMIN <-.-> EN
   ADMIN <-.-> RANC
+  ADMIN <-.-> RENDER
 
   PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC,ADMIN comp
+  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note

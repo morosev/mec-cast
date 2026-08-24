@@ -93,18 +93,16 @@ def check_paths(doc: Path) -> None:
         problems.append(f"{doc.relative_to(REPO)}: path does not exist -> {cand}")
 
 
-#: Fenced blocks and inline spans — the only places a command is a command.
-CODE_SPAN = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]+`", re.S)
-
-
 def check_make_targets(docs: list[Path]) -> None:
-    """`make X` written as a command must be a real target.
+    """`make X` written *as a command* must be a real target.
 
-    Scanned inside code spans only. Scanning prose needs a denylist of every
-    English word that can follow "make", which is unbounded and was already
-    wrong: "mixed traffic classes make head-of-line blocking worth enabling"
-    was reported as a missing `make head-of-line` target. Backticks are the
-    author's own signal that something is a command, so trust them.
+    Only code counts — inline backticks and fenced blocks. In prose, "make"
+    is an ordinary English verb, and matching it there produced a false
+    positive on every run ("mixed traffic classes make head-of-line blocking
+    worth addressing" in ADR-0006). The old defence was a stoplist of words
+    that may follow "make", which cannot be completed: any noun in the
+    language can. Scoping to code is the distinction that actually holds, and
+    it is also where a reader would copy the command from.
     """
     makefile = REPO / "Makefile"
     if not makefile.exists():
@@ -112,21 +110,20 @@ def check_make_targets(docs: list[Path]) -> None:
     targets = set(
         re.findall(r"^([a-zA-Z0-9_-]+):", makefile.read_text(encoding="utf-8"), re.M)
     )
-    # Last resort for prose in a console transcript. Not load-bearing.
-    prose = {"sure", "sense", "it", "the", "a", "an", "this", "that", "them"}
+    # Noun phrases that appear inside backticks without being invocations.
+    prose = {"targets", "target", "commands"}
     for doc in docs:
         text = doc.read_text(encoding="utf-8", errors="replace")
-        code = "\n".join(m.group(0) for m in CODE_SPAN.finditer(text))
-        # A `#` comment inside a code block is prose again — "# make every
-        # $COMPOSE below try to exec one long filename" is a sentence, not a
-        # target. Truncating at a `#` that is really inside a string only
-        # narrows what we scan, so it can never invent a finding.
-        code = "\n".join(re.sub(r"#.*$", "", line) for line in code.splitlines())
-        for m in re.finditer(r"\bmake ([a-z][a-z0-9_-]*)\b", code):
-            t = m.group(1)
-            if t in prose or t in targets:
-                continue
-            problems.append(f"{doc.relative_to(REPO)}: unknown make target -> make {t}")
+        code = re.findall(r"```[a-z]*\n(.*?)```", text, re.S)
+        code += re.findall(r"`([^`\n]+)`", text)
+        for span in code:
+            for m in re.finditer(r"\bmake ([a-z][a-z0-9_-]*)\b", span):
+                t = m.group(1)
+                if t in prose or t in targets:
+                    continue
+                problems.append(
+                    f"{doc.relative_to(REPO)}: unknown make target -> make {t}"
+                )
 
 
 def check_orphans(docs: list[Path]) -> None:

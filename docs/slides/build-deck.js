@@ -278,33 +278,37 @@ function bullets(s, x, y, w, h, items, size) {
 // ===================================================== 5. ROS2 CLIENT
 {
   const s = slideBase(
-    "ROS2 client — mec_cast_lidar_client",
-    "Runs on the UE. Vanilla ROS2 application code; only the middleware underneath is unusual."
+    "ROS2 on the UE — client and renderer",
+    "Two nodes on the robot. Vanilla ROS2 application code; only the middleware underneath is unusual."
   );
 
   const y = TOP, h = 1.25;
-  box(s, { x: M, y, w: 3.75, h, title: "1 — generate", lines: ["deterministic cloud from a seed", "capture_ns stamped"] });
-  box(s, { x: M + 4.25, y, w: 3.75, h, title: "2 — publish", lines: ["CloudWithTelemetry", "send_ns stamped last"] });
-  box(s, { x: M + 8.5, y, w: 3.73, h, title: "3 — record", lines: ["sender-side CSV", "snapshots to logging"] });
-  arrow(s, M + 3.81, y + h / 2, M + 4.19, y + h / 2);
-  arrow(s, M + 8.06, y + h / 2, M + 8.44, y + h / 2);
+  const q = cols(4, 0.30);
+  box(s, { x: q[0].x, y, w: q[0].w, h, title: "1 — generate", lines: ["deterministic cloud from a seed", "capture_ns stamped"] });
+  box(s, { x: q[1].x, y, w: q[1].w, h, title: "2 — publish", lines: ["CloudWithTelemetry", "send_ns stamped last"] });
+  box(s, { x: q[2].x, y, w: q[2].w, h, title: "3 — record", lines: ["sender-side CSV", "snapshots to logging"] });
+  box(s, { x: q[3].x, y, w: q[3].w, h, title: "4 — render", lines: ["mec_cast/result from the edge", "process_done_ns stamped"] });
+  arrow(s, q[0].x + q[0].w + 0.03, y + h / 2, q[1].x - 0.03, y + h / 2);
+  arrow(s, q[1].x + q[1].w + 0.03, y + h / 2, q[2].x - 0.03, y + h / 2);
+  arrow(s, q[2].x + q[2].w + 0.03, y + h / 2, q[3].x - 0.03, y + h / 2);
 
   box(s, { x: M, y: 3.15, w: 5.9, h: 1.95, title: "Test vectors are a controlled variable", lines: [
-    "seed         42               reproducible contents",
-    "num_points   30000            payload size — the main sweep",
-    "rate_hz      10.0             publish rate",
-    "pattern      uniform_cube     or rotating_plane",
-    "",
-    "Fixing the seed across a size sweep means only size varies.",
+    "seed         42            reproducible contents",
+    "num_points   30000         payload size — the main sweep",
+    "rate_hz      10.0          publish rate",
+    "pattern      lidar_scan    also uniform_cube, sphere,",
+    "                           rotating_plane — 1.2x to 6.6x",
+    "                           voxel compression, which sets",
+    "                           the return payload too",
   ], fs: 11 });
 
   bullets(s, M + 6.4, 3.15, 5.83, 1.95, [
     "The timing envelope rides in-band as a message field, because rmw_zenoh does not expose per-publish attachments to the application layer.",
-    "The same synthetic source stands in for a real LiDAR, so the pipeline is testable with no hardware and reproducible in CI.",
+    "The renderer is optional and off by default, so the one-way path stays byte-for-byte comparable with campaigns recorded before it existed.",
   ], 11.5);
 
   note(s, M, 5.40, CW, 1.4, [
-    "Why synthetic first: an Ouster OS1-64 at 10 Hz is roughly 2 MB per frame, about 160 Mbps raw — well beyond a lab 5G uplink. Establishing the latency floor with a controllable payload comes before adding compression, so the cost of compression can be measured rather than assumed.",
+    "Both stamps that bound the round trip are taken on this host: capture_ns by the client, process_done_ns by the renderer, off one CLOCK_REALTIME. That makes the renderer's e2e_ns the only end-to-end latency figure in the platform that owes nothing to PTP discipline, and an independent check on the clock offset the one-way metrics depend on.",
   ], 11.5);
 }
 
@@ -319,7 +323,7 @@ function bullets(s, x, y, w, h, items, size) {
   box(s, { x: M, y, w: 2.85, h, title: "recv_ns", lines: ["stamped on arrival", "before any work"] });
   box(s, { x: M + 3.35, y, w: 2.85, h, title: "process", lines: ["centroid + voxel count", "deterministic"] });
   box(s, { x: M + 6.7, y, w: 2.85, h, title: "process_done_ns", lines: ["stamped after work"] });
-  box(s, { x: M + 10.05, y, w: 2.18, h, title: "record", lines: ["CSV + snapshot"] });
+  box(s, { x: M + 10.05, y, w: 2.18, h, title: "record", lines: ["CSV + snapshot", "then optionally reply"] });
   arrow(s, M + 2.91, y + h / 2, M + 3.29, y + h / 2);
   arrow(s, M + 6.26, y + h / 2, M + 6.64, y + h / 2);
   arrow(s, M + 9.61, y + h / 2, M + 9.99, y + h / 2);
@@ -337,6 +341,7 @@ function bullets(s, x, y, w, h, items, size) {
     "The hot path never blocks: samples go into a bounded lock-free ring, and a writer thread drains it.",
     "A full ring drops the sample and counts it — dropping is always preferable to perturbing the measurement.",
     "A separate uploader thread posts snapshots, so a stalled logging service cannot stall CSV writing.",
+    "With publish_result on, the voxel cloud already computed goes back to the UE on mec_cast/result — after record(), so the edge's own sample is never delayed for the renderer's benefit.",
   ], 11.5);
 
   note(s, M, 5.45, CW, 1.4, [

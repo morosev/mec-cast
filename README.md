@@ -60,11 +60,13 @@ Run `make help` for all targets.
 | 1 | **Client components** (UE side) | [`clients/`](clients/README.md) |
 | 1.i | ROS2 lidar client node | [`ros2/src/mec_cast_lidar_client/`](ros2/README.md) |
 | 1.ii | WebRTC native client | [`clients/webrtc_native/`](clients/webrtc_native/README.md) |
+| 1.iii | ROS2 render node — draws the edge's result, measures the round trip | [`ros2/src/mec_cast_render/`](ros2/README.md) |
 | 2 | **MEC server components** | [`edge/`](edge/README.md) |
 | 2.i | Zenoh ingest layer for ROS2 | [`ros2/src/mec_cast_edge/`](ros2/README.md) |
 | 2.ii | str0m SFU (planned) | [design](docs/architecture/str0m-profile.md) |
 | 3 | **Telemetry** — the shared spine | [`telemetry/`](telemetry/README.md) |
 | 4 | **Logging service** (submodule) | [`services/logging/`](docs/operations/logging-submodule.md) |
+| 4.i | **Admin service** — run orchestration (in-repo) | [`services/admin/`](docs/operations/admin-service.md) |
 | 5 | **Third-party, extended** | [`third_party/`](third_party/README.md) — [webrtc](docs/guides/building-libwebrtc.md), [str0m](docs/architecture/str0m-profile.md) |
 | — | RAN metrics tap | [`ran/collector/`](ran/collector/README.md) |
 | — | Deployment | [`deploy/`](deploy/README.md) |

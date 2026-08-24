@@ -14,8 +14,8 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "fe39a4761c93661917d47aaa7a232cbf1ae9eb7e"
-  last_synced_date: "2026-08-22"
+  last_synced_sha: "9c83f9b1cf626cd1fc6a58c74d03345d6f9a9a03"
+  last_synced_date: "2026-08-24"
 
 # --- identity ---------------------------------------------------------------
 platform:
@@ -80,7 +80,8 @@ ports:
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this; set in gnb.yml metrics.addr/port"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
-  render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer on the UE; only with sink=rerun; management LAN only, no auth"}
+  render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer page on the UE; only with sink=rerun; management LAN only, no auth"}
+  render_stream:  {port: 9877,  proto: "grpc", note: "the log stream the viewer page connects to. BOTH ports must be reachable from the operator's BROWSER — publishing only 9876 gives a page that loads and never fills in (ADR-0009)"}
 
 # --- environment contract (identical across ROS2 nodes, ran-collector, addon)
 env:
@@ -94,10 +95,25 @@ env:
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
   PUBLISH_RESULT:  {default: "false", note: "edge only; opt into the mec_cast/result downlink (ADR-0009). Off keeps runs comparable with pre-downlink campaigns"}
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
+  VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. localhost is wrong the moment the UE is a different machine, as it is in the lab"}
+  PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
+
+# --- synthetic workload -----------------------------------------------------
+# The pattern is an experimental variable, not decoration: the edge's downlink
+# payload is the voxel count, so the shape selects how much the return path
+# carries. Ratios measured at 3,000 points and VOXEL_SIZE 0.5.
+workload:
+  voxel_size_m: 0.5
+  patterns:
+    uniform_cube:   {compression: "1.2x", note: "default; random points in a 10 m cube"}
+    sphere:         {compression: "3.4x", note: "points on a shell, radius 4 about (5,5,5)"}
+    lidar_scan:     {compression: "5.4x", note: "16 beams, -15..+15 deg, ray-cast against a 10 m room; rotates 1 deg/frame"}
+    rotating_plane: {compression: "6.6x", note: "a flat sheet tumbling with the frame index"}
 
 # --- output layout ----------------------------------------------------------
 outputs:
   per_frame_csv: "runs/<RUN_ID>/<site>/samples.csv"
+  render_recording: "runs/<RUN_ID>/render/session.rrd"
   sites:
     pub:    {code: 0, note: "lidar client, on the UE"}
     edge:   {code: 1, note: "MEC edge"}
@@ -111,6 +127,10 @@ outputs:
     names which. Admin manifests add seq, label, state, participants, sites,
     reports and findings; all optional to a reader expecting the script's shape.
   snapshot_interval_s: 2
+  render_recording_note: >-
+    Written only with sink=rerun. A replayable Rerun recording beside the CSV,
+    so a run can be reviewed after the fact without the live viewer's two
+    ports, a GPU-capable browser, or an operator present while it ran.
   routing_rule: >-
     Per-frame samples go to CSV. Aggregated snapshots go to the logging
     service. The firehose never goes to PostgreSQL.

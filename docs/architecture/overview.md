@@ -28,6 +28,9 @@ Two workload profiles share one telemetry spine:
 │  (compress: later)  │ (USRP)  │O-DU/CU │   │  core   │        │  process → done_ns stamp │
 │  send_ns stamp      │         └───┬────┘   └─────────┘        │  ├─► runs/<id>/samples.csv
 │  rmw_zenoh publish  │             │ metrics UDP/JSON          │  └─► snapshots → logging │
+│                     │                                         │                          │
+│  render node        │◄─── mec_cast/result (ADR-0009) ─────────┤  publish_result          │
+│  process_done_ns    │     round trip: ONE clock, no PTP       │  → voxel cloud back down │
 └─────────┬───────────┘             ▼                           └────────────┬─────────────┘
           │                  ran-collector ──────────────────────────────────┤
           │                                                                  ▼
@@ -50,6 +53,8 @@ ros2/             Single colcon workspace (see exception below)
   src/mec_cast_msgs/          shared TimingEnvelope + CloudWithTelemetry
   src/mec_cast_lidar_client/  ROS2 client node — runs on the UE
   src/mec_cast_edge/          Zenoh ingest layer — runs on the edge
+  src/mec_cast_render/        draws the edge's result — runs on the UE
+  src/mec_cast_admin_client/  control-plane WebSocket client — all nodes
 telemetry/        Shared Rust crate + PyO3 bindings — the spine
 ran/collector/    O-DU MAC scheduler metrics tap
 services/logging/ Logging service (submodule)
@@ -183,6 +188,9 @@ zenoh-router ◄── publisher (+ netem sidecar: delay/jitter/loss) ──► 
 - Test vectors are deterministic seeded synthetic clouds
   (`mec_cast_lidar_client`: seed, num_points, rate_hz, pattern) so runs
   are reproducible and payload size is a controlled experiment variable.
+  Four patterns — `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane` —
+  voxel-compress between 1.2x and 6.6x, so the shape also selects how much
+  the return path carries.
 - Test tiers: `cargo test --workspace` (pure logic) → in-container
   `colcon test` (node logic over the active RMW) → host `pytest tests/e2e`
   (full topology + netem + logging assertions).

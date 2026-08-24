@@ -17,6 +17,7 @@ docker/          Dockerfiles + the ROS image entrypoint and zenoh configs
 compose/         Local topology
   local.yml        zenoh router, lidar client, netem sidecar, edge
   logging.yml      logging service + postgres
+  render.yml       edge return path + the UE renderer (ADR-0009)
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role

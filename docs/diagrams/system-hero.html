@@ -11,8 +11,10 @@
      things run) and functional (what crosses each link) in one picture.
 
      NOTE: the robotic arm is drawn as part of the intended deployment. The
-     platform today is sensor -> edge one-way; no actuation is implemented.
-     The footer states this. -->
+     data path closes as a loop today -- the edge can send its processed cloud
+     back for a renderer on the UE (ADR-0009) -- but that is a return of
+     *results*, not actuation: nothing on the UE is commanded. The footer
+     states this. -->
 <meta charset="utf-8">
 <style>
   :root {
@@ -172,7 +174,7 @@
   <h1>mec-cast</h1>
   <div class="tagline">
     industrial communication testbed on private 5G —
-    <b>sensor → O-RAN → UPF → MEC</b>
+    <b>sensor → O-RAN → UPF → MEC → back</b>
   </div>
   <div class="legend">
     <div><i style="background:var(--ue)"></i>UE site</div>
@@ -209,6 +211,11 @@
         <div class="t">5G modem — UE</div>
         <div class="s">dials OUT to the Zenoh router across the UPF</div>
         <div class="m">uplink · NAT-traversed</div>
+      </div>
+      <div class="chip ue">
+        <div class="t">ROS 2 — render node</div>
+        <div class="s">draws the edge's result and stamps process_done_ns on this host — the round trip needs no PTP</div>
+        <div class="m">optional · rerun | RViz2 | headless</div>
       </div>
     </div>
   </div>
@@ -370,5 +377,6 @@
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
   <span><span class="k">Transport:</span> rmw_zenoh over Reliable UDP (rel=1) — NAT traversal and ~2 MB payloads</span>
   <span><span class="k">RAN tap:</span> O-DU MAC KPIs correlated to application latency</span>
-  <span class="planned">robotic arm shown as intended deployment; today the path is sensor → edge only</span>
+  <span><span class="k">Return path:</span> processed cloud back to a UE renderer — a round trip stamped on one clock, so it needs no PTP</span>
+  <span class="planned">robotic arm shown as intended deployment; results return to the UE today, but no actuation is commanded</span>
 </div>

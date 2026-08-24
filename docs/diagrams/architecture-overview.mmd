@@ -14,6 +14,7 @@ flowchart LR
   subgraph UE["UE — robot compute"]
     LIDAR["LiDAR sensor<br/>(synthetic source today)"]
     ROSC["ROS2 client<br/>stamps capture_ns, send_ns"]
+    RENDER["ROS2 render node<br/>stamps process_done_ns · draws the result"]
     LIDAR --> ROSC
   end
 
@@ -37,10 +38,12 @@ flowchart LR
 
   ROSC -->|"Uu — PointCloud2"| GNB
   CORE -->|"UPF / N6"| ZR
+  EN -.->|"mec_cast/result — voxel cloud, opt-in"| RENDER
   GNB -.->|"UDP JSON metrics"| RANC
 
   ROSC --- SPINE
   EN --- SPINE
+  RENDER --- SPINE
   RANC --- SPINE
 
   SPINE --> CSV
@@ -49,13 +52,14 @@ flowchart LR
   ADMIN <-.->|"control · run start/stop, status"| ROSC
   ADMIN <-.-> EN
   ADMIN <-.-> RANC
+  ADMIN <-.-> RENDER
 
   PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,GNB,CORE,ZR,EN,RANC,ADMIN comp
+  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note

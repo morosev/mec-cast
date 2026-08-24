@@ -18,6 +18,13 @@ Each run produces `runs/<run_id>/`:
 | `pub/samples.csv` | Per-frame samples, sender side |
 | `edge/samples.csv` | Per-frame samples, receiver side |
 | `ran/samples.csv` | RAN KPIs (lab runs only) |
+| `render/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
+| `render/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
+
+The renderer's rows are the odd ones out, and usefully so: its `e2e_ns` is a
+**round trip**, stamped at capture and at display on the same host, so it is
+the one latency figure here that does not depend on PTP discipline. See
+[ADR-0009](../architecture/adr/0009-render-return-path.md).
 
 `run.json` is the reproducibility artifact. It records the workload, the
 impairment, the transport, and the exact code state — including whether the
