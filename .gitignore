@@ -54,3 +54,8 @@ third_party/webrtc/_bad_scm/
 
 # Written on lab hosts by deploy/lab/deploy.sh (rsync deploys have no .git)
 .deployed-version
+
+# macOS Finder metadata. Finder writes one into any directory it browses, so
+# this needs to match at every depth — which a pattern containing no slash
+# already does, unlike the fixed paths above.
+.DS_Store
