@@ -62,6 +62,43 @@ handful, revisit.
 
 It also runs `verify-ptp.sh` on the target and warns loudly on failure.
 
+### One-time setup per host
+
+Three things bite on a host's first deploy, and each fails in a way that
+points somewhere other than the cause.
+
+**The remote user must be in the `docker` group.** Otherwise the deploy
+reaches the build step and stops with:
+
+```
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+That is the *remote* user, not yours. On each lab host, once:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Group membership only applies to new sessions, so log out and back in. Check
+with `ssh <user>@<host> docker ps` before deploying.
+
+**Do not run `deploy.sh` under `sudo`.** It needs no root locally — it is
+`rsync` plus four `ssh` calls. Under `sudo` those run as root and use *root's*
+SSH identity rather than yours, so a working key is ignored and every step
+prompts for a password. It also cannot help with the error above, which is
+enforced on the far side.
+
+**Set up key authentication**, or the four `ssh` calls each prompt:
+
+```bash
+ssh-copy-id <user>@<host>
+```
+
+Worth doing for its own sake: the last step runs `make version` on the host so
+you see what actually landed, and that is easy to abandon at a fifth password
+prompt.
+
 ## Pre-campaign checklist
 
 1. `bash deploy/lab/ptp/verify-ptp.sh` on UE, edge, and gNB — all must pass.

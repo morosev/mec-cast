@@ -57,6 +57,33 @@ for v in $REQUIRED; do
   fi
 done
 
+# --- build contexts this role needs ----------------------------------------
+# rsync copies the working tree, and an uninitialised submodule is an empty
+# directory: it transfers happily and fails on the far side as
+# `"/src": not found` from buildkit, which names neither the submodule nor
+# this machine. The remote cannot fix it either — .git is excluded from the
+# sync, so there is no repository there to update. Check the sending side.
+case "$ROLE" in
+  infra) NEEDS_CONTEXT="services/logging" ;;
+  edge)  NEEDS_CONTEXT="services/admin" ;;
+  *)     NEEDS_CONTEXT="" ;;
+esac
+for c in $NEEDS_CONTEXT; do
+  # MECLOG_BUILD_CONTEXT overrides the logging context with a sibling
+  # checkout; when it is set, that path is what compose will build.
+  if [ "$c" = "services/logging" ] && [ -n "${MECLOG_BUILD_CONTEXT:-}" ]; then
+    continue
+  fi
+  if [ ! -f "$ROOT_DIR/$c/pyproject.toml" ]; then
+    echo "ERROR: $c is empty; role '$ROLE' builds an image from it." >&2
+    echo "  On THIS machine:  git submodule update --init --recursive" >&2
+    echo "  ...or point at a sibling checkout:" >&2
+    echo "    MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service \\" >&2
+    echo "      bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
+    exit 2
+  fi
+done
+
 # Optional knobs: forwarded when set, left to the compose file's default when
 # not. Keep in step with the ${...} references in deploy/lab/compose.*.yml.
 OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
