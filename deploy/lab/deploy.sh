@@ -12,6 +12,16 @@
 # Deliberately simple: rsync the repo, build there, run compose. For a
 # four-host lab this beats a configuration-management system — it stays
 # debuggable at 2am in the lab, which is when you will be using it.
+#
+# Variables are read from THIS shell and forwarded to the remote compose. An
+# export here does not otherwise survive the ssh hop, so a locally-set
+# LOGGING_HOST used to fail on the far side as "required variable is missing",
+# which reads like the variable was never set at all:
+#
+#   LOGGING_HOST=10.0.0.5 bash deploy/lab/deploy.sh edge iconic@edge-host
+#
+# Required per role: edge needs LOGGING_HOST; ue and gnb need EDGE_HOST and
+# LOGGING_HOST; infra needs none.
 set -euo pipefail
 
 ROLE=${1:-}
@@ -29,6 +39,37 @@ esac
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 REMOTE_DIR="~/mec-cast"
+
+# --- environment forwarded to the remote compose ---------------------------
+# Fail here rather than after a two-minute rsync and image build: compose
+# would report it as a missing variable on the far side, which is true but
+# points at the wrong machine.
+case "$ROLE" in
+  edge)    REQUIRED="LOGGING_HOST" ;;
+  ue|gnb)  REQUIRED="EDGE_HOST LOGGING_HOST" ;;
+  infra)   REQUIRED="" ;;
+esac
+for v in $REQUIRED; do
+  if [ -z "${!v:-}" ]; then
+    echo "ERROR: $v is required for role '$ROLE' and is not set in this shell." >&2
+    echo "  $v=<address> bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
+    exit 2
+  fi
+done
+
+# Optional knobs: forwarded when set, left to the compose file's default when
+# not. Keep in step with the ${...} references in deploy/lab/compose.*.yml.
+OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
+          RENDER_SINK PUBLISH_RESULT RESULT_RELIABILITY RESULT_QOS_DEPTH \
+          PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL"
+
+# Built as `NAME=value ...` for the remote command line. printf %q quotes each
+# value so a password or a path with spaces survives the trip through ssh,
+# which re-parses its argument as a shell command.
+REMOTE_ENV=""
+for v in $REQUIRED $OPTIONAL; do
+  [ -n "${!v:-}" ] && REMOTE_ENV="$REMOTE_ENV $v=$(printf '%q' "${!v}")"
+done
 
 echo "==> Syncing repo to $TARGET (excluding third_party, runs, target)"
 rsync -az --delete \
@@ -59,9 +100,10 @@ DEPLOYED_FROM=$(whoami)@$(hostname)
 EOF
 
 echo "==> Starting role '$ROLE' on $TARGET"
+[ -n "$REMOTE_ENV" ] && echo "    forwarding:$(echo "$REMOTE_ENV" | tr ' ' '\n' | grep -oE '^[A-Z_]+' | tr '\n' ' ')"
 # shellcheck disable=SC2029
 ssh "$TARGET" "cd $REMOTE_DIR && \
-  docker compose -f deploy/lab/compose.$ROLE.yml up -d --build"
+  env $REMOTE_ENV docker compose -f deploy/lab/compose.$ROLE.yml up -d --build"
 
 echo "==> Verifying PTP on $TARGET"
 # shellcheck disable=SC2029
