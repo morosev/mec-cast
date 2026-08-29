@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-19
+- **Amended:** 2026-08-30 — the one-run-at-a-time limit is per cell; see
+  Consequences.
 
 ## Context
 
@@ -65,6 +67,17 @@ record exists to prevent.
 - **One non-terminal run at a time, platform-wide.** It falls directly out of
   one active Recorder per node process. Lifting it means concurrent Recorders
   and an ambiguous `runs/<id>/<site>/` layout.
+
+  **Amended 2026-08-30: the limit is now per cell, not platform-wide.** The
+  reasoning above survives intact — this is a change of scope, not a reversal.
+  A node belongs to exactly one cell and each cell has at most one active run,
+  so there is still one active Recorder per node process. The layout objection
+  was independently removed first: directories are instance-suffixed
+  (`pub-0`, `pub-1`) and `run.sites` is keyed by `node_id` rather than by a
+  constant per-type site string, so `runs/<id>/` is unambiguous with any number
+  of runs or instances. Both consequences this bullet warned about were
+  therefore addressed before the limit was lifted, which is why the decision
+  needed amending rather than replacing.
 - **A stopped run is never restarted.** Restarting would append a second
   experiment into the first run's CSV.
 - **No authentication.** Anyone who can reach 8099 can start and stop

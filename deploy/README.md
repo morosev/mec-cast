@@ -21,6 +21,7 @@ compose/         Local topology
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role
+  topology.example.yml  copy to topology.yml to declare the fleet (optional)
   ptp/             ptp4l/phc2sys units, config, and verification
 ```
 
@@ -33,7 +34,7 @@ database access, log access, restarts, and retention — see
 ```bash
 make up-local        # RUN_ID is generated if unset
 make logs
-make down
+make down            # keeps the database; `make down-hard` deletes it
 ```
 
 Knobs: `RUN_ID`, `NETEM_DELAY`, `NETEM_JITTER`, `NETEM_LOSS`, `NUM_POINTS`,
@@ -45,9 +46,15 @@ which is what lets the whole topology run unprivileged on a laptop.
 
 ## Lab
 
-See [docs/operations/lab-topology.md](../docs/operations/lab-topology.md).
-Deploy `infra` first. `RUN_ID` must be identical across all roles — it is
-the `trace_id` that correlates UE, edge, and RAN records for one experiment.
+See [docs/operations/lab-topology.md](../docs/operations/lab-topology.md) for
+the roles and addressing, and
+[docs/operations/deploy-manual.md](../docs/operations/deploy-manual.md) for the
+procedure. Deploy `infra` first.
+
+`RUN_ID` matters only when running **without** the admin service: it is the
+`trace_id` correlating UE, edge and RAN records, so it must then be identical
+across every role. With the admin attached — the default in the lab — the run
+id is minted for you and `RUN_ID` is ignored.
 
 ## What is this host running?
 

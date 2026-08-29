@@ -1,6 +1,6 @@
 # ROS2 workspace (Profile A)
 
-A single colcon workspace holding all three ROS2 packages. **It is never
+A single colcon workspace holding all six ROS2 packages. **It is never
 built on the host** — ROS2 runs only in containers
 (`deploy/docker/ros.Dockerfile`), because the development machine is WSL
 Ubuntu 25.x and ROS2 Jazzy targets 24.04.
@@ -59,7 +59,7 @@ per-publish attachments to the application layer.
 | `seed` | 42 | Reproducible contents |
 | `num_points` | 30000 | Payload size — the primary sweep variable |
 | `rate_hz` | 10.0 | Publish rate |
-| `pattern` | `uniform_cube` | `uniform_cube` or `rotating_plane` |
+| `pattern` | `uniform_cube` | `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane` — see `workload.patterns` in `docs/_facts.yml` for how much each compresses on the downlink |
 
 Fixing the seed across a size sweep means only the size varies.
 
@@ -75,19 +75,32 @@ is gapless, and `recv_ns > send_ns` over the active RMW.
 
 ## `mec_cast_admin_client`
 
-The control-plane client both nodes share, the way they already share
+The control-plane client every node shares, the way they already share
 `mec_cast_msgs`. A background thread owns the WebSocket and moves dicts
 through queues; **it never touches rclpy**, and commands are applied from a
 normal timer on the executor thread. That keeps `rclpy.spin` single-threaded —
 no MultiThreadedExecutor, no callback groups.
 
-New parameters on both nodes:
+`MecCastNode` (in this package) is the base every measurement node derives
+from, so these parameters exist on all of them. Each environment variable is
+demoted to a *default*, which is what makes a node fully drivable from the
+command line with nothing exported:
 
 | Parameter | Default | Meaning |
 |---|---|---|
+| `run_id` | `$RUN_ID`, else `dev-run` | Standalone only; ignored when an admin is attached |
+| `runs_dir` | `$RUNS_DIR`, else `runs` | Base output directory |
+| `logging_url` | `$LOGGING_URL`, else empty | Empty disables snapshot posting; CSV is written regardless |
 | `admin_url` | `$ADMIN_URL`, else empty | Empty = standalone, unchanged behaviour |
-| `admin_autostart` | client `false`, edge `true` | Join the active run on connect |
+| `admin_autostart` | client `false`, edge/render `true` | Join the active run on connect |
 | `admin_instance` | `0` | Distinguishes several nodes of one type per host |
+| `cell` | `$CELL`, else empty | Which radio cell the node reports; empty = the single default cell |
+
+An empty `run_id` or `runs_dir` falls back the way an absent one does. That is
+not cosmetic: compose sets `RUN_ID: ${RUN_ID:-}`, so a node reading the
+environment naively would record to a bare `pub-0` directory directly
+under `runs/` — outside any run directory,
+with every unnamed run appending to the same files.
 
 With an admin, the Recorder is built **per run** rather than per process:
 `start_run` creates it and the timer or subscription, `stop_run` destroys them

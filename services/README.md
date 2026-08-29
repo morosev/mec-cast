@@ -42,6 +42,14 @@ Nodes subscribe on startup, report status on every change, and take start and
 stop commands. Runs are stored as `runs/<run_id>/run.json` plus a journal — no
 database.
 
+Two things it does beyond run lifecycle. The fleet can be **declared** in
+a topology file (copy `deploy/lab/topology.example.yml` beside itself as
+`topology.yml`) — optional, and when present the service validates
+the live registry against it, reporting a node that connected but was not
+declared, one that was declared and never arrived, and one whose cell
+disagrees. And runs are **per cell**: each cell has at most one active run, so
+two cells measure independently.
+
 ```bash
 make up-admin
 ```

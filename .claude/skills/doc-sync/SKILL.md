@@ -35,6 +35,17 @@ Then run stages 1..N for the chosen tier. Two exceptions to asking:
 `clients/`, `edge/`, `ran/collector/`, `deploy/`, `services/`,
 `services/admin/`, `third_party/`, `tools/`, and the root `README.md`).
 
+**Where a page belongs is written down** — `docs/README.md` carries a table
+whose "never contains" column is the half that does the work. Read it before
+adding a page or moving content, and do not restate its rule here; one copy.
+The operator documentation is three files: `operations/deploy-manual.md`
+(getting software onto machines and updating it), `operations/admin-manual.md`
+(running a deployment that exists), and `guides/local-development.md` (the
+laptop). They replaced a single 1,107-line guide, and the reason the split
+holds is that each has one job — putting a deployment procedure in the admin
+manual, or database access in the deploy manual, rebuilds the thing that was
+taken apart.
+
 `services/` now holds two different kinds of thing, and the distinction
 matters here: `services/logging/` and `third_party/str0m/` are **submodules** —
 never edit their contents; describe them from the outside. `services/admin/` is
@@ -82,9 +93,18 @@ Two signals:
 
 | Altitude | Docs | Policy |
 |---|---|---|
-| Low | Component READMEs, `guides/` | Fix within the tiers below |
-| Mid | `architecture/overview.md`, `operations/` | Fix facts; propose prose |
+| Low | Component READMEs, `guides/` (incl. `local-development.md`) | Fix within the tiers below |
+| Mid | `architecture/overview.md`, `operations/` (`deploy-manual.md`, `admin-manual.md`, and the references beside them) | Fix facts; propose prose |
 | High | `architecture/adr/`, `timing-model.md` | **Propose only, never auto-edit** |
+
+`operations/` holds two kinds of document and they rot differently. The
+**references** — `admin-service.md`, `lab-topology.md`, `logging-submodule.md`
+— describe contracts, and go stale when a protocol or a role changes. The
+**manuals** — `admin-manual.md`, `deploy-manual.md` — are almost entirely
+commands, paths and flags, so nearly every staleness in them is a Tier 1 fix
+rather than prose. A renamed make target or a moved output directory rots the
+manual first and the reference not at all: check the manuals whenever the
+Makefile, the compose files or `deploy/lab/` change.
 
 Deep prose review of a high-altitude doc happens only when the user asks for
 that doc by name.
@@ -158,9 +178,9 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | # | Slide | Sourced from |
 |---|---|---|
 | 1 | Architecture overview | `architecture/overview.md` |
-| 2 | Deployment — local | `deploy/compose/local.yml`, `deploy/README.md` |
-| 3 | Deployment — lab | `deploy/lab/`, `operations/lab-topology.md` |
-| 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `services/README.md` |
+| 2 | Deployment — local | `deploy/compose/local.yml`, `deploy/README.md`, `guides/local-development.md` |
+| 3 | Deployment — lab | `deploy/lab/`, `operations/lab-topology.md`, `operations/deploy-manual.md` |
+| 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `operations/admin-manual.md`, `services/README.md` |
 | 5 | ROS2 on the UE — client and renderer | `ros2/README.md`, `adr/0009-render-return-path.md` |
 | 6 | Edge | `ros2/README.md`, `telemetry/README.md` |
 | 7 | Zenoh | `adr/0001-zenoh-over-dds.md` |
