@@ -9,11 +9,11 @@
 # deploy path (deploy/lab/deploy.sh) drives compose over ssh directly. The
 # one target meant for a lab host is `make version`.
 #
-# So a green `make test` is not by itself a green pipeline. `lint` mirrors
-# CI's Rust and Python checks deliberately, because that gap already cost a
-# red build. CI additionally runs clippy over three feature combinations and
-# `cargo test --workspace --no-default-features`; those are not mirrored
-# here, so check them before a release if you have touched feature gates.
+# `lint` and `test` mirror CI's Rust and Python checks exactly, including the
+# feature combinations — a gap there already cost one red build, and a check
+# that lives anywhere other than the command people actually run is a note,
+# not a gate. What is NOT mirrored is the docker tier (ROS image, e2e, RAN
+# image); that is `test-all`.
 #
 #   make help          list targets
 #   make bootstrap     one-time dev environment setup
@@ -106,6 +106,12 @@ test-all: test-rust test-ffi test-python test-admin test-ros2 test-e2e ## Everyt
 
 test-rust: ## Unit + property + integration tests across the workspace
 	cargo test --workspace
+# Again without default features. This is not extra coverage of the same code
+# — it guards a stated architectural property: ran-collector must build
+# without tungstenite and telemetry without ureq (see the comment at
+# ran/collector/Cargo.toml). Cargo keeps a separate artifact directory per
+# feature set, so alternating costs nothing after the first build of each.
+	cargo test --workspace --no-default-features
 
 test-python: ## PyO3 binding smoke tests
 	$(PYTEST) telemetry/python/tests -v
@@ -161,6 +167,11 @@ test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
 lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
+# The other two combinations CI runs. The first keeps the optional-dependency
+# boundary honest; the second checks that the opt-in features still compile,
+# which nothing else exercises because neither is on by default.
+	cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+	cargo clippy -p mec-cast-telemetry --all-targets --features linux-ptp,pyo3 -- -D warnings
 # Ruff too, because CI runs it and this target is what everyone checks
 # before pushing. It used to cover only Rust, so a Python-only change could
 # pass `make lint` and fail CI on formatting alone — which is exactly what
