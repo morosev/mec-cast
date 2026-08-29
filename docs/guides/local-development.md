@@ -254,8 +254,8 @@ looks like a broken renderer:
 
 - **`RUN_ID`** — `up-render` does not mint one the way `up-local` does, so
   without it the run is `dev-run`. Not an error, but the recorder *appends*, so
-  every unnamed run piles into the same `runs/dev-run/` and no new directory
-  ever appears.
+  every unnamed run piles into a single `dev-run` directory under `runs/`
+  and no new directory ever appears.
 - **`NETEM_LOSS=0%`** — the default `0.5%` against the default 30,000 points at
   10 Hz is about 7× what the impaired link carries. Frames die on the uplink
   before the edge sees them, and the renderer draws nothing while reporting

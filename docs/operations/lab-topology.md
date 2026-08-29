@@ -52,6 +52,10 @@ ignore `RUN_ID` entirely — which removes the "same value across all roles"
 requirement that is easy to get wrong by hand. See
 [admin-service.md](admin-service.md).
 
+To run **without** it, pass an empty `ADMIN_URL` — omitting it is not enough,
+since the default is a live address. The procedure is in
+[deploy-manual.md](deploy-manual.md#without-the-admin-service).
+
 ## Deployment mechanism
 
 `deploy/lab/deploy.sh` rsyncs the repo (excluding `third_party/`, `runs/`,

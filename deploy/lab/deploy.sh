@@ -94,9 +94,14 @@ OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,
 # which re-parses its argument as a shell command.
+# `${!v+x}` is true when v is SET, including when it is set to empty —
+# unlike `${!v:-}`, which cannot tell empty from absent. That distinction is
+# load-bearing for ADMIN_URL: `ADMIN_URL= deploy.sh ue …` is how an operator
+# says "no control plane, use RUN_ID", and dropping the empty value silently
+# gave them the opposite.
 REMOTE_ENV=""
 for v in $REQUIRED $OPTIONAL; do
-  [ -n "${!v:-}" ] && REMOTE_ENV="$REMOTE_ENV $v=$(printf '%q' "${!v}")"
+  [ -n "${!v+x}" ] && REMOTE_ENV="$REMOTE_ENV $v=$(printf '%q' "${!v}")"
 done
 
 echo "==> Syncing repo to $TARGET (excluding third_party, runs, target)"

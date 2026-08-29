@@ -79,8 +79,15 @@ class MecCastNode(Node):
         )
         # Shared parameters. Environment variables are demoted to defaults so
         # everything is settable from the command line (`-p run_id:=...`).
-        self.declare_parameter("run_id", os.environ.get("RUN_ID", "dev-run"))
-        self.declare_parameter("runs_dir", os.environ.get("RUNS_DIR", "runs"))
+        # `or` rather than a get() default: these arrive SET BUT EMPTY from
+        # compose (`RUN_ID: ${RUN_ID:-}`), and get() only substitutes when a
+        # variable is absent. An empty run_id put the recorder in
+        # `runs/pub-0` — outside any run directory, quietly merging every
+        # unnamed run into one. Empty is meaningless for both of these, so
+        # treat it as unset. It is NOT meaningless for admin_url, logging_url
+        # or cell below, where empty is a real choice.
+        self.declare_parameter("run_id", os.environ.get("RUN_ID") or "dev-run")
+        self.declare_parameter("runs_dir", os.environ.get("RUNS_DIR") or "runs")
         self.declare_parameter("logging_url", os.environ.get("LOGGING_URL", ""))
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
         self.declare_parameter("cell", os.environ.get("CELL", ""))
@@ -184,7 +191,10 @@ class MecCastNode(Node):
                 f"(admin={self.admin.url}, node_id={self.admin.node_id})"
             )
         else:
-            self.start_run(str(self.get_parameter("run_id").value))
+            # Belt and braces: a `-p run_id:=` with an empty value would land
+            # here too, and the failure is silent rather than loud.
+            run_id = str(self.get_parameter("run_id").value) or "dev-run"
+            self.start_run(run_id)
 
     # --- admin plumbing ---------------------------------------------------
 

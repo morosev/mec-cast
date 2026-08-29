@@ -140,6 +140,10 @@ Four roles across four hosts. Same containers, different composition, and real
 5G instead of `netem`. The roles, hosts and required environment are tabulated
 in [lab-topology.md](lab-topology.md).
 
+`RUN_ID` is required only when running **without** the admin — see
+[Without the admin service](#without-the-admin-service). With the admin it is
+ignored, and the run id is minted for you.
+
 **Order matters: `infra` → `edge` → `gnb` → `ue`.** Everything posts to the
 logging service, and the UE dials the edge's Zenoh router. Start the UE last or
 it retries against a router that is not there yet.
@@ -195,6 +199,44 @@ LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@small-lab-host
 ```
 
 The version report on that host then lists both roles.
+
+### Without the admin service
+
+The control plane is optional in the lab exactly as it is on a laptop. Pass an
+**empty** `ADMIN_URL` and name the run yourself:
+
+```bash
+ADMIN_URL= RUN_ID=$(uuidgen) EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 \
+  bash deploy/lab/deploy.sh ue ops@ue-host
+```
+
+Two rules, and both are easy to get wrong silently:
+
+- **`RUN_ID` must be identical on every role.** It becomes `trace_id`, the key
+  that correlates UE, edge and RAN records for one experiment. Different values
+  break nothing at runtime — the data simply cannot be joined, which you
+  discover at analysis. Mint it once and paste the same value into each deploy.
+- **`ADMIN_URL=` must be empty, not omitted.** Every role defaults it to a live
+  address, so omitting it means "dial the admin" — and with no admin deployed
+  the client waits for a Start that never comes while `RUN_ID` is ignored.
+
+Empty is a real value here, which is why `deploy.sh` forwards variables that are
+*set* rather than merely non-empty, and why the compose files use `${ADMIN_URL-…}`
+rather than `${ADMIN_URL:-…}`: the `:-` form cannot tell empty from absent.
+
+Deploying by hand on the host, the same thing:
+
+```bash
+ADMIN_URL= RUN_ID=<the-one-run-id> LOGGING_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 \
+  docker compose -f deploy/lab/compose.ue.yml up -d --build
+```
+
+Confirm a node took the standalone path — it names the run in its first log
+line, rather than reporting an admin connection:
+
+```bash
+docker compose -f deploy/lab/compose.ue.yml logs ue-agent | grep "streaming run"
+```
 
 ### Doing it by hand on each host
 

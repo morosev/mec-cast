@@ -98,7 +98,7 @@ env:
   MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the legacy WebRTC addon"}
   GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
-  ADMIN_URL:   {default: null, note: "ws://<edge>:8099/ws/node; empty = standalone, node reads RUN_ID as before"}
+  ADMIN_URL:   {default: null, note: "ws://<edge>:8099/ws/node; EMPTY = standalone, node reads RUN_ID. Empty and unset differ: lab compose defaults it to a live address, so standalone needs ADMIN_URL= explicitly, and the files use ${ADMIN_URL-...} not ${ADMIN_URL:-...}"}
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
   PUBLISH_RESULT:  {default: "false", note: "edge only; opt into the mec_cast/result downlink (ADR-0009). Off keeps runs comparable with pre-downlink campaigns"}
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
