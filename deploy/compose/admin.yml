@@ -38,6 +38,11 @@ services:
       - "8099:8099"
     volumes:
       - ../../runs:/runs
+      # The declared topology, if there is one. The DIRECTORY is mounted, not
+      # the file: compose silently creates a directory for a bind whose source
+      # is missing, and mounting a directory onto the expected file path would
+      # then break the service for everyone who has not declared a topology.
+      - ../../deploy/lab:/etc/mec-cast:ro
 
   lidar-client:
     environment:

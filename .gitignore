@@ -59,3 +59,8 @@ third_party/webrtc/_bad_scm/
 # this needs to match at every depth — which a pattern containing no slash
 # already does, unlike the fixed paths above.
 .DS_Store
+
+# The declared topology is deployment-specific: it names this lab's hosts and
+# cells, so it belongs to the deployment rather than the repo. The committed
+# artefact is deploy/lab/topology.example.yml; operators copy it.
+deploy/lab/topology.yml

@@ -153,3 +153,18 @@ footer {
   margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border);
   color: var(--text-faint); font-size: 12px;
 }
+
+/* Declared topology: the mermaid source is reference material, folded away
+   until asked for. Monospace and scrollable — it is a diagram in text form,
+   and wrapping it would destroy the shape that makes it readable. */
+.topology-source { margin-top: 0.75rem; }
+.topology-source summary { cursor: pointer; color: var(--text-muted); font-size: 0.85rem; }
+.topology-source pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}

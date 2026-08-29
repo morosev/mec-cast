@@ -1,0 +1,95 @@
+# The declared topology — what this deployment's fleet is supposed to be.
+#
+# Copy to `topology.yml` beside this file and edit. The admin reads it at
+# startup (both compose files mount this directory read-only at
+# /etc/mec-cast), and validates the live fleet against it:
+#
+#   WF_TOPOLOGY_UNDECLARED  a node connected that is not listed here
+#   WF_TOPOLOGY_MISSING     a node listed here that never connected
+#
+# Declaring is OPT-IN. With no topology.yml the admin uses its built-in role
+# rules — one client and one edge for quorum, a warning for a missing gNB,
+# silence for a missing renderer — which is exactly how the platform has
+# always behaved. Nothing here is required to run experiments.
+#
+# The file is read ONCE, at startup. Changing it is a deployment change:
+# restart the admin. Re-reading it live would let the rules shift under a
+# run that is already being judged against them.
+
+# --- the fleet ---------------------------------------------------------
+#
+# `node_id` is derived as `<role>-<host>-<instance>`, the same way the nodes
+# derive theirs, so declared and connected nodes compare directly. Set it
+# explicitly only when a host's actual hostname differs from what you write
+# here — inside a container that is the container id unless the compose file
+# pins `hostname:`.
+#
+# `instance` is the number passed to the node as `admin_instance`. Two nodes
+# of one role on one host need distinct values, and the UE agent assigns them
+# in order: lidar_count:=2 gives instances 0 and 1.
+#
+# `cell` groups nodes into a radio cell. Omit it and everything lands in one
+# cell named `default`, which is the single-cell deployment. Cells become
+# load-bearing with multi-cell support; declaring them now costs nothing and
+# makes the admin page draw the topology the way you think about it.
+
+nodes:
+  # --- cell-a ---
+  - role: client
+    host: ue-a1
+    instance: 0
+    cell: cell-a
+  - role: client
+    host: ue-a1
+    instance: 1          # a second LiDAR on the same robot
+    cell: cell-a
+  - role: render
+    host: ue-a1          # co-located with the LiDARs above, which is what
+    instance: 0          # keeps its e2e_ns the PTP-free round trip (ADR-0009)
+    cell: cell-a
+  - role: gnb
+    host: gnb-a
+    cell: cell-a
+  - role: edge
+    host: edge-a
+    cell: cell-a
+
+  # --- cell-b ---
+  - role: client
+    host: ue-b1
+    instance: 0
+    cell: cell-b
+  - role: gnb
+    host: gnb-b
+    cell: cell-b
+  - role: edge
+    host: edge-b
+    cell: cell-b
+  # A renderer on its OWN UE, not beside a LiDAR. Legitimate, and the admin
+  # raises WF_RENDER_CROSS_HOST for it — not because it is broken, but
+  # because its e2e_ns stops being PTP-free and starts being an ordinary
+  # cross-host figure. Declaring it here says you meant it; the finding
+  # still fires, so nobody reads that column as the round trip by mistake.
+  - role: render
+    host: ue-b2
+    instance: 0
+    cell: cell-b
+
+# --- role rules (optional) ---------------------------------------------
+#
+# Overrides merged onto the built-in defaults, so a block naming only one
+# role leaves the others alone. Two independent knobs:
+#
+#   required  counts toward quorum — a run cannot start recording without it
+#   absence   how a missing role is reported: error, warn, or null for silence
+#
+# They are separate because the gNB needs the combination one flag cannot
+# express: not required (a run without RAN KPIs is a real run) yet worth
+# saying out loud when missing, since that usually means the collector failed
+# to start rather than that nobody wanted RAN data.
+#
+# roles:
+#   gnb:
+#     required: true     # this study needs RAN KPIs: no gNB, no quorum
+#   render:
+#     absence: warn      # say something when the viewer is missing

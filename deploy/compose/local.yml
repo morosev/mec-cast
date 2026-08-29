@@ -58,6 +58,9 @@ services:
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
+      # Which radio cell this node reports. Empty unless the deployment
+      # declares a topology; see docs/operations/admin-service.md.
+      CELL: ${CELL:-}
     volumes:
       - ../../runs:/runs
     depends_on:
@@ -80,6 +83,11 @@ services:
 
   edge:
     image: mec-cast-ros
+    # A stable hostname, so the node_id is `edge-mec-local-0` rather than a
+    # container id that changes on every recreate. Without it a declared
+    # topology could never name this node — the lab does not need it because
+    # network_mode: host gives the containers real hostnames.
+    hostname: mec-local
     # reliability MUST match lidar-client: a BEST_EFFORT publisher and a
     # RELIABLE subscriber are incompatible and deliver nothing, silently.
     command: >
@@ -93,6 +101,7 @@ services:
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
+      CELL: ${CELL:-}
     volumes:
       - ../../runs:/runs
     depends_on:

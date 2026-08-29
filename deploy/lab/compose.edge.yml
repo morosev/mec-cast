@@ -38,6 +38,9 @@ services:
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      # Which radio cell this node reports. Empty unless the deployment
+      # declares a topology; see docs/operations/admin-service.md.
+      CELL: ${CELL:-}
       ADMIN_URL: ${ADMIN_URL:-ws://127.0.0.1:8099/ws/node}
     volumes:
       - ../../runs:/runs
@@ -66,4 +69,9 @@ services:
       # The manifests live here, on the edge host. Each node's CSVs live on
       # its own machine — the admin records which, in the manifest's `sites`.
       - ../../runs:/runs
+      # The declared topology, if there is one. Directory rather than file:
+      # a bind whose source file is missing makes compose create a directory
+      # in its place, which would then break every deployment that has not
+      # declared one.
+      - ../../deploy/lab:/etc/mec-cast:ro
     restart: unless-stopped

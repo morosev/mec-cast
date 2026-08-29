@@ -103,6 +103,7 @@ env:
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
   VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. localhost is wrong the moment the UE is a different machine, as it is in the lab"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
+  CELL:            {default: "", note: "which radio cell a node reports in `hello`. Empty = undeclared; the admin treats it as the single default cell"}
   LIDAR_INSTANCES: {default: "1", note: "ue agent; N lidar instances in one process, dirs pub-0..pub-(N-1)"}
   RENDER_INSTANCES: {default: "0", note: "ue agent; M render instances. Instance j serves web_port+2j / grpc_port+2j when sink=rerun"}
 

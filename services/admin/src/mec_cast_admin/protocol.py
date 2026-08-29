@@ -126,6 +126,12 @@ class HelloPayload(_Payload):
     node_type: NodeType
     node_id: str
     host: str = ""
+    #: Which radio cell this node belongs to. Empty means "not declared",
+    #: which is every deployment that has not written a topology file — the
+    #: admin then treats it as the single default cell. Additive under the
+    #: `extra="ignore"` rule, so a node that predates this field still
+    #: connects to a newer admin and vice versa; no version bump.
+    cell: str = ""
     pid: int = 0
     version: Version = Field(default_factory=Version)
     state: NodeState = NodeState.IDLE

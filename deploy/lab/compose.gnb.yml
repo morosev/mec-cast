@@ -25,6 +25,9 @@ services:
       ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      # Which radio cell this node reports. Empty unless the deployment
+      # declares a topology; see docs/operations/admin-service.md.
+      CELL: ${CELL:-}
       GNB_METRICS_ADDR: 0.0.0.0:${METRICS_PORT:-55555}
     volumes:
       - ../../runs:/runs

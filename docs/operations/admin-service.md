@@ -16,6 +16,7 @@ How runs are named and stored: [ADR-0008](../architecture/adr/0008-run-identity-
 - [The run table](#the-run-table)
 - [Run states](#run-states)
 - [Diagnostics](#diagnostics)
+- [The declared topology](#the-declared-topology)
 - [The protocol](#the-protocol)
 - [Where runs are stored](#where-runs-are-stored)
 - [Security posture](#security-posture)
@@ -124,11 +125,67 @@ nothing.
 | `WF_VERSION_SKEW` | A node is on a different commit from the admin |
 | `WF_PARTICIPANT_LOST` | A participant stopped answering mid-run |
 | `WF_LOGGING_UNREACHABLE` | Snapshots are not reaching the logging service |
+| `WF_TOPOLOGY_UNDECLARED` | A node connected that the declared topology does not list |
+| `WF_TOPOLOGY_MISSING` | A declared node has never connected |
+| `WF_TOPOLOGY_CELL_MISMATCH` | A node reports a different cell from the one it is declared in |
+
+The three `WF_TOPOLOGY_*` findings only appear once a topology is declared —
+see below. Without one they are silent, which is the point: an undeclared
+fleet is not a wrong fleet.
 
 `WF_QOS_MISMATCH` and `WF_NO_FRAMES` are the failure modes the node docstrings
 already call out as silent: both produce zero frames, zero errors, and a
 full-length run discovered worthless at analysis time. This is the first thing
 in the platform that can detect either.
+
+## The declared topology
+
+By default the admin knows the *rules* — one client and one edge for quorum,
+a warning for a missing gNB, silence for a missing renderer — but not the
+*fleet*. Declaring the fleet is opt-in:
+
+```bash
+cp deploy/lab/topology.example.yml deploy/lab/topology.yml
+```
+
+Edit it, restart the admin. Both compose files mount `deploy/lab` read-only
+at `/etc/mec-cast`, so no other configuration is needed; point
+`MECADM_TOPOLOGY_PATH` elsewhere if the service runs outside a container.
+
+What declaring buys:
+
+| Situation | Finding |
+|---|---|
+| A node connects that is not listed | `WF_TOPOLOGY_UNDECLARED` |
+| A listed node never connects | `WF_TOPOLOGY_MISSING` |
+| A node reports a cell other than its declared one | `WF_TOPOLOGY_CELL_MISMATCH` |
+
+The first is the one that earns the file. A leftover container from an
+earlier experiment can satisfy quorum and quietly join a run, and nothing
+else in the platform would say so.
+
+The file is read **once, at startup**. A topology change is a deployment
+change; re-reading it live would let the rules shift under a run that is
+already being judged against them.
+
+It also carries optional `roles:` overrides, merged onto the defaults, with
+`required` (counts toward quorum) and `absence` (error / warn / null)
+separate. They have to be separate: the gNB is *not* required — a run with
+no RAN KPIs is a real run — yet its absence is still worth reporting, since
+it usually means the collector failed to start rather than that nobody
+wanted RAN data.
+
+**One source, three readers.** The role rules drive the quorum check, the
+`WF_*_ABSENT` findings and the page's role chips. They used to be written
+out separately in `orchestrator.py`, `workflow.py` and `admin.js`, with
+nothing keeping them in agreement.
+
+**On the page.** A declared topology adds a card listing every declared node
+with a live online/absent marker, and the same thing as mermaid source in a
+fold — copy-pasteable into any markdown file. The card is hidden entirely
+when nothing is declared. The page renders no diagram itself: it has no
+build step and loads no third-party script, and a mermaid bundle is a steep
+price for a picture that is already readable as text.
 
 ## The protocol
 
@@ -151,6 +208,13 @@ reconnection idempotent and lets an operator address one node out of many.
 
 Commands are `run.start`, `run.stop`, `stream.start`, `stream.stop`,
 `status.report`.
+
+`hello` carries an optional `cell`, set from the node's `CELL` environment
+variable or its `cell` parameter. Empty means the node did not say, which is
+every deployment that has not declared a topology. Adding it needed **no
+version bump**: payloads ignore unknown fields (`extra="ignore"`), so a node
+that predates the field talks to a newer admin and vice versa. Envelopes are
+the strict part — a different `v` is still rejected.
 
 | Behaviour | Value |
 |---|---|

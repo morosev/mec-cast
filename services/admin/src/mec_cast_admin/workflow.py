@@ -28,6 +28,7 @@ from .protocol import NodeState, NodeType
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
+from .topology import TopologySpec
 
 #: A client may legitimately publish for a moment before the edge reports its
 #: first peer. Below this, "no peer" is startup rather than a fault.
@@ -63,14 +64,39 @@ def _rising(record: NodeRecord, key: str) -> bool | None:
     return record.counters[key] > record.previous_counters[key]
 
 
+#: Message and remedy for each role whose absence is worth reporting. Kept
+#: out of the spec because these are operator documentation — they name
+#: commands and make targets, and doc-sync checks them (see the module note).
+_ABSENCE_PROSE: dict[NodeType, tuple[str, str]] = {
+    NodeType.EDGE: (
+        "No edge node is connected, so nothing is receiving the stream.",
+        "Local: `make up-admin`. Lab: `bash deploy/lab/deploy.sh edge <user@host>`. "
+        "If it is running, check that its ADMIN_URL points at this service.",
+    ),
+    NodeType.CLIENT: (
+        "No client node is connected, so no frames are being produced.",
+        "Local: `make up-admin`. Lab: `bash deploy/lab/deploy.sh ue <user@host>`.",
+    ),
+    NodeType.GNB: (
+        "No gNB collector is connected; this run will have no RAN KPIs.",
+        "Deploy the gnb role with `bash deploy/lab/deploy.sh gnb <user@host>`, "
+        "or accept the run without RAN metrics — it is still a valid latency run.",
+    ),
+}
+
+
 def diagnose(
     registry: Registry,
     run: Run | None,
     *,
     admin_sha: str = "",
+    topology: TopologySpec | None = None,
 ) -> list[Finding]:
     """Everything currently wrong, worst first."""
     findings: list[Finding] = []
+    # No spec passed means the built-in role rules, which is what every
+    # caller got before topology existed — the defaults ARE today's behaviour.
+    spec = topology if topology is not None else TopologySpec()
     online = registry.online()
     clients = [r for r in online if r.node_type == NodeType.CLIENT]
     edges = [r for r in online if r.node_type == NodeType.EDGE]
@@ -84,38 +110,95 @@ def diagnose(
     }
 
     # --- roles missing entirely ------------------------------------------
-    if run_is_active and not edges:
+    # Which roles must be present, and how loudly to say so, is the topology
+    # spec's business now — the same source the quorum rule and the page's
+    # role chips read, so the three cannot disagree. Only the prose stays
+    # here, because a remedy is operator documentation and not a rule.
+    present = {
+        NodeType.CLIENT: clients,
+        NodeType.EDGE: edges,
+        NodeType.GNB: gnbs,
+        NodeType.RENDER: renderers,
+    }
+    for role_spec in spec.roles:
+        if role_spec.absence is None or present.get(role_spec.role):
+            continue
+        if not run_is_active:
+            continue
+        detail = _ABSENCE_PROSE.get(role_spec.role)
+        if detail is None:
+            continue
+        message, remedy = detail
         findings.append(
             Finding(
-                "WF_EDGE_ABSENT",
-                "error",
-                "edge",
-                "No edge node is connected, so nothing is receiving the stream.",
-                "Local: `make up-admin`. Lab: `bash deploy/lab/deploy.sh edge <user@host>`. "
-                "If it is running, check that its ADMIN_URL points at this service.",
+                f"WF_{str(role_spec.role).upper()}_ABSENT",
+                role_spec.absence,
+                str(role_spec.role),
+                message,
+                remedy,
             )
         )
-    if run_is_active and not clients:
-        findings.append(
-            Finding(
-                "WF_CLIENT_ABSENT",
-                "error",
-                "client",
-                "No client node is connected, so no frames are being produced.",
-                "Local: `make up-admin`. Lab: `bash deploy/lab/deploy.sh ue <user@host>`.",
+
+    # --- the declared fleet, when there is one ----------------------------
+    # Only meaningful once an operator has written deploy/lab/topology.yml.
+    # Without it these say nothing, which is the point: validation is opt-in,
+    # and an undeclared fleet is not a wrong fleet.
+    if spec.declared:
+        for record in online:
+            declared = spec.find(record.node_id)
+            if declared is not None:
+                # A node that reports a different cell from the one it is
+                # declared in is a deployment mistake, not a topology one:
+                # CELL was set wrong, or the wrong compose file reached the
+                # host. Worth catching because the node still works perfectly
+                # — it just gets grouped with the wrong cell's results.
+                if record.cell and record.cell != declared.cell:
+                    findings.append(
+                        Finding(
+                            "WF_TOPOLOGY_CELL_MISMATCH",
+                            "warn",
+                            record.node_id,
+                            f"{record.node_id} reports cell {record.cell!r} but "
+                            f"{spec.source} declares it in {declared.cell!r}.",
+                            f"Set CELL={declared.cell} on that host (or fix the "
+                            f"declaration in {spec.source}) and restart the node. "
+                            "Until then its samples are attributed to the wrong "
+                            "cell in any per-cell comparison.",
+                        )
+                    )
+                continue
+            findings.append(
+                Finding(
+                    "WF_TOPOLOGY_UNDECLARED",
+                    "warn",
+                    record.node_id,
+                    f"{record.node_id} is connected but not declared in "
+                    f"{spec.source}. It is participating in runs while the "
+                    "declared topology says it should not exist.",
+                    f"Add it to {spec.source} (role: {record.node_type}, "
+                    f"host: {record.host}), or stop it if it is a leftover "
+                    "container from another experiment — a stray node of a "
+                    "required role can satisfy quorum and quietly join a run.",
+                )
             )
-        )
-    if run_is_active and not gnbs:
-        findings.append(
-            Finding(
-                "WF_GNB_ABSENT",
-                "warn",
-                "gnb",
-                "No gNB collector is connected; this run will have no RAN KPIs.",
-                "Deploy the gnb role with `bash deploy/lab/deploy.sh gnb <user@host>`, "
-                "or accept the run without RAN metrics — it is still a valid latency run.",
-            )
-        )
+        if run_is_active:
+            online_ids = {r.node_id for r in online}
+            for node in spec.nodes:
+                if node.node_id in online_ids:
+                    continue
+                findings.append(
+                    Finding(
+                        "WF_TOPOLOGY_MISSING",
+                        "warn",
+                        node.node_id,
+                        f"{node.node_id} is declared in {spec.source} "
+                        f"(cell {node.cell}) but has never connected.",
+                        f"Deploy it, or remove it from {spec.source} if the "
+                        "fleet has genuinely shrunk. A declared node that never "
+                        "arrives means the run covers less of the topology than "
+                        "whoever reads the results will assume.",
+                    )
+                )
 
     # A renderer is optional like the gNB, so its absence is not reported at
     # all — only a renderer that is present and starved, which means the edge

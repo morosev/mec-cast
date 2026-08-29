@@ -23,6 +23,7 @@ from .events import EventLog
 from .registry import Registry
 from .state import Action, Event, RunState, TransitionError, advance, allowed_actions, occupies_slot
 from .store import Run, RunStore, utc_now, uuid7
+from . import topology as topo
 from .workflow import diagnose
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,18 @@ class Orchestrator:
         self._dirty = asyncio.Event()
         self._tasks: list[asyncio.Task[None]] = []
         self._admin_sha = os.environ.get("VCS_REF", "")
+        # The declared topology, or the built-in role rules when no file
+        # exists. Loaded once: a topology change is a deployment change, and
+        # re-reading it mid-run would let the rules shift under a run that is
+        # already being judged against them.
+        self.topology = topo.load(settings.topology_path)
+        if self.topology.declared:
+            logger.info(
+                "topology: %d node(s) across %d cell(s) declared in %s",
+                len(self.topology.nodes),
+                len(self.topology.cells),
+                self.topology.source,
+            )
 
     # --- lifecycle --------------------------------------------------------
 
@@ -327,7 +340,13 @@ class Orchestrator:
     def _refresh_findings(self) -> None:
         before = self._findings
         self._findings = [
-            f.to_dict() for f in diagnose(self.registry, self.active_run, admin_sha=self._admin_sha)
+            f.to_dict()
+            for f in diagnose(
+                self.registry,
+                self.active_run,
+                admin_sha=self._admin_sha,
+                topology=self.topology,
+            )
         ]
         if self._findings != before:
             self.mark_dirty()
@@ -340,8 +359,12 @@ class Orchestrator:
         participants = self.registry.participants_of(run.run_id)
         online = [r for r in participants if r.is_online(self._settings.offline_timeout_s)]
         running = [r for r in online if r.state is p.NodeState.RUNNING]
-        has_quorum = any(r.node_type is p.NodeType.CLIENT for r in running) and any(
-            r.node_type is p.NodeType.EDGE for r in running
+        # Which roles quorum needs comes from the topology spec, so this rule
+        # and the page's role chips and the WF_*_ABSENT findings cannot drift
+        # apart. Default spec = one client and one edge, exactly as before.
+        has_quorum = all(
+            any(r.node_type == role for r in running)
+            for role in self.topology.required_roles
         )
 
         before = run.state
@@ -423,5 +446,10 @@ class Orchestrator:
                 {**r.to_dict(), "allowed": allowed_actions(r.state)} for r in self.visible_runs()
             ],
             "nodes": self.registry.to_dict(),
+            # The page reads `topology.roles` for its role chips (one source
+            # with the quorum rule and the findings) and `topology.nodes` for
+            # the declared-topology view. `mermaid` is empty when nothing is
+            # declared, which is how the page knows to hide that card.
+            "topology": {**self.topology.to_dict(), "mermaid": topo.to_mermaid(self.topology)},
             "findings": list(self._findings),
         }

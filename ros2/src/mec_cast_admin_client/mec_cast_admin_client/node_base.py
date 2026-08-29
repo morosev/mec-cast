@@ -83,6 +83,7 @@ class MecCastNode(Node):
         self.declare_parameter("runs_dir", os.environ.get("RUNS_DIR", "runs"))
         self.declare_parameter("logging_url", os.environ.get("LOGGING_URL", ""))
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
+        self.declare_parameter("cell", os.environ.get("CELL", ""))
         self.declare_parameter("admin_autostart", autostart_default)
         self.declare_parameter("admin_instance", 0)
 
@@ -99,6 +100,7 @@ class MecCastNode(Node):
             node_type=self.NODE_TYPE,
             host=socket.gethostname(),
             url=str(self.get_parameter("admin_url").value),
+            cell=str(self.get_parameter("cell").value),
             instance=self.instance,
             version_sha=os.environ.get("VCS_REF", ""),
             version_tag=os.environ.get("VERSION", ""),

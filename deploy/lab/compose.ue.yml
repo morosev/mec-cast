@@ -47,6 +47,9 @@ services:
       ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      # Which radio cell this node reports. Empty unless the deployment
+      # declares a topology; see docs/operations/admin-service.md.
+      CELL: ${CELL:-}
     volumes:
       - ../../runs:/runs
       # Read the PTP hardware clock for capture timestamps.

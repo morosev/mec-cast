@@ -58,6 +58,9 @@ services:
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
+      # Which radio cell this node reports. Empty unless the deployment
+      # declares a topology; see docs/operations/admin-service.md.
+      CELL: ${CELL:-}
       # Empty by default, so `make up-render` keeps the standalone env-RUN_ID
       # path. `make up-render-admin` sets it. Hardcoding the admin's address
       # here instead would leave the node idle forever whenever the control

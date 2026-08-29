@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     diagnostics_interval_s: float = Field(default=5.0, gt=0)
     ui_broadcast_min_interval_s: float = Field(default=1.0, gt=0)
 
+    # Declared topology. A MISSING file is fine and yields the built-in role
+    # rules — declaring the fleet is opt-in. The default is the container
+    # path: both compose files mount deploy/lab read-only at /etc/mec-cast,
+    # so dropping deploy/lab/topology.yml into the repo and restarting the
+    # admin is all it takes. Running the service on the host instead? Point
+    # MECADM_TOPOLOGY_PATH at the file directly.
+    topology_path: str = "/etc/mec-cast/topology.yml"
+
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
 

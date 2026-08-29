@@ -5,7 +5,7 @@
     "v": 1, "type": "hello", "msg_id": "00000000-0000-4000-8000-000000000001",
     "ts_ns": 1787000000000000001, "node_id": "client-ue01-0",
     "payload": {
-      "node_type": "client", "node_id": "client-ue01-0", "host": "ue01", "pid": 41,
+      "node_type": "client", "node_id": "client-ue01-0", "host": "ue01", "cell": "cell-a", "pid": 41,
       "version": {"sha": "f398ec6", "tag": "platform-v0.3.0"},
       "state": "idle", "run_id": null, "autostart": false,
       "params": {"rate_hz": 10.0, "num_points": 30000, "seed": 42,

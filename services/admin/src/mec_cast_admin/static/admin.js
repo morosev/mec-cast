@@ -124,19 +124,57 @@ async function act(runId, action) {
 
 /* ── render ──────────────────────────────────────────────────────────── */
 
-function roleChips(run, nodes) {
+function roleChips(run, nodes, topology) {
+  // Which roles exist and which are required comes from the server's
+  // topology spec — the same source the quorum rule and the WF_*_ABSENT
+  // findings read, so the page cannot disagree with the service about what
+  // the fleet needs. The fallback covers a snapshot from an older server.
+  const roles = (topology && topology.roles) || [
+    { role: 'client', required: true }, { role: 'edge', required: true },
+    { role: 'gnb', required: false }, { role: 'render', required: false },
+  ];
   const participants = Object.values(run.participants || {});
-  const counts = { client: 0, edge: 0, gnb: 0, render: 0 };
+  const counts = {};
+  for (const r of roles) counts[r.role] = 0;
   for (const p of participants) if (p.role in counts) counts[p.role] += 1;
-  // A run needs at least one client and one edge; a gNB and a renderer are
-  // both optional — a run with no viewer attached is perfectly legitimate.
-  const required = { client: true, edge: true, gnb: false, render: false };
   const active = ['starting', 'running', 'degraded'].includes(run.state);
-  return `<span class="roles">${['client', 'edge', 'gnb', 'render'].map((role) => {
-    const n = counts[role];
-    const cls = !active ? '' : n > 0 ? 'on' : (required[role] ? 'off' : '');
-    return `<span class="role ${cls}">${role} ${n}</span>`;
+  return `<span class="roles">${roles.map((r) => {
+    const n = counts[r.role];
+    const cls = !active ? '' : n > 0 ? 'on' : (r.required ? 'off' : '');
+    return `<span class="role ${cls}">${esc(r.role)} ${n}</span>`;
   }).join('')}</span>`;
+}
+
+function renderTopology(snapshot) {
+  const topology = snapshot.topology || {};
+  const card = $('topologyCard');
+  // Hidden entirely when nothing is declared. An empty card inviting someone
+  // to wonder what is missing is worse than no card: declaring a topology is
+  // opt-in, and not declaring one is not a deficiency.
+  if (!card) return;
+  card.classList.toggle('hidden', !topology.declared);
+  if (!topology.declared) return;
+
+  $('topologySource').textContent = topology.source || '';
+  const online = new Set((snapshot.nodes || []).filter((n) => n.online).map((n) => n.node_id));
+  const body = $('topologyTable').querySelector('tbody');
+  body.innerHTML = (topology.nodes || []).map((n) => {
+    const up = online.has(n.node_id);
+    return `<tr>
+      <td><code>${esc(n.node_id)}</code></td>
+      <td>${esc(n.cell)}</td>
+      <td>${esc(n.role)}</td>
+      <td>${esc(n.host)}</td>
+      <td><span class="pill ${up ? 'running' : 'draft'}">${up ? 'online' : 'absent'}</span></td>
+    </tr>`;
+  }).join('');
+
+  // The mermaid source, shown as text. The page has no build step and loads
+  // no third-party script (see the module header), so rendering it here
+  // would mean shipping a bundler and a CDN dependency for a diagram that is
+  // readable as-is and pastes straight into a markdown fence.
+  const pre = $('topologyMermaid');
+  if (pre) pre.textContent = topology.mermaid || '';
 }
 
 function renderRuns(snapshot) {
@@ -160,7 +198,7 @@ function renderRuns(snapshot) {
           data-copy="${esc(run.run_id)}">${esc(shortId(run.run_id))}</span></td>
       <td>${esc(run.label) || '<span class="dim">—</span>'}</td>
       <td><span class="pill ${esc(run.state)}">${esc(run.state)}</span></td>
-      <td>${roleChips(run, snapshot.nodes)}</td>
+      <td>${roleChips(run, snapshot.nodes, snapshot.topology)}</td>
       <td class="mono dim">${when(run.started_utc)}</td>
       <td class="mono">${isActive && findingsByRun ? `<span class="pill failed">${findingsByRun}</span>` : '<span class="dim">—</span>'}</td>
       <td class="actions">
@@ -230,6 +268,7 @@ function render(snapshot) {
   renderRuns(snapshot);
   renderFindings(snapshot);
   renderNodes(snapshot);
+  renderTopology(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */

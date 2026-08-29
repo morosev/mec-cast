@@ -42,6 +42,8 @@ class AdminClient:
         host: this machine's name; forms part of the stable ``node_id``.
         url: ``ws://host:8099/ws/node``. Empty disables the client entirely,
             which is what keeps the standalone env-``RUN_ID`` path unchanged.
+        cell: the radio cell this node sits in. Empty unless the deployment
+            declares one; the admin then treats it as the single default cell.
         instance: distinguishes several nodes of one type on one host.
         retry_s: reconnect interval. Injected so tests need not wait 30 s.
     """
@@ -52,6 +54,7 @@ class AdminClient:
         node_type: str,
         host: str,
         url: str,
+        cell: str = "",
         instance: int = 0,
         retry_s: float = DEFAULT_RETRY_S,
         version_sha: str = "",
@@ -68,6 +71,7 @@ class AdminClient:
             "node_type": node_type,
             "node_id": self.node_id,
             "host": host,
+            "cell": cell,
             "pid": pid,
             "version_sha": version_sha,
             "version_tag": version_tag,

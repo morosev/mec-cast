@@ -31,6 +31,10 @@ class NodeRecord:
     node_id: str
     node_type: NodeType
     host: str = ""
+    #: Radio cell, as the node reported it. Empty means the node did not say,
+    #: which is every deployment that has not declared a topology — treated
+    #: as the single default cell everywhere it is read.
+    cell: str = ""
     pid: int = 0
     version_sha: str = ""
     version_tag: str = ""
@@ -75,6 +79,7 @@ class NodeRecord:
             "node_id": self.node_id,
             "node_type": str(self.node_type),
             "host": self.host,
+            "cell": self.cell,
             "version": {"sha": self.version_sha, "tag": self.version_tag},
             "state": str(self.state),
             "run_id": self.run_id,
@@ -113,6 +118,7 @@ class Registry:
 
         record.node_type = hello.node_type
         record.host = hello.host
+        record.cell = hello.cell
         record.pid = hello.pid
         record.version_sha = hello.version.sha
         record.version_tag = hello.version.tag

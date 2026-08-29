@@ -15,6 +15,9 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "websockets>=12",
+    # Declared topology (deploy/lab/topology.yml). YAML rather than JSON
+    # because the file is operator-authored and wants comments.
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

@@ -51,6 +51,11 @@ pub struct AdminConfig {
     pub url: String,
     pub node_id: String,
     pub host: String,
+    /// Radio cell, from `CELL`. Empty unless the deployment declares a
+    /// topology; the admin then treats this node as being in the single
+    /// default cell. Additive on the wire — the admin ignores unknown
+    /// payload fields, so this needs no protocol version bump.
+    pub cell: String,
     pub version_sha: String,
     pub version_tag: String,
     pub retry: Duration,
@@ -63,6 +68,7 @@ impl AdminConfig {
             url: url.into(),
             node_id: format!("gnb-{host}-{instance}"),
             host,
+            cell: std::env::var("CELL").unwrap_or_default(),
             version_sha: std::env::var("VCS_REF").unwrap_or_default(),
             version_tag: std::env::var("VERSION").unwrap_or_default(),
             retry: RETRY,
@@ -211,6 +217,7 @@ fn socket_loop(
                             "node_type": "gnb",
                             "node_id": cfg.node_id,
                             "host": cfg.host,
+                            "cell": cfg.cell,
                             "pid": std::process::id(),
                             "version": {"sha": cfg.version_sha, "tag": cfg.version_tag},
                             "state": identity.state,
