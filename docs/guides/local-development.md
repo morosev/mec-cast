@@ -16,6 +16,7 @@ Getting software onto machines is
 - [Driving it from the command line only](#driving-it-from-the-command-line-only)
 - [Six terminals in one window (tmux)](#six-terminals-in-one-window-tmux)
 - [Opening the renderer](#opening-the-renderer)
+- [Watching it live — the native viewer](#watching-it-live--the-native-viewer)
 - [When the renderer looks broken but is not](#when-the-renderer-looks-broken-but-is-not)
 
 ## Four concepts first
@@ -289,11 +290,64 @@ itself:
 VIEWER_HOST=10.0.0.30 RENDER_SINK=rerun ...
 ```
 
+### Watching it live — the native viewer
+
+The page above works in an ordinary desktop browser, but it needs two
+reachable ports, a browser that can run WebGPU or WebGL, and the exact `?url=`
+query. The **native viewer connects straight to the gRPC stream** and needs
+none of them. It is the better way to watch a run happen.
+
+The viewer belongs on the machine running the **UE role** — locally that is
+this one. It is a testing convenience: no measurement depends on it, and the
+edge, gNB and infra roles need neither the viewer nor the SDK (see
+[deploy-manual.md](../operations/deploy-manual.md#the-ue-role-only-rerun)).
+
+One-time install. **In WSL or a Linux shell, not PowerShell** — this is a
+Linux binary:
+
+```bash
+python3 -m venv ~/.rrviewer && ~/.rrviewer/bin/pip install "rerun-sdk==0.36.3"
+```
+
+Match the version to the SDK pinned in `deploy/docker/ros.Dockerfile`
+(`>=0.36,<0.37`); a viewer from another minor release may refuse the
+recording.
+
+Then, while a run is streaming:
+
+```bash
+~/.rrviewer/bin/rerun --port auto rerun+http://localhost:9877/proxy
+```
+
+A window opens and fills with the live cloud. Three things to know:
+
+- **`--port auto` is not optional.** Without it the viewer defaults to port
+  9876, finds the render node's own web server already listening there,
+  concludes "another viewer is already running", and streams its data *to*
+  that instead of opening a window — so it appears to do nothing at all. Its
+  log says so plainly, which is the only clue.
+- **Match the SDK version** to the one in the image (`rerun-sdk==0.36.3`).
+  A viewer newer than the stream may refuse the recording.
+- **Under WSLg there is no GPU passthrough**, so the viewer falls back to a
+  software rasterizer and warns about it. Fine at 3,000–6,000 points, slow at
+  30,000. Lower `NUM_POINTS` for a viewing session — the measurement does not
+  care what you are looking at.
+
+For a lab UE, forward the stream port first and the same command works:
+
+```bash
+ssh -L 9877:localhost:9877 ops@ue-host
+```
+
 **Every rerun run also writes `runs/<RUN_ID>/render-0/session.rrd`**, beside
-`samples.csv`. That is the reliable path and usually the better one: the live
-viewer needs two reachable ports, a browser that can run WebGPU or WebGL, and
-you at the keyboard while the run happens. The file needs none of that — drag it
-onto any Rerun viewer and replay afterwards. Set `record_rrd:=false` to skip it.
+`samples.csv`. That is the archive: it replays a finished run without the
+stream, the ports, or you being at the keyboard while it happened. Open it with
+`rerun runs/<RUN_ID>/render-0/session.rrd`, or drag it onto a running viewer.
+Use the native viewer above for watching live; use this for reviewing later or
+sending someone a run.
+
+They grow quickly — a long run at 10 Hz with real point counts reached 224 MB.
+Set `record_rrd:=false` when you only want the measurement.
 
 `RENDER_SINK=ros` republishes a plain `sensor_msgs/PointCloud2` on
 `mec_cast/render/cloud` for RViz2 or Foxglove, and needs no rerun at all.

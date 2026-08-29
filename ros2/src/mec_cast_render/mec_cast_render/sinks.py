@@ -104,60 +104,87 @@ class RerunSink:
         # switching runs does not silently append to the previous one's timeline.
         rr.init("mec-cast-render", recording_id=run_id)
         self.rrd_path = rrd_path
-        if serve:
-            self._serve(web_port, grpc_port)
-        if rrd_path:
-            self._also_record(rrd_path)
+        # One set_sinks call carrying every destination. Both serving and
+        # file-writing install a sink, and each REPLACES the whole set, so
+        # doing them in two steps silently leaves only the later one alive.
+        self._install_sinks(serve, web_port, grpc_port, rrd_path)
 
-    def _also_record(self, rrd_path: str) -> None:
-        """Write the session to a .rrd beside samples.csv, as well as serving it.
+    def _install_sinks(self, serve: bool, web_port: int, grpc_port: int,
+                       rrd_path: str | None) -> None:
+        """Serve the stream and write the file, in one sink set.
 
-        The live viewer depends on two ports, a browser that can run WebGPU or
-        WebGL, and the operator being at the keyboard while the run happens. A
-        file depends on none of that: drag it onto any Rerun viewer — including
-        the one this node already serves — and replay the run afterwards. For a
-        measurement testbed that is the more useful artefact, and it is what
-        makes a headless lab UE worth pointing a renderer at.
+        This is the part that was wrong and looked right. `set_sinks` replaces
+        the sink set rather than adding to it, so the previous code — which
+        called `serve_grpc()` and then re-added a `GrpcSink` pointing at the
+        proxy that call had just started — ended up with a sink that *connects
+        to* the server instead of one that *is* the server. Viewers attached
+        happily and received nothing, while the `.rrd` grew normally, so the
+        failure was invisible from the node's own logs and from the file.
 
-        `set_sinks` replaces the sink set, so the gRPC sink has to be named
-        again here or serving stops the moment the file sink is added.
+        Measured, replicating that sequence exactly: `serve_grpc` alone
+        delivered 2.68 MB to a viewer; `serve_grpc` followed by
+        `set_sinks(GrpcSink, FileSink)` delivered 12 bytes — an empty header.
+        `GrpcServerSink` plus `FileSink` in a single call delivers both.
+
+        The rule: `GrpcServerSink` serves, `GrpcSink` connects. A node that
+        wants viewers to attach needs the former.
         """
         rr = self.rr
         if not hasattr(rr, "set_sinks"):
-            self.rr.get_global_data_recording().save(rrd_path)
+            # Pre-0.36 fallback: no sink composition, so the file is all we
+            # can offer alongside whatever serving the caller arranged.
+            if rrd_path:
+                rr.get_global_data_recording().save(rrd_path)
             return
+
         sinks = []
-        if getattr(self, "grpc_uri", None):
-            sinks.append(rr.GrpcSink(url=self.grpc_uri))
-        sinks.append(rr.FileSink(rrd_path))
-        rr.set_sinks(*sinks)
+        if serve:
+            self._check_api()
+            sinks.append(
+                rr.GrpcServerSink(port=grpc_port, server_memory_limit="512MiB")
+            )
+        if rrd_path:
+            sinks.append(rr.FileSink(rrd_path))
+        if sinks:
+            rr.set_sinks(*sinks)
 
-    def _serve(self, web_port: int, grpc_port: int) -> None:
-        """Serve the browsable viewer.
+        if serve:
+            self._serve_page(web_port, grpc_port)
 
-        Two servers, and both are needed: `serve_grpc` carries the log stream,
-        `serve_web_viewer` serves the HTML/WASM page that connects back to it.
-        The page runs in the operator's browser, so **both ports must be
-        reachable from there**, not just the web one — publishing only 9876
-        gives a page that loads and then never fills in.
+    def _check_api(self) -> None:
+        """Fail loudly if the pinned rerun API drifted.
 
-        This spelling is specific to rerun 0.36; `serve_web` existed in
-        earlier releases and is gone. The version is pinned in the Dockerfile
-        for that reason, and the check below fails loudly rather than
-        half-working if it drifts again.
+        `serve_web` existed before 0.36 and is gone; `GrpcServerSink` arrived
+        with it. The version is pinned in deploy/docker/ros.Dockerfile for that
+        reason, and a missing name should stop the node rather than let it
+        half-work — which is precisely how the serving bug survived.
         """
         rr = self.rr
-        missing = [n for n in ("serve_grpc", "serve_web_viewer") if not hasattr(rr, n)]
+        missing = [
+            n for n in ("GrpcServerSink", "FileSink", "serve_web_viewer")
+            if not hasattr(rr, n)
+        ]
         if missing:
             raise RuntimeError(
                 f"rerun {getattr(rr, '__version__', '?')} lacks {', '.join(missing)}; "
                 "this sink targets the 0.36 API pinned in deploy/docker/ros.Dockerfile. "
                 "Use sink='ros' (RViz2/Foxglove) or sink='null' meanwhile."
             )
-        uri = rr.serve_grpc(grpc_port=grpc_port, server_memory_limit="512MiB")
-        self.grpc_uri = uri
+
+    def _serve_page(self, web_port: int, grpc_port: int) -> None:
+        """Serve the browsable page that connects back to the stream.
+
+        Two servers, and both are needed: the `GrpcServerSink` above carries
+        the log stream, this serves the HTML/WASM page. The page runs in the
+        operator's browser, so **both ports must be reachable from there**,
+        not just the web one — publishing only 9876 gives a page that loads
+        and then never fills in.
+        """
+        rr = self.rr
+        self.grpc_uri = f"rerun+http://{self.viewer_host}:{grpc_port}/proxy"
         # open_browser defaults to True and there is no browser in a container.
-        rr.serve_web_viewer(web_port=web_port, open_browser=False, connect_to=uri)
+        rr.serve_web_viewer(web_port=web_port, open_browser=False,
+                            connect_to=self.grpc_uri)
 
         # `connect_to` does not put the source into the served page — verified
         # against 0.36.2: the bare page loads a viewer with no data source and

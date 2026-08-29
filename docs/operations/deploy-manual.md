@@ -13,6 +13,7 @@ that already exists is [admin-manual.md](admin-manual.md).
 - [One-time setup per machine](#one-time-setup-per-machine)
 - [Local deployment](#local-deployment)
 - [Lab deployment](#lab-deployment)
+- [Watching a run in the lab](#watching-a-run-in-the-lab)
 - [Starting and stopping a role](#starting-and-stopping-a-role)
 - [Updating to a new version](#updating-to-a-new-version)
 - [Verifying what actually landed](#verifying-what-actually-landed)
@@ -49,6 +50,35 @@ alternative everywhere it appears. `uuid-runtime` provides `uuidgen`; where it
 is absent the scripts fall back to `/proc/sys/kernel/random/uuid`, which is
 Linux-only. That is why every snippet reads `uuidgen || cat /proc/...` in that
 order: it keeps them working on macOS.
+
+### The UE role only: rerun
+
+Rerun is how the point cloud is *looked at*. Nothing measured depends on it —
+the default sink is `null`, which records the full round trip and draws
+nothing — so it is a testing convenience and belongs on the UE alone.
+
+**The SDK, inside the ROS image.** Only `mec_cast_render` imports it, and only
+when `sink=rerun`. It is most of the image's weight — measured, 2.38 GB with it
+against 1.4 GB without — so build without it on every role that never renders:
+
+```bash
+docker build -f deploy/docker/ros.Dockerfile --build-arg WITH_RERUN=0 -t mec-cast-ros .
+```
+
+Edge, gNB and infra never render. Leave the default (`WITH_RERUN=1`) on the UE.
+
+**The viewer, on the UE host.** Separate from the SDK: this is the application
+that displays the stream. Install it once, on the UE and nowhere else:
+
+```bash
+python3 -m venv ~/.rrviewer && ~/.rrviewer/bin/pip install "rerun-sdk==0.36.3"
+```
+
+Match the version to the SDK the image pins (`>=0.36,<0.37` in
+`ros.Dockerfile`) — a viewer from a different minor release may refuse the
+recording. Watching a run is
+[Watching a run in the lab](#watching-a-run-in-the-lab) below; on a laptop it
+is [local-development.md](../guides/local-development.md#watching-it-live--the-native-viewer).
 
 ### Linux and macOS
 
@@ -273,6 +303,49 @@ LOGGING_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 docker compose -f deploy/lab/compose.
 ```
 
 To run one in the foreground for debugging, drop `-d` and name the service.
+
+### Watching a run in the lab
+
+The renderer runs on the UE, so the stream is served there. Turn it on for the
+role:
+
+```bash
+RENDER_SINK=rerun RENDER_INSTANCES=1 PUBLISH_RESULT=1 \
+  EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 \
+  bash deploy/lab/deploy.sh ue ops@ue-host
+```
+
+`PUBLISH_RESULT=1` belongs on the **edge** role, not the UE — the renderer
+draws what the edge sends back, and the edge does not send it by default. A
+renderer without it sits healthy and empty, which the admin page reports as
+`WF_RENDER_STARVED`.
+
+Then watch, with the viewer installed on the UE:
+
+```bash
+ssh -X ops@ue-host '~/.rrviewer/bin/rerun --port auto rerun+http://localhost:9877/proxy'
+```
+
+`ssh -X` because a lab UE has no display of its own; the window opens on your
+workstation. That needs `xauth` on the UE and an X server on your side — WSLg
+provides one on Windows, as does any Linux desktop.
+
+**`--port auto` is not optional.** Without it the viewer defaults to 9876,
+finds the render node's own web server already listening there, decides
+another viewer is running, streams its data to that instead, and exits looking
+like it did nothing.
+
+If `ssh -X` is unavailable, forward the stream port and run a viewer on your
+workstation instead — but that means installing rerun there too, which is the
+thing this section is trying to avoid:
+
+```bash
+ssh -L 9877:localhost:9877 ops@ue-host
+```
+
+Every rerun run also writes `runs/<RUN_ID>/render-0/session.rrd` on the UE.
+Copying that back and opening it locally needs no live connection at all, and
+is usually the better answer for a campaign you want to review later.
 
 ### PTP — before trusting any cross-host number
 

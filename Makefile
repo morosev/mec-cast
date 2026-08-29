@@ -195,7 +195,7 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 	fi
 
 # ─── run ──────────────────────────────────────────────────────────────────
-.PHONY: up-local up-admin up-render up-render-admin up-logging down down-hard logs
+.PHONY: up-local up-admin up-render up-render-admin up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)} \
@@ -289,6 +289,30 @@ down-hard: ## Stop it AND delete the database volume (destroys run history)
 # files whose services are not running.
 logs: ## Follow container logs (including admin and renderer when running)
 	$(COMPOSE_RENDER_ADMIN) logs -f
+
+# The viewer is a host application, not a container: it needs a display, and
+# the ROS image has no X libraries. It lives on the UE — locally, this machine
+# — and nowhere else, because nothing measured depends on it.
+RRVIEWER ?= $(HOME)/.rrviewer/bin/rerun
+RENDER_GRPC_PORT ?= 9877
+
+view: ## Watch the live point cloud in the native rerun viewer (UE only)
+	@test -x "$(RRVIEWER)" || { \
+	  echo "ERROR: the rerun viewer is not installed at $(RRVIEWER)."; \
+	  echo "  python3 -m venv ~/.rrviewer && ~/.rrviewer/bin/pip install 'rerun-sdk==0.36.3'"; \
+	  echo "  Match the SDK pinned in deploy/docker/ros.Dockerfile (>=0.36,<0.37)."; \
+	  exit 1; }
+	@$(COMPOSE_RENDER) ps --services --filter status=running 2>/dev/null | grep -qx render || { \
+	  echo "ERROR: no renderer is running, so there is no stream to attach to."; \
+	  echo "  RUN_ID=\$$(uuidgen) RENDER_SINK=rerun NETEM_LOSS=0% make up-render"; \
+	  exit 1; }
+	@echo "attaching to rerun+http://localhost:$(RENDER_GRPC_PORT)/proxy"
+	@echo "  (a window opens via WSLg or your X server; Ctrl-C here closes it)"
+# --port auto is load-bearing: without it the viewer defaults to 9876, finds
+# the render node's own web server already there, decides another viewer is
+# running, streams its data to that instead, and exits looking like it did
+# nothing at all.
+	@$(RRVIEWER) --port auto "rerun+http://localhost:$(RENDER_GRPC_PORT)/proxy"
 
 # ─── misc ─────────────────────────────────────────────────────────────────
 .PHONY: clean help version
