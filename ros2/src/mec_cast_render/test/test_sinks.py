@@ -6,6 +6,10 @@ measurement path does not depend on a renderer, so the parts that decide
 message packages, which is why `sensor_msgs` is imported lazily.
 """
 
+import shutil
+import subprocess
+import time
+
 import numpy as np
 import pytest
 
@@ -123,3 +127,81 @@ class TestNullSinkIsRealMeasurement:
             sink.draw(0, points, {})
         sink.draw(0, cloud(), {"e2e_ns": None, "network_ns": 0})
         sink.close()
+
+
+class TestRerunActuallyStreams:
+    """A viewer attached to the rerun sink must RECEIVE something.
+
+    This exists because everything else about the sink passed while the live
+    stream was dead. `serve_grpc()` installs a sink and `set_sinks()` replaces
+    the set rather than adding to it, so re-adding a `GrpcSink` — which
+    *connects to* a server rather than *being* one — left the node a client of
+    its own proxy. The file sink kept working, so `session.rrd` grew, the node
+    logged a line per frame, and every viewer sat empty.
+
+    Nothing observable from the node caught that. The only test that could is
+    one which stands where a viewer stands and counts the bytes: a viewer
+    received 12 bytes, an empty header, against 2.7 MB when serving worked.
+
+    Needs the rerun SDK and the `rerun` binary, both present in the ROS image
+    and neither on a bare host, so it skips rather than fails elsewhere.
+    """
+
+    PORT = 19_957
+    #: An empty .rrd is ~12 bytes of header; this test's 60 small frames
+    #: produce ~26 KB. The threshold sits between the two with a wide margin
+    #: on both sides, so the test fails on "nothing arrived" rather than on
+    #: how many frames happened to land before the viewer attached.
+    MIN_BYTES = 5_000
+
+    def _sink(self, tmp_path):
+        # build_sink directly, not the `make` helper: that helper pins
+        # serve=False so the other tests never bind a port, and this is the
+        # one test whose whole point is that the port gets served.
+        return build_sink(
+            "rerun",
+            node=FakeNode(),
+            run_id="stream-test",
+            serve=True,
+            web_port=self.PORT + 1,
+            grpc_port=self.PORT,
+            rrd_path=str(tmp_path / "session.rrd"),
+        )
+
+    def test_a_viewer_receives_the_stream_and_the_file_is_written(self, tmp_path):
+        pytest.importorskip("rerun", reason="rerun SDK is only in the ROS image")
+        if shutil.which("rerun") is None:
+            pytest.skip("the rerun viewer binary is only in the ROS image")
+
+        sink = self._sink(tmp_path)
+        try:
+            for seq in range(60):
+                sink.draw(seq, cloud(256), {"e2e_ns": 1_000_000})
+                time.sleep(0.01)
+
+            received = tmp_path / "received.rrd"
+            subprocess.run(
+                ["timeout", "20", "rerun", "--port", "auto",
+                 f"rerun+http://localhost:{self.PORT}/proxy",
+                 "--save", str(received)],
+                capture_output=True,
+                check=False,
+            )
+        finally:
+            sink.close()
+
+        got = received.stat().st_size if received.exists() else 0
+        assert got > self.MIN_BYTES, (
+            f"a viewer attached to the sink received {got} bytes. The stream is "
+            "dead: check that set_sinks() is given a GrpcServerSink (which "
+            "serves) and not a GrpcSink (which connects to a server)."
+        )
+
+        # The file must still be written — the two sinks replace each other if
+        # they are installed in separate set_sinks calls, and losing either is
+        # the failure this guards.
+        rrd = tmp_path / "session.rrd"
+        assert rrd.exists() and rrd.stat().st_size > self.MIN_BYTES, (
+            "the .rrd was not written; serving and recording must share one "
+            "sink set or one silently replaces the other"
+        )

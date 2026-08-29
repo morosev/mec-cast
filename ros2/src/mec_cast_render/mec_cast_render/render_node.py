@@ -199,11 +199,19 @@ class RenderNode(MecCastNode):
             self.on_result,
             cloud_qos(self.reliability, self.qos_depth),
         )
+        # Both ways in, because the browser one is the fragile one: it needs
+        # two ports reachable from the browser, WebGPU or WebGL, and the exact
+        # query string. The native viewer needs a port and nothing else, so it
+        # is named first — an operator reads this line and takes the first
+        # thing that looks like an answer.
         where = getattr(self.sink, "url", None)
-        self.get_logger().info(
-            f"render recording run {run_id} (sink={self.sink_kind})"
-            + (f" — viewer at {where}" if where else "")
-        )
+        lines = [f"render recording run {run_id} (sink={self.sink_kind})"]
+        if where:
+            grpc = getattr(self.sink, "grpc_uri", None)
+            if grpc:
+                lines.append(f"  native viewer:  rerun --port auto {grpc}")
+            lines.append(f"  in a browser:   {where}")
+        self.get_logger().info("\n".join(lines))
 
     def stop_run(self) -> dict:
         """Unsubscribe, close the sink, then drain the recorder. Order matters:

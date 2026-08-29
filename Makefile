@@ -229,22 +229,24 @@ echo "render sink=$$sink"; \
 if [ "$$sink" = rerun ]; then \
   if [ -n "$(3)" ]; then \
     echo "  the renderer is IDLE until a run starts — start one on the admin page."; \
-    echo "  the viewer URL is logged at that point, not now:"; \
-    echo "    $(1) logs render | grep -o 'http://[^ ]*proxy'"; \
+    echo "  both viewer routes are logged at that point, not now:"; \
+    echo "    $(1) logs render | grep -A2 'render recording run'"; \
+    echo "  then:  make view      (native viewer — needs no browser)"; \
   else \
     printf "  waiting for the viewer URL"; \
     url=""; \
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-      url=$$($(1) logs render 2>/dev/null | grep -o 'http://[^ ]*proxy' | tail -1); \
+      url=$$($(1) logs render 2>/dev/null | grep -o 'http://[^ ]*?url=[^ ]*proxy' | tail -1); \
       [ -n "$$url" ] && break; \
       printf "."; sleep 1; \
     done; \
     echo; \
     if [ -n "$$url" ]; then \
-      echo "  viewer: $$url"; \
+      echo "  watch it:   make view      (native viewer — needs no browser)"; \
+      echo "  or browse:  $$url"; \
     else \
       echo "  not logged yet — the node may still be starting. Check with:"; \
-      echo "    $(1) logs render | grep -o 'http://[^ ]*proxy'"; \
+      echo "    $(1) logs render | grep -A2 'render recording run'"; \
     fi; \
   fi; \
 else \
