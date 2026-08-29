@@ -28,12 +28,12 @@ flowchart TB
     SREC["SampleSender.try_record<br/>never blocks · never allocates"]:::work
     SRING[["SPSC ring · 8192 × 80-byte Sample"]]:::queue
     SWRITE["Writer thread"]:::work
-    SCSV[("runs/&lt;RUN_ID&gt;/pub/samples.csv")]:::sink
+    SCSV[("runs/&lt;RUN_ID&gt;/pub-0/samples.csv")]:::sink
     T2 -.-> SREC --> SRING --> SWRITE --> SCSV
 
     REND["Render node — draws the edge's result<br/>optional, off by default"]:::work
     T5(["process_done_ns — on THIS host<br/>same CLOCK_REALTIME that stamped capture_ns"]):::stamp
-    RCSV[("runs/&lt;RUN_ID&gt;/render/samples.csv<br/>site 2 · e2e_ns is a ROUND TRIP")]:::sink
+    RCSV[("runs/&lt;RUN_ID&gt;/render-0/samples.csv<br/>site 2 · e2e_ns is a ROUND TRIP")]:::sink
     REND --> T5 --> RCSV
     T1 -.->|"round trip needs no PTP:<br/>both stamps taken here"| T5
   end
@@ -59,7 +59,7 @@ flowchart TB
     EREC["SampleSender.try_record<br/>full ring → drop counter++, sample discarded<br/>dropping beats perturbing the measurement"]:::work
     ERING[["SPSC ring · bounded, lock-free"]]:::queue
     EWRITE["Writer thread — CSV rows + DelayStats"]:::work
-    ECSV[("runs/&lt;RUN_ID&gt;/edge/samples.csv<br/>one row per frame")]:::sink
+    ECSV[("runs/&lt;RUN_ID&gt;/edge-0/samples.csv<br/>one row per frame")]:::sink
     T4 --> EREC --> ERING --> EWRITE --> ECSV
 
     DER["Derived per sample<br/>network = recv_ns − send_ns<br/>e2e = process_done_ns − capture_ns<br/>processing = process_done_ns − recv_ns<br/>sender = send_ns − capture_ns"]:::derived

@@ -140,10 +140,6 @@ Source: [`lab-deployment.mmd`](lab-deployment.mmd). Deploy order:
 `infra → edge → gnb → ue`.
 
 ```mermaid
-  "background":"#FFFFFF","primaryColor":"#F1F2F3","primaryTextColor":"#1A1A1A",
-  "primaryBorderColor":"#5A6167","lineColor":"#5A6167","textColor":"#1A1A1A",
-  "clusterBkg":"#FFFFFF","clusterBorder":"#1A1A1A","titleColor":"#1A1A1A","nodeTextColor":"#1A1A1A",
-  "fontFamily":"Calibri, Arial, sans-serif","fontSize":"14px"}} }%%
 flowchart LR
   classDef host fill:#F1F2F3,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
   classDef svc fill:#FFFFFF,stroke:#5A6167,stroke-width:1px,color:#1A1A1A
@@ -151,7 +147,7 @@ flowchart LR
 
   subgraph UEH["Host 1 — role: ue"]
     direction TB
-    LC["lidar-client<br/>network_mode: host<br/>needs EDGE_HOST, LOGGING_HOST"]
+    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST, LOGGING_HOST"]
     PTPU["/dev/ptp0"]
   end
 

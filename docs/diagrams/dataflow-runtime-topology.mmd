@@ -18,11 +18,11 @@ flowchart TB
 
   subgraph H1["HOST — role: ue &nbsp;&nbsp; compose.ue.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
-    UEC["container: lidar-client<br/>image mec-cast-ros<br/>ros2 run mec_cast_lidar_client lidar_client"]:::ctr
-    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[udp/EDGE_HOST:7447?rel=1]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL"]:::ext
+    UEC["container: lidar-client<br/>image mec-cast-ros<br/>ros2 run mec_cast_ue ue_agent<br/>LIDAR_INSTANCES=N"]:::ctr
+    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[udp/EDGE_HOST:7447?rel=1]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL<br/>ADMIN_URL · CELL · LIDAR_INSTANCES · RENDER_INSTANCES"]:::ext
     UEPTP["device /dev/ptp0"]:::vol
     UEVOL["volume ../../runs → /runs"]:::vol
-    RENC["container: render &nbsp;(profile: render)<br/>ros2 run mec_cast_render render<br/>RENDER_SINK=null | rerun | ros<br/>published :9876 page · :9877 stream"]:::ctr
+    RENC["container: render<br/>ros2 run mec_cast_ue ue_agent<br/>RENDER_INSTANCES=M · RENDER_SINK=null | rerun | ros<br/>published :9876+2j page · :9877+2j stream"]:::ctr
     UEC --- UEENV
     UEC --- UEPTP
     UEC --- UEVOL

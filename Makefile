@@ -2,8 +2,18 @@
 #
 # This Makefile only DELEGATES to each component's native build tool
 # (cargo, maturin, colcon, npm, gn/ninja). Build logic belongs in the
-# component, never here — that keeps local and CI from drifting, since
-# CI calls these same targets.
+# component, never here.
+#
+# SCOPE: local development. CI does NOT call these targets — it repeats the
+# underlying commands inline (.github/workflows/platform.yml), and the lab
+# deploy path (deploy/lab/deploy.sh) drives compose over ssh directly. The
+# one target meant for a lab host is `make version`.
+#
+# So a green `make test` is not by itself a green pipeline. `lint` mirrors
+# CI's Rust and Python checks deliberately, because that gap already cost a
+# red build. CI additionally runs clippy over three feature combinations and
+# `cargo test --workspace --no-default-features`; those are not mirrored
+# here, so check them before a release if you have touched feature gates.
 #
 #   make help          list targets
 #   make bootstrap     one-time dev environment setup
@@ -148,15 +158,33 @@ test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
 
 # ─── lint ─────────────────────────────────────────────────────────────────
 .PHONY: lint fmt
-lint: ## Clippy + rustfmt check
+lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
+# Ruff too, because CI runs it and this target is what everyone checks
+# before pushing. It used to cover only Rust, so a Python-only change could
+# pass `make lint` and fail CI on formatting alone — which is exactly what
+# happened. Skipped with a warning rather than failing when ruff is absent:
+# the Rust half is still worth running on a machine without the admin venv.
+	@if [ -x services/admin/.venv/bin/ruff ]; then \
+		services/admin/.venv/bin/ruff check services/admin && \
+		services/admin/.venv/bin/ruff format --check services/admin; \
+	elif command -v ruff >/dev/null 2>&1; then \
+		ruff check services/admin && ruff format --check services/admin; \
+	else \
+		echo "WARNING: ruff not found; skipped the Python checks CI will run."; \
+		echo "  pip install -e 'services/admin[dev]'"; \
+	fi
 
-fmt: ## Apply rustfmt
+fmt: ## Apply rustfmt, and ruff's formatting where available
 	cargo fmt --all
+	@if [ -x services/admin/.venv/bin/ruff ]; then \
+		services/admin/.venv/bin/ruff check services/admin --fix; \
+		services/admin/.venv/bin/ruff format services/admin; \
+	fi
 
 # ─── run ──────────────────────────────────────────────────────────────────
-.PHONY: up-local up-admin down-admin up-render up-render-admin down-render up-logging down logs experiment
+.PHONY: up-local up-admin up-render up-render-admin up-logging down down-hard logs
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)} \
@@ -165,9 +193,6 @@ up-local: build-ros2 ## Bring up the full local topology
 up-admin: build-ros2 ## Local topology + the admin control plane (no RUN_ID needed)
 	$(COMPOSE_ADMIN) up -d --build
 	@echo "admin page: http://localhost:8099/admin"
-
-down-admin: ## Tear down the topology including the admin service
-	$(COMPOSE_ADMIN) down -v --remove-orphans
 
 # Printed by BOTH render targets. Two things it has to get right, because
 # getting either wrong looks like a broken renderer rather than a default:
@@ -226,20 +251,33 @@ up-render-admin: build-ros2 ## Return path + renderer, driven by the control pla
 	@echo "admin page: http://localhost:8099/admin"
 	@$(call render_hint,$(COMPOSE_RENDER_ADMIN),up-render-admin,admin)
 
-down-render: ## Tear down the topology including the renderer
-	$(COMPOSE_RENDER_ADMIN) down -v --remove-orphans
-
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build
 
-down: ## Tear down local topology and volumes
+# `down` removes containers and keeps the data. It used to pass -v, which
+# also deleted the `pgdata` volume — every aggregated snapshot of every run
+# the logging service had ever stored. The per-frame CSVs live in a bind
+# mount and survived, so the loss was silent and only half the picture went
+# missing, which is the worst shape for it. Accumulation is harmless by
+# design: every query is scoped by trace_id = run_id.
+#
+# --remove-orphans means this tears down the admin and renderer too, even
+# though their overlay files are not named here — so one `down` is enough
+# whichever `up-*` you ran. There is deliberately no down-admin/down-render.
+down: ## Stop the local topology, keeping the database
+	$(COMPOSE) down --remove-orphans
+
+down-hard: ## Stop it AND delete the database volume (destroys run history)
+	@echo "This deletes the pgdata volume: every logged snapshot, every run."
+	@echo "Per-frame CSVs under runs/ are untouched."
 	$(COMPOSE) down -v --remove-orphans
 
-logs: ## Follow container logs
-	$(COMPOSE) logs -f
-
-experiment: ## Run one measured experiment (see scripts/run-experiment.sh)
-	bash scripts/run-experiment.sh
+# The full overlay, not $(COMPOSE): with the base files this showed six of
+# the eight running services and silently omitted admin and render — the two
+# you are most likely to be reading logs for. Compose is happy to be given
+# files whose services are not running.
+logs: ## Follow container logs (including admin and renderer when running)
+	$(COMPOSE_RENDER_ADMIN) logs -f
 
 # ─── misc ─────────────────────────────────────────────────────────────────
 .PHONY: clean help version

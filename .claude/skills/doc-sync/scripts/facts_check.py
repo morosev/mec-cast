@@ -119,8 +119,14 @@ def check_envelope(facts: dict) -> None:
 
 
 def check_docs_contradictions(facts: dict) -> None:
-    """A doc naming a different port for a known service is a contradiction."""
-    docs = tracked("*.md")
+    """A doc naming a different port for a known service is a contradiction.
+
+    `.mmd` counts as a doc. Diagram sources state ports, paths and service
+    names exactly as prose does, and they were invisible to this check until
+    three of them spent a milestone describing a layout the code had left
+    behind — with every gate green, because everything scanned only `*.md`.
+    """
+    docs = tracked("*.md", "*.mmd")
     for name, spec in (facts.get("ports") or {}).items():
         port = str(spec.get("port"))
         label = name.replace("_", "[ -]?")
@@ -137,6 +143,36 @@ def check_docs_contradictions(facts: dict) -> None:
                     )
 
 
+def check_output_paths(facts: dict) -> None:
+    """The per-frame CSV layout, wherever it is written out.
+
+    `outputs.per_frame_csv` is the pinned shape. Diagrams and docs spell it
+    out literally, so an instance suffix arriving in the code silently leaves
+    them describing directories that no longer exist. Mermaid escapes the
+    angle brackets, hence the two spellings.
+    """
+    pinned = str((facts.get("outputs") or {}).get("per_frame_csv") or "")
+    if not pinned:
+        return
+    suffixed = "-<instance>" in pinned or "-&lt;instance&gt;" in pinned
+    if not suffixed:
+        return
+    # Any runs/<RUN_ID>/<leaf>/samples.csv whose leaf carries no instance
+    # suffix contradicts the pinned shape.
+    bare = re.compile(
+        r"runs/(?:<RUN_ID>|&lt;RUN_ID&gt;|\$RUN_ID|<run_id>)/"
+        r"(pub|edge|render)/samples\.csv"
+    )
+    for doc in tracked("*.md", "*.mmd"):
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for m in bare.finditer(text):
+            problems.append(
+                f"{doc.relative_to(REPO)}: writes {m.group(0)}, but "
+                f"outputs.per_frame_csv is {pinned} — the leaf needs its "
+                "instance suffix (pub-0, edge-0, render-0)"
+            )
+
+
 def main() -> int:
     if not FACTS.exists():
         print(f"missing {FACTS.relative_to(REPO)}")
@@ -149,6 +185,7 @@ def main() -> int:
     check_ports_in_code(facts)
     check_services_in_code(facts)
     check_docs_contradictions(facts)
+    check_output_paths(facts)
 
     for n in notes:
         print(f"  note: {n}")

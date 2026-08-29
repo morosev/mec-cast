@@ -34,10 +34,19 @@ percentiles, why no RIC yet. Read these before proposing to change any of it.
 Mermaid sources for the architecture and lab-deployment overviews, plus two
 detailed data-flow diagrams (measurement lifecycle and runtime topology).
 
-**run components by hand, reach the database, or maintain a deployment** →
-[guides/manual-operation.md](guides/manual-operation.md) — one container per
-terminal, docker/compose vocabulary, psql and pgAdmin access, logs, restarts,
-retention and backup. Dev and lab.
+**deploy, or update a deployment** →
+[operations/deploy-manual.md](operations/deploy-manual.md) — prerequisites,
+per-machine setup, local and lab, the full lab command set, upgrading to a
+release.
+
+**operate a deployment that exists** →
+[operations/admin-manual.md](operations/admin-manual.md) — a cheat sheet, what
+`up`/`down` do, logs, container access, psql and pgAdmin, backup and restore,
+retention, troubleshooting.
+
+**run components by hand on a laptop** →
+[guides/local-development.md](guides/local-development.md) — one container per
+terminal, tmux, the renderer.
 
 **run an experiment** → [guides/running-an-experiment.md](guides/running-an-experiment.md)
 
@@ -53,7 +62,30 @@ and [deploy/lab/ptp/](../deploy/lab/ptp/README.md)
 
 ```
 architecture/   how the system is built, and why (incl. ADRs)
-guides/         task-oriented how-tos
-operations/     running the lab: topology, runbooks, troubleshooting
+guides/         task-oriented how-tos — "I want to do X"
+operations/     running a deployment: deploy, administer, recover
 research/       experiment protocol, results log, paper notes
+diagrams/       mermaid sources and the rendered artifacts
+slides/         the generated deck
 ```
+
+### What goes where
+
+The rule, so a new page has one obvious home and duplication has nowhere to
+hide. Every row's **Never** column is the one that does the work.
+
+| Location | Answers | Never contains |
+|---|---|---|
+| Root `README.md` | What is this, why it exists, a 5-minute quickstart, where to go next | Operational detail, per-component build steps |
+| Component `README.md` | What this component is, how to build and test **it**, its public surface | Cross-component workflow, deployment |
+| `architecture/` | How it is built and **why** — ADRs record decisions expensive to revisit | How-to steps |
+| `guides/` | Task-oriented: *I want to do X* | Fleet operations |
+| `operations/` | Running a deployment: deploy, administer, recover | Rationale — link the ADR instead |
+| `research/` | Experiment protocol, results log, paper notes | Anything about the code |
+
+Two pairs are deliberately split rather than merged, because reference and
+procedure rot at different rates: `operations/admin-service.md` is the control
+plane's **reference** (protocol, states, findings) while
+`operations/admin-manual.md` is the **procedures**; `operations/lab-topology.md`
+is the lab's **reference** (roles, hosts, addressing) while
+`operations/deploy-manual.md` is how to deploy it.

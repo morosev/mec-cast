@@ -445,16 +445,31 @@ instead. Docs describe the current state.
 | Stage | Gate | Catches |
 |---|---|---|
 | 1 | `python .claude/skills/doc-sync/scripts/qa_docs.py` | broken links, dead paths, missing make targets |
-| 1 | `python .claude/skills/doc-sync/scripts/facts_check.py` | docs contradicting `_facts.yml` |
+| 1 | `python .claude/skills/doc-sync/scripts/facts_check.py` | `.md` **and `.mmd`** contradicting `_facts.yml`, including the per-frame CSV layout |
 | 2 | `python .claude/skills/doc-sync/scripts/qa_pptx.py <deck>` | overflow, off-slide, content and exclusion rules |
-| 3 | `python .claude/skills/doc-sync/scripts/fence_check.py` | embedded mermaid fences drifting from their `.mmd` |
+| 3 | `python .claude/skills/doc-sync/scripts/fence_check.py` | fences that are not diagrams, or whose graph or labels drift from their `.mmd` |
 | 3 | `bash docs/diagrams/render.sh` + view each changed image | broken edges, wrong fills, unreadable text |
 | 4 | `bash …/render_hero.sh` + view the PNG | text outside cards, invisible arrows, clipping |
 
-`fence_check.py` exists because the two overview diagrams are stored twice —
-as `.mmd` and as a fence in `docs/diagrams/README.md`. It compares the graphs
-(node ids and edges) rather than the text, since the fences deliberately drop
-the `%%{init}` theme block.
+`fence_check.py` exists because the overview diagrams are stored twice — as
+`.mmd` and as a fence in `docs/diagrams/README.md`. It checks three things,
+and each was added after the previous set proved insufficient:
+
+1. **The fence declares a diagram.** One was published with the opening line
+   of its `%%{init}%%` block stripped and the body left behind, so it began
+   mid-object; GitHub showed `UnknownDiagramError` for a whole release.
+2. **The graph matches** — node ids and edges, not raw text, since the fences
+   deliberately drop the theme block. Its arrow alternation must cover every
+   form in use (`-->`, `---`, `-.->`, `-.-`, `<-->`, `<==>`): a form it does
+   not know makes those edges invisible and the comparison passes vacuously.
+3. **The labels match.** The graph check sees a node disappear but not a
+   label change — and labels are where ports, paths and service names live.
+
+**`.mmd` is a doc.** `facts_check.py` scans `*.md` *and* `*.mmd`, because
+diagram sources state ports and paths exactly as prose does. They were
+excluded until three of them spent a milestone describing an output layout
+the code had left behind, with every gate green. If a gate cannot see a file
+that can contradict `_facts.yml`, that is a gap in the gate.
 
 Run the gates for the stages you ran. Report failures you could not fix rather
 than lowering the bar.

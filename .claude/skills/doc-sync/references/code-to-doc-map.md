@@ -18,17 +18,21 @@ it is a starting point, not a substitute for reading the diff.
 | `ros2/src/mec_cast_edge/` | `ros2/README.md`, PPT slide 6, lifecycle diagram | Where the stamps happen. `publish_result` also drives the return path in both dataflow diagrams |
 | `ros2/src/mec_cast_render/` | `ros2/README.md`, PPT slide 5, ADR-0009, both dataflow diagrams, hero UE zone, `_facts.yml` `outputs.sites` | Site 2. Its `e2e_ns` is a ROUND TRIP, not a one-way — any doc calling it glass-to-glass without saying so is wrong |
 | `ran/collector/` | `ran/collector/README.md`, ADR-0005, PPT slides 1 & 10 | KPI list and UDP contract |
-| `deploy/compose/` | `deploy/README.md`, `guides/manual-operation.md`, PPT slide 2, topology diagram | Service names, ports, volumes appear in many places. A new overlay (`render.yml`) needs a row in `deploy/README.md` and a Makefile target |
-| `deploy/lab/` | `operations/lab-topology.md`, `guides/manual-operation.md`, PPT slide 3, `lab-deployment.mmd` | Roles, start order, env requirements |
+| `deploy/compose/` | `deploy/README.md`, `operations/admin-manual.md`, PPT slide 2, topology diagram | Service names, ports, volumes appear in many places. A new overlay (`render.yml`) needs a row in `deploy/README.md` and a Makefile target |
+| `deploy/lab/` | `operations/lab-topology.md`, `operations/admin-manual.md`, PPT slide 3, `lab-deployment.mmd` | Roles, start order, env requirements |
 | `deploy/docker/` | `deploy/README.md`, `ros2/README.md` | Image names and entrypoints |
-| `Makefile` | `README.md`, `guides/manual-operation.md`, most component READMEs | Every doc that shows a `make` command |
-| `scripts/` | `guides/running-an-experiment.md`, `guides/manual-operation.md`, `README.md` | Flags and output layout |
+| `Makefile` | `README.md`, `operations/admin-manual.md`, most component READMEs | Every doc that shows a `make` command |
+| `scripts/` | `guides/running-an-experiment.md`, `operations/admin-manual.md`, `README.md` | Flags and output layout |
 | `clients/webrtc_native/` | `clients/README.md` + its own README, PPT slide 8 | Note the camera limitation stays stated |
 | `services/logging` (SHA bump) | `operations/logging-submodule.md`, `services/README.md`, PPT slide 4, `_facts.yml` | Schema changes are breaking — `extra="forbid"` |
 | `services/admin/**` | `operations/admin-service.md`, `services/README.md`, root README, `_facts.yml`, PPT slide 4 | Port, protocol version, keepalive/timeout numbers, run states |
 | `ros2/src/mec_cast_admin_client/` | `ros2/README.md`, `operations/admin-service.md`, ADR-0007 | The Python and Rust clients must agree on the envelope — check both, and `vectors.json` |
 | `ran/collector/src/admin.rs` | `ran/collector/README.md`, `operations/admin-service.md`, ADR-0007 | Feature gate: `--no-default-features` must still build without tungstenite |
-| `.github/workflows/` | `README.md` (status), `guides/manual-operation.md` | What CI actually covers |
+| `services/admin/src/mec_cast_admin/topology.py` | `operations/admin-service.md`, `deploy/lab/topology.example.yml`, `_facts.yml` | Role cardinality lives here now — the quorum rule, the `WF_*_ABSENT` findings and the page's role chips all read it, so a change touches all three |
+| `ros2/src/mec_cast_ue/` | `ros2/README.md`, `guides/local-development.md`, `_facts.yml` (`LIDAR_INSTANCES`, `RENDER_INSTANCES`), `lab-deployment.mmd`, `dataflow-runtime-topology.mmd` | The UE agent replaced two separate services; **both diagrams name it**, and diagrams are checked now |
+| `scripts/version.sh`, `deploy/lab/deploy.sh` | `operations/deploy-manual.md`, `deploy/README.md` | The version report and the deploy procedure are quoted almost verbatim |
+| `Makefile` (run targets) | `operations/admin-manual.md`, `guides/local-development.md` | `down` vs `down-hard` is a data-loss distinction; a renamed target rots a cheat sheet silently |
+| `.github/workflows/` | `README.md` (status), `operations/admin-manual.md` | What CI actually covers |
 | `Cargo.toml` (workspace) | `README.md`, `telemetry/README.md`, `third_party/README.md` | Member and exclude lists |
 
 ## Change shapes that usually mean an ADR
@@ -76,7 +80,7 @@ of these changes, the diagrams and the deck hold their own copies:
 | Fact | Also stored in |
 |---|---|
 | Transport scheme and port (`udp/…:7447?rel=1`) | both `.mmd` dataflow diagrams — as endpoint strings *and* as prose edge labels |
-| Env var names and defaults | `dataflow-runtime-topology.mmd` ENV node, `manual-operation.md`, compose files |
+| Env var names and defaults | `dataflow-runtime-topology.mmd` ENV node, `operations/admin-manual.md`, compose files |
 | Published ports | topology diagram, `deploy/README.md`, `_facts.yml`, hero MEC zone |
 | Site directory names and codes | lifecycle diagram sinks, `running-an-experiment.md` outputs table |
 
