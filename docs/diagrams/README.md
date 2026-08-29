@@ -24,6 +24,7 @@ SVG is generated on demand for print and is not committed.
 |---|---|---|
 | `architecture-overview.mmd` | source only | embedded below — GitHub renders it |
 | `lab-deployment.mmd` | source only | embedded below — GitHub renders it |
+| `mec-cast-nodes.mmd` | source only | embedded below — the extended-model target topology |
 | `dataflow-measurement-lifecycle.mmd` | source | too large to embed readably |
 | `dataflow-runtime-topology.mmd` | source | too large to embed readably |
 | `dataflow-*.png` | raster | the copy GitHub can actually display |
@@ -199,6 +200,75 @@ flowchart LR
   class LC,SRS,RC,ZR,ED,ADM,LOGS,PG,PTPU,RUNS svc
   class GM sync
 ```
+
+## Node topology (extended model)
+
+Source: [`mec-cast-nodes.mmd`](mec-cast-nodes.mmd) — keep the two copies
+identical when editing.
+
+The target of the multi-cell migration: two cells of `UE → gNB → Edge`, the
+edges peered, one shared infra. Three planes — **data** (red), **peering**
+(black, the Zenoh router↔router session; transport plumbing, not application
+control), **control** (dashed, the admin WebSocket). `cell-a` keeps lidar and
+render on one UE while `cell-b` splits them across two: that contrast is
+deliberate, because ADR-0009's round-trip `e2e_ns` is PTP-free only while both
+stamps come off one host's clock — `ue-b2` is the case the
+`WF_RENDER_CROSS_HOST` finding exists to catch.
+
+```mermaid
+flowchart TB
+  classDef ue    fill:#EEF3F8,stroke:#4A6B8A,stroke-width:1px,color:#1A1A1A
+  classDef gnb   fill:#F6F1E8,stroke:#8A7A4A,stroke-width:1px,color:#1A1A1A
+  classDef edge  fill:#EAF2EC,stroke:#4A7A5A,stroke-width:1px,color:#1A1A1A
+  classDef infra fill:#F2F2F4,stroke:#6A6A72,stroke-width:1px,color:#1A1A1A
+
+  subgraph CELL_A["cell-a"]
+    direction LR
+    UEA["ue-a1<br/>mec-cast-lidar ×2<br/>mec-cast-render ×1"]
+    GA["gnb-a<br/>mec-cast-ran"]
+    EA["edge-a<br/>mec-cast-zenoh-router<br/>mec-cast-edge"]
+  end
+
+  subgraph CELL_B["cell-b"]
+    direction LR
+    UEB1["ue-b1<br/>mec-cast-lidar ×2"]
+    GB["gnb-b<br/>mec-cast-ran"]
+    EB["edge-b<br/>mec-cast-zenoh-router<br/>mec-cast-edge"]
+    UEB2["ue-b2<br/>mec-cast-render ×1"]
+  end
+
+  INF["infra<br/>mec-cast-admin<br/>mec-cast-logging<br/>postgres"]
+
+  UEA  <-->|Uu| GA
+  GA   <-->|backhaul| EA
+  UEB1 -->|Uu| GB
+  GB   <-->|backhaul| EB
+  GB   -->|Uu| UEB2
+
+  EA <==>|peering| EB
+
+  UEA  -.- INF
+  GA   -.- INF
+  EA   -.- INF
+  UEB1 -.- INF
+  GB   -.- INF
+  EB   -.- INF
+  UEB2 -.- INF
+
+  class UEA,UEB1,UEB2 ue
+  class GA,GB gnb
+  class EA,EB edge
+  class INF infra
+
+  linkStyle 0,1,2,3,4 stroke:#C0392B,stroke-width:2px;
+  linkStyle 5 stroke:#1A1A1A,stroke-width:3px;
+  linkStyle 6,7,8,9,10,11,12 stroke:#9AA0A6,stroke-width:1px,stroke-dasharray:4 4;
+```
+
+Note: today's deployment differs from this picture in one load-bearing way —
+the admin service currently runs in the **edge** role, not on infra. Moving it
+is required by the multi-cell milestone (two edges would otherwise mean two
+authorities) and is tracked there, not a drawing error here.
 
 ## Detailed dataflow
 

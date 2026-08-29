@@ -2,7 +2,8 @@
 
 Subscribes to `mec_cast/result`, the processed cloud the edge sends back,
 stamps `recv_ns` on arrival, draws it, stamps `process_done_ns` when the draw
-returns, and records the sample at site 2 (`runs/<RUN_ID>/render/samples.csv`).
+returns, and records the sample at site 2
+(`runs/<RUN_ID>/render-<instance>/samples.csv`).
 
 Why this node earns its place beyond showing a picture: the envelope carries
 the **original** `capture_ns`, stamped by the publisher on this same host, and
@@ -13,28 +14,28 @@ the **original** `capture_ns`, stamped by the publisher on this same host, and
 is a true round-trip glass-to-glass delay that owes nothing to PTP — the only
 such number in the system. Every other one-way metric is only as good as the
 clock discipline. Comparing the two gives an independent read on clock offset.
+**That property holds only while the paired lidar runs on this same host**;
+a renderer on a different UE (ADR-0009, the split-renderer cell) loses it,
+which the admin flags as WF_RENDER_CROSS_HOST.
 
 `network_ns` here is the downlink leg alone (edge send -> UE receive) and *is*
 PTP-dependent, like every cross-host figure. `processing_ns` is draw time and
 is local, so it is not.
 
-Parameters:
-    sink            (str,  default null)  null | rerun | ros
+Parameters (shared set from MecCastNode: run_id, runs_dir, logging_url,
+admin_url, admin_autostart, admin_instance — every environment variable is
+demoted to a default):
+    sink            (str,  default $RENDER_SINK or null)  null | rerun | ros
     serve           (bool, default true)  rerun only: host the web viewer
     web_port        (int,  default 9876)  the page
     grpc_port       (int,  default 9877)  the stream the page connects back to.
                     Both must be reachable from the operator's browser
-    viewer_host     (str,  default localhost)  how the *browser* reaches this
-                    host. Set it to the UE's address when browsing from
-                    another machine, as in the lab
+    viewer_host     (str,  default $VIEWER_HOST or localhost)  how the
+                    *browser* reaches this host. Set it to the UE's address
+                    when browsing from another machine, as in the lab
     reliability     (str,  default best_effort)  must match the edge's
                     `result_reliability`
     qos_depth       (int,  default 1)  display semantics: newest frame wins
-    admin_url       (str,  default $ADMIN_URL)  empty = standalone
-    admin_autostart (bool, default true)
-    admin_instance  (int,  default 0)
-
-Environment: RUN_ID, LOGGING_URL, RUNS_DIR, ADMIN_URL, RENDER_SINK.
 
 The default sink is `null` on purpose. The node must import and run on a host
 with no renderer installed, so the measurement path is never gated on a
@@ -51,26 +52,19 @@ glass, which is the truthful answer.
 """
 
 import os
-import signal
-import socket
 
 import numpy as np
-import rclpy
-from rclpy.executors import ExternalShutdownException
-from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 import mec_cast_telemetry as tel
-from mec_cast_admin_client import AdminClient
 from mec_cast_admin_client import protocol as ap
+from mec_cast_admin_client.node_base import MecCastNode, spin
+from mec_cast_admin_client.sites import SITE_RENDER
 from mec_cast_msgs.msg import CloudWithTelemetry
 from mec_cast_render.sinks import SINKS, build_sink
 
-SITE_RENDER = 2
 RESULT_TOPIC = "mec_cast/result"
 
-ADMIN_POLL_S = 0.1
-STATUS_PERIOD_S = 2.0
 #: How often the node says whether it is receiving anything. It logs one line
 #: per frame, so on a congested uplink it can go tens of seconds between
 #: lines — which is indistinguishable from a dead process in a `compose up`
@@ -102,9 +96,21 @@ def cloud_qos(reliability: str, depth: int) -> QoSProfile:
     )
 
 
-class RenderNode(Node):
-    def __init__(self) -> None:
-        super().__init__("mec_cast_render")
+class RenderNode(MecCastNode):
+    NODE_TYPE = ap.NodeType.RENDER
+    SERVICE = "mec-cast-render"
+    SITE = SITE_RENDER
+    OUT_LEAF = "render"
+    PEER_TOPIC = RESULT_TOPIC
+
+    def __init__(self, *, node_name: str | None = None,
+                 parameter_overrides: list | None = None) -> None:
+        super().__init__(
+            "mec_cast_render",
+            node_name=node_name,
+            parameter_overrides=parameter_overrides,
+            autostart_default=True,
+        )
         self.declare_parameter("sink", os.environ.get("RENDER_SINK", "null"))
         self.declare_parameter("serve", True)
         self.declare_parameter("web_port", 9876)
@@ -113,9 +119,6 @@ class RenderNode(Node):
         self.declare_parameter("record_rrd", True)
         self.declare_parameter("reliability", "best_effort")
         self.declare_parameter("qos_depth", 1)
-        self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
-        self.declare_parameter("admin_autostart", True)
-        self.declare_parameter("admin_instance", 0)
 
         self.sink_kind = str(self.get_parameter("sink").value)
         if self.sink_kind not in SINKS:
@@ -128,47 +131,20 @@ class RenderNode(Node):
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
 
-        self.runs_dir = os.environ.get("RUNS_DIR", "runs")
-        self.logging_url = os.environ.get("LOGGING_URL") or None
-
-        self.run_id: str | None = None
-        self.recorder: tel.Recorder | None = None
         self.sub = None
         self.sink = None
         self.frames = 0
         self.drawn = 0
         self.seq_gaps = 0
         self.last_seq: int | None = None
-
-        self.admin = AdminClient(
-            node_type=ap.NodeType.RENDER,
-            host=socket.gethostname(),
-            url=str(self.get_parameter("admin_url").value),
-            instance=int(self.get_parameter("admin_instance").value),
-            version_sha=os.environ.get("VCS_REF", ""),
-            version_tag=os.environ.get("VERSION", ""),
-            pid=os.getpid(),
-        )
-        self.autostart = bool(self.get_parameter("admin_autostart").value)
-        self._last_status: dict | None = None
         self._progress_mark = 0
         self.create_timer(PROGRESS_PERIOD_S, self._log_progress)
 
-        if self.admin.enabled:
-            self.admin.update_identity(autostart=self.autostart, params=self.params())
-            self.admin.start()
-            self.create_timer(ADMIN_POLL_S, self._drain_admin)
-            self.create_timer(STATUS_PERIOD_S, self._report_status)
-            self.get_logger().info(
-                f"render up (admin={self.admin.url}, node_id={self.admin.node_id}, "
-                f"sink={self.sink_kind}, qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
-            )
-        else:
-            self.start_run(os.environ.get("RUN_ID", "dev-run"))
-            self.get_logger().info(
-                f"render up (run_id={self.run_id}, sink={self.sink_kind}, "
-                f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
-            )
+        self._start()
+        self.get_logger().info(
+            f"render up ({'admin=' + self.admin.url if self.admin.enabled else 'run_id=' + str(self.run_id)}, "
+            f"sink={self.sink_kind}, qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
+        )
 
     # --- run lifecycle ----------------------------------------------------
 
@@ -179,11 +155,17 @@ class RenderNode(Node):
             "qos_depth": self.qos_depth,
         }
 
-    @property
-    def running(self) -> bool:
-        return self.recorder is not None
+    def counters(self) -> dict:
+        return {
+            "frames": self.frames,
+            "drawn": self.drawn,
+            "seq_gaps": self.seq_gaps,
+        }
 
-    def start_run(self, run_id: str) -> None:
+    def _status_extra(self) -> dict:
+        return {"subscribed": self.sub is not None}
+
+    def start_run(self, run_id: str, args: dict | None = None) -> None:
         """Build the Recorder and the sink, then subscribe.
 
         The sink is built per run, not per process: a viewer session is scoped
@@ -195,16 +177,12 @@ class RenderNode(Node):
                 return
             self.stop_run()
 
-        self.run_id = run_id
         self.frames = 0
         self.drawn = 0
         self.seq_gaps = 0
         self.last_seq = None
         self._progress_mark = 0
-        out_dir = os.path.join(self.runs_dir, run_id, "render")
-        self.recorder = tel.Recorder(
-            run_id, "mec-cast-render", out_dir, logging_url=self.logging_url
-        )
+        out_dir = self._make_recorder(run_id)
         self.sink = build_sink(
             self.sink_kind,
             node=self,
@@ -238,80 +216,14 @@ class RenderNode(Node):
         if self.sink is not None:
             self.sink.close()
             self.sink = None
-        report = self.recorder.shutdown()
-        self.recorder = None
+        report = self._close_recorder()
         self.get_logger().info(
             f"render stopped run {self.run_id}: frames={self.frames} "
             f"drawn={self.drawn} seq_gaps={self.seq_gaps} report={report}"
         )
         return report
 
-    # --- admin ------------------------------------------------------------
-
-    def _drain_admin(self) -> None:
-        for frame in self.admin.poll():
-            payload = frame.get("payload") or {}
-            if frame["type"] == ap.MessageType.WELCOME:
-                active = payload.get("active_run")
-                if active and self.autostart:
-                    self.start_run(active["run_id"])
-                self._report_status(force=True)
-            elif frame["type"] == ap.MessageType.COMMAND:
-                self._apply_command(frame, payload)
-
-    def _apply_command(self, frame: dict, payload: dict) -> None:
-        command = payload.get("command")
-        ok, error, stop_report = True, None, None
-        try:
-            if command in (ap.CommandType.RUN_START, ap.CommandType.STREAM_START):
-                run_id = payload.get("run_id")
-                if not run_id:
-                    raise ValueError("run.start without a run_id")
-                self.start_run(run_id)
-            elif command in (ap.CommandType.RUN_STOP, ap.CommandType.STREAM_STOP):
-                stop_report = self.stop_run()
-            elif command != ap.CommandType.STATUS_REPORT:
-                raise ValueError(f"unknown command {command!r}")
-        except Exception as exc:  # a bad command must not kill the node
-            ok, error = False, str(exc)
-            self.get_logger().error(f"admin command {command} failed: {exc}")
-        self.admin.publish_ack(frame["msg_id"], ok=ok, error=error)
-        self._report_status(force=True, report=stop_report)
-
-    def peers(self) -> list[dict]:
-        """Who is publishing the result topic to us, from the ROS graph."""
-        if not self.running:
-            return []
-        try:
-            infos = self.get_publishers_info_by_topic(RESULT_TOPIC)
-        except Exception:
-            return []
-        return [ap.peer(info.node_name or "unknown") for info in infos]
-
-    def _report_status(self, force: bool = False, report: dict | None = None) -> None:
-        if not self.admin.enabled:
-            return
-        payload = ap.status_payload(
-            node_type=ap.NodeType.RENDER,
-            state=ap.NodeState.RUNNING if self.running else ap.NodeState.IDLE,
-            run_id=self.run_id,
-            subscribed=self.sub is not None,
-            peers=self.peers(),
-            params=self.params(),
-            counters={
-                "frames": self.frames,
-                "drawn": self.drawn,
-                "seq_gaps": self.seq_gaps,
-            },
-            autostart=self.autostart,
-            report=report or {},
-        )
-        if force or payload != self._last_status:
-            self._last_status = payload
-            self.admin.update_identity(
-                state=payload["state"], run_id=self.run_id, params=self.params()
-            )
-            self.admin.publish_status(payload)
+    # --- progress ---------------------------------------------------------
 
     def _log_progress(self) -> None:
         """Say whether frames are arriving, whether or not any did.
@@ -338,7 +250,7 @@ class RenderNode(Node):
                 f"(total={self.frames}). The process is fine. Either the edge is not "
                 f"sending — it needs publish_result:=true, off by default — or the "
                 f"uplink is dropping frames before they reach it. Compare row counts: "
-                f"wc -l runs/{self.run_id}/pub/samples.csv runs/{self.run_id}/edge/samples.csv"
+                f"wc -l runs/{self.run_id}/pub-*/samples.csv runs/{self.run_id}/edge-*/samples.csv"
             )
 
     # --- the hot path -----------------------------------------------------
@@ -381,7 +293,7 @@ class RenderNode(Node):
             recv_ns=recv_ns,
             process_done_ns=process_done_ns,
             payload_bytes=len(msg.cloud.data),
-            site=SITE_RENDER,
+            site=self.SITE,
             trace_id=bytes(env.trace_id),
         )
         # Parseable progress line — the launch test and humans both read it.
@@ -392,25 +304,9 @@ class RenderNode(Node):
             f"downlink_ns={recv_ns - env.send_ns}"
         )
 
-    def finish(self) -> None:
-        report = self.stop_run()
-        self.admin.goodbye(reason="shutdown", run_id=self.run_id, final_report=report)
-        self.get_logger().info(f"render done: report={report}")
-
 
 def main(args=None) -> None:
-    rclpy.init(args=args)
-    signal.signal(signal.SIGTERM, lambda *_: rclpy.shutdown())
-    node = RenderNode()
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
-    finally:
-        node.finish()
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    spin(RenderNode, args)
 
 
 if __name__ == "__main__":

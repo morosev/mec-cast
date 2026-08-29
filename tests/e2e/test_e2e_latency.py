@@ -169,7 +169,9 @@ def e2e_run():
 
 def test_edge_csv_has_expected_rows_and_delay(e2e_run):
     run_id = e2e_run
-    csv_path = REPO / "runs" / run_id / "edge" / "samples.csv"
+    # Instance-suffixed since the multi-instance model: edge-0 is the first
+    # (and here only) edge instance.
+    csv_path = REPO / "runs" / run_id / "edge-0" / "samples.csv"
     assert csv_path.exists(), f"edge CSV missing: {csv_path}\n{DIAG}"
 
     with csv_path.open() as f:
@@ -195,7 +197,7 @@ def test_edge_csv_has_expected_rows_and_delay(e2e_run):
 
 def test_snapshots_reached_logging_service(e2e_run):
     run_id = e2e_run
-    q = urllib.parse.urlencode({"service": "mec-cast-edge", "trace_id": run_id})
+    q = urllib.parse.urlencode({"service": "mec-cast-edge-0", "trace_id": run_id})
     page = get_json(f"http://localhost:8000/api/v1/logs?{q}")
     items = page["items"]
     # 2s cadence over the run duration, generous lower bound.
@@ -210,6 +212,6 @@ def test_snapshots_reached_logging_service(e2e_run):
     assert ctx["ptp"]["reliable"] is False, "same-host runs must not claim PTP"
 
     # The publisher side logs under its own service, same trace_id.
-    q = urllib.parse.urlencode({"service": "mec-cast-pub", "trace_id": run_id})
+    q = urllib.parse.urlencode({"service": "mec-cast-pub-0", "trace_id": run_id})
     pub_page = get_json(f"http://localhost:8000/api/v1/logs?{q}")
     assert pub_page["items"], "no publisher snapshots joined by trace_id"

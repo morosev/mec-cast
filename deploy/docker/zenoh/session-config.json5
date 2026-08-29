@@ -2,6 +2,11 @@
 // Point ZENOH_SESSION_CONFIG_URI at this file. Nodes dial the router by
 // service name; multicast scouting is off (models the 5G/UPF path where
 // multicast does not exist).
+//
+// IMPORTANT: rmw_zenoh loads this with zenoh::Config::from_file(), which
+// REPLACES its packaged default config outright — nothing merges. rmw_zenoh
+// tunings we rely on must be restated here or they silently revert to
+// zenoh's own defaults. (ZENOH_CONFIG_OVERRIDE merges; this file does not.)
 {
   mode: "peer",
   // Reliable UDP (`rel=1`) — Zenoh's UDP link plus Zenoh transport-level
@@ -25,8 +30,23 @@
   // latencies that no deployment would ever see.
   transport: {
     shared_memory: { enabled: false },
+    // Match the router: rmw_zenoh's 60 s lease / keep_alive 2 rather than
+    // zenoh's 10 s / 4. Both ends of a link negotiate down to the smaller
+    // lease, so restating it only here or only on the router is not enough.
+    link: {
+      tx: {
+        lease: 60000,
+        keep_alive: 2,
+      },
+    },
   },
   scouting: {
     multicast: { enabled: false },
+  },
+  // rmw_zenoh enables timestamping everywhere, zenoh's peer default is off.
+  // HLC stamps on samples are what dedup/ordering will lean on once routers
+  // peer across cells.
+  timestamping: {
+    enabled: { router: true, peer: true, client: true },
   },
 }

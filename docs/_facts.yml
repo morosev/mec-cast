@@ -70,6 +70,12 @@ services:
   media:     mec-cast-media
   admin:     mec-cast-admin
   render:    mec-cast-render
+  # Node services are instance-suffixed ON THE WIRE since the multi-instance
+  # model: the logging `service` field carries mec-cast-pub-0, mec-cast-pub-1…
+  # so sibling instances stay distinguishable in PostgreSQL. The base names
+  # above remain the identities; mec-cast-ran and mec-cast-admin are
+  # single-instance and unsuffixed.
+  instance_suffix: "-<instance>, on pub/edge/render only"
 
 # --- ports and protocols ----------------------------------------------------
 ports:
@@ -97,6 +103,8 @@ env:
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
   VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. localhost is wrong the moment the UE is a different machine, as it is in the lab"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
+  LIDAR_INSTANCES: {default: "1", note: "ue agent; N lidar instances in one process, dirs pub-0..pub-(N-1)"}
+  RENDER_INSTANCES: {default: "0", note: "ue agent; M render instances. Instance j serves web_port+2j / grpc_port+2j when sink=rerun"}
 
 # --- synthetic workload -----------------------------------------------------
 # The pattern is an experimental variable, not decoration: the edge's downlink
@@ -112,13 +120,16 @@ workload:
 
 # --- output layout ----------------------------------------------------------
 outputs:
-  per_frame_csv: "runs/<RUN_ID>/<site>/samples.csv"
-  render_recording: "runs/<RUN_ID>/render/session.rrd"
+  per_frame_csv: "runs/<RUN_ID>/<site>-<instance>/samples.csv"
+  render_recording: "runs/<RUN_ID>/render-<instance>/session.rrd"
   sites:
-    pub:    {code: 0, note: "lidar client, on the UE"}
-    edge:   {code: 1, note: "MEC edge"}
-    render: {code: 2, note: "renderer, on the UE. Its e2e_ns is a ROUND TRIP and is the only latency figure that does not depend on PTP — both stamps are taken on the UE (ADR-0009)"}
-    ran:    {note: "srsRAN collector; KPIs, not per-frame samples"}
+    pub:    {code: 0, note: "lidar client, on the UE. Dirs pub-0, pub-1, … per instance"}
+    edge:   {code: 1, note: "MEC edge. Dir edge-0 (single-instance today)"}
+    render: {code: 2, note: "renderer, on the UE; dirs render-0, render-1, …. Its e2e_ns is a ROUND TRIP and is PTP-free ONLY while a lidar runs on the same host (ADR-0009); a cross-host renderer raises WF_RENDER_CROSS_HOST"}
+    ran:    {note: "srsRAN collector; KPIs, not per-frame samples. Single-instance, dir stays `ran` with no suffix"}
+  # The site *code* column in the CSV is unchanged; only directory names
+  # gained the instance suffix. One home for the codes:
+  # ros2/src/mec_cast_admin_client/mec_cast_admin_client/sites.py
   csv_header: "seq,modality,kind,site,capture_ns,send_ns,recv_ns,process_done_ns,payload_bytes,aux_ns,network_ns,e2e_ns,processing_ns,sender_ns"
   run_manifest: "runs/<RUN_ID>/run.json"
   run_journal: "runs/admin-journal.jsonl"
@@ -126,6 +137,8 @@ outputs:
     Two: scripts/run-experiment.sh and the admin service. The `source` field
     names which. Admin manifests add seq, label, state, participants, sites,
     reports and findings; all optional to a reader expecting the script's shape.
+    `sites` is keyed by node_id (every instance appears), each entry carrying
+    role, host, and the path the node itself reported via params.out_leaf.
   snapshot_interval_s: 2
   render_recording_note: >-
     Written only with sink=rerun. A replayable Rerun recording beside the CSV,

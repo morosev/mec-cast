@@ -16,7 +16,7 @@ fences = re.findall(r"```mermaid\n(.*?)```", readme, re.S)
 print(f"fences found: {len(fences)}")
 
 # Fence order in README.md matches this list.
-sources = ["architecture-overview.mmd", "lab-deployment.mmd"]
+sources = ["architecture-overview.mmd", "lab-deployment.mmd", "mec-cast-nodes.mmd"]
 
 
 def graph(text: str):
@@ -29,7 +29,15 @@ def graph(text: str):
     )
     nodes = set(re.findall(r"\b([A-Z][A-Z0-9_]*)\s*[\[\(\{]", body))
     edges = set()
-    for m in re.finditer(r"\b([A-Z][A-Z0-9_]*)\s*(?:-\.->|-->|---|==>)\s*(?:\|[^|]*\|\s*)?([A-Z][A-Z0-9_]*)", body):
+    # Arrow forms in use across the three diagrams. Order matters within the
+    # alternation: `-\.->` before `-\.-`, or the dotted arrow's `>` is left
+    # dangling and the edge is missed. `<?` covers the bidirectional forms
+    # (`<-->`, `<==>`) that mec-cast-nodes.mmd uses — without it those edges
+    # are invisible to this comparison and the check passes vacuously.
+    arrow = r"(?:<?-\.->|-\.-|<?-->|---|<?==>)"
+    for m in re.finditer(
+        rf"\b([A-Z][A-Z0-9_]*)\s*{arrow}\s*(?:\|[^|]*\|\s*)?([A-Z][A-Z0-9_]*)", body
+    ):
         edges.add((m.group(1), m.group(2)))
     return nodes, edges
 

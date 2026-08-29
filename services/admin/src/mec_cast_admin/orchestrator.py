@@ -267,16 +267,27 @@ class Orchestrator:
                     "version_sha": record.version_sha,
                 },
             )
-            site = {
-                "client": "pub",
-                "edge": "edge",
-                "gnb": "ran",
-                "render": "render",
-            }.get(str(record.node_type))
-            if site and record.state is p.NodeState.RUNNING:
-                run.sites.setdefault(
-                    site, {"host": record.host, "path": f"runs/{run.run_id}/{site}"}
-                )
+            # Keyed by node_id, and the node REPORTS its own directory leaf
+            # (params.out_leaf, e.g. "pub-0") rather than the admin deriving
+            # it from node_type. The old shape keyed a constant site string
+            # per type with setdefault, which silently omitted every instance
+            # after the first from the manifest. The derived leaf remains as
+            # the fallback for nodes that predate out_leaf — today that is
+            # the gNB collector, which stays single-instance.
+            role = str(record.node_type)
+            if record.state is p.NodeState.RUNNING:
+                leaf = (record.params or {}).get("out_leaf") or {
+                    "client": "pub",
+                    "edge": "edge",
+                    "gnb": "ran",
+                    "render": "render",
+                }.get(role)
+                if leaf:
+                    run.sites[node_id] = {
+                        "role": role,
+                        "host": record.host,
+                        "path": f"runs/{run.run_id}/{leaf}",
+                    }
         self.mark_dirty()
 
     async def on_goodbye(self, node_id: str, goodbye: p.GoodbyePayload) -> None:

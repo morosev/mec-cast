@@ -1,8 +1,22 @@
 // Zenoh router configuration for the mec-cast lab topology.
 // The router is the rendezvous point; peers dial it explicitly (no
 // multicast scouting — it would not traverse a UPF/NAT anyway).
+//
+// IMPORTANT: rmw_zenoh loads this with zenoh::Config::from_file(), which
+// REPLACES its packaged default config outright — nothing merges. Every
+// rmw_zenoh tuning we care about must therefore be restated here, or it
+// silently reverts to zenoh's own default. The keys below under `adminspace`,
+// `transport.link.tx` and `routing` exist for exactly that reason.
+// (ZENOH_CONFIG_OVERRIDE is different: it merges, via insert_json5().)
 {
   mode: "router",
+  // rmw_zenoh ships adminspace ON for routers; losing it to the file-replace
+  // semantics cost us @/<zid>/router/** introspection — the very thing needed
+  // to verify transports when the edge-to-edge mesh arrives.
+  adminspace: {
+    enabled: true,
+    permissions: { read: true, write: false },
+  },
   // Reliable UDP (`rel=1`): Zenoh's own UDP link, with Zenoh's transport
   // reliability (sequence numbers and retransmission) layered above it.
   //
@@ -31,8 +45,34 @@
   // latencies that no deployment would ever see.
   transport: {
     shared_memory: { enabled: false },
+    // rmw_zenoh's packaged values (60 s lease, keep_alive 2). The zenoh
+    // defaults this file was silently reverting to are 10 s / 4 — a session
+    // that drops after 10 quiet seconds is the wrong trade for a robot that
+    // may legitimately pause between runs.
+    link: {
+      tx: {
+        lease: 60000,
+        keep_alive: 2,
+      },
+    },
   },
   scouting: {
     multicast: { enabled: false },
+  },
+  routing: {
+    router: {
+      // rmw_zenoh ships false; the zenoh default is true. Pinned explicitly
+      // because it only matters with gossip + peers targeting routers, and
+      // an implicit value that changes by which config file loaded is worse
+      // than either choice. (Removed upstream in zenoh 1.9 — do not build
+      // on it.)
+      peers_failover_brokering: false,
+    },
+  },
+  // rmw_zenoh enables timestamping everywhere, zenoh's default is router-only.
+  // HLC timestamps on samples are what make dedup and ordering possible once
+  // routers peer, and they cost nearly nothing.
+  timestamping: {
+    enabled: { router: true, peer: true, client: true },
   },
 }

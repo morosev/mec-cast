@@ -10,8 +10,9 @@ Ubuntu 25.x and ROS2 Jazzy targets 24.04.
 | `mec_cast_msgs` | `TimingEnvelope`, `CloudWithTelemetry` | both |
 | `mec_cast_lidar_client` | Synthetic/real point-cloud source | UE |
 | `mec_cast_edge` | Zenoh ingest, stamps arrival, computes latency | edge |
-| `mec_cast_admin_client` | WebSocket client for the control plane (ADR-0007) | all |
+| `mec_cast_admin_client` | WebSocket client, shared node base (`MecCastNode`), site codes | all |
 | `mec_cast_render` | Draws the edge's result, measures the round trip (ADR-0009) | UE |
+| `mec_cast_ue` | UE agent: N lidar + M render instances in one process | UE |
 
 ## The return path
 

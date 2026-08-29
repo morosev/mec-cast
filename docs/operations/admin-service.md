@@ -120,6 +120,7 @@ nothing.
 | `WF_GNB_ABSENT` | No gNB collector — a warning; the run is still valid |
 | `WF_GNB_SILENT` | Collector bound but srsRAN is sending nothing |
 | `WF_RUN_MISMATCH` | A node is recording a different run |
+| `WF_RENDER_CROSS_HOST` | A renderer runs on a host with no lidar client — its `e2e_ns` is no longer the PTP-free round trip of ADR-0009, but an ordinary cross-host figure valid only under a reliable PTP lock |
 | `WF_VERSION_SKEW` | A node is on a different commit from the admin |
 | `WF_PARTICIPANT_LOST` | A participant stopped answering mid-run |
 | `WF_LOGGING_UNREACHABLE` | Snapshots are not reaching the logging service |

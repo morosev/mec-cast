@@ -124,8 +124,9 @@ def test_a_run_created_from_the_admin_records_and_stops(topology):
     time.sleep(STREAM_S)
 
     # The CSVs land under the id the admin minted, not any RUN_ID from the env.
+    # Directory leaves are instance-suffixed since the multi-instance model.
     run_dir = REPO / "runs" / run_id
-    for site in ("pub", "edge"):
+    for site in ("pub-0", "edge-0"):
         csv_path = run_dir / site / "samples.csv"
         assert csv_path.exists(), f"no {site} CSV at {csv_path}"
         assert len(csv_path.read_text().splitlines()) > 1, f"{site} CSV has no rows"
@@ -144,13 +145,19 @@ def test_a_run_created_from_the_admin_records_and_stops(topology):
         assert report["samples_written"] > 0
 
     # And which host holds which directory is recorded — new information in
-    # the lab, where each node writes to its own machine.
-    assert {"pub", "edge"} <= set(row["sites"])
+    # the lab, where each node writes to its own machine. Sites are keyed by
+    # node_id (so every instance appears, not just the first of a type), each
+    # carrying its role and the path the node itself reported.
+    site_roles = {s["role"] for s in row["sites"].values()}
+    assert {"client", "edge"} <= site_roles, row["sites"]
+    site_paths = {s["path"] for s in row["sites"].values()}
+    assert f"runs/{run_id}/pub-0" in site_paths, row["sites"]
+    assert f"runs/{run_id}/edge-0" in site_paths, row["sites"]
 
-    sizes = [(run_dir / s / "samples.csv").stat().st_size for s in ("pub", "edge")]
+    sizes = [(run_dir / s / "samples.csv").stat().st_size for s in ("pub-0", "edge-0")]
     time.sleep(3)
     assert [
-        (run_dir / s / "samples.csv").stat().st_size for s in ("pub", "edge")
+        (run_dir / s / "samples.csv").stat().st_size for s in ("pub-0", "edge-0")
     ] == sizes, "CSVs still growing after stop"
 
 

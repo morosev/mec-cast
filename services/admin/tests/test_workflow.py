@@ -314,3 +314,36 @@ class TestRenderer:
         join(registry, NodeType.CLIENT, "ue01", streaming=True)
         join(registry, NodeType.EDGE, "mec01", subscribed=True)
         assert not any("RENDER" in c for c in codes(registry, make_run()))
+
+    def test_a_cross_host_renderer_loses_the_ptp_free_round_trip(self):
+        # ADR-0009: e2e_ns at site 2 is PTP-free only while capture and
+        # process_done are stamped on the same host's clock. A renderer on a
+        # UE with no lidar client silently loses that property — the split
+        # cell of the extended-model diagram.
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(registry, NodeType.EDGE, "mec01", subscribed=True)
+        join(registry, NodeType.RENDER, "ue02", subscribed=True)
+        found = [
+            f for f in diagnose(registry, make_run())
+            if f.code == "WF_RENDER_CROSS_HOST"
+        ]
+        assert found and found[0].severity == "warn"
+        assert "ue02" in found[0].message
+        assert "ptp" in found[0].remedy.lower()
+
+    def test_a_co_located_renderer_is_not_flagged(self):
+        # Same host as a client: the round trip stays on one clock.
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(registry, NodeType.EDGE, "mec01", subscribed=True)
+        join(registry, NodeType.RENDER, "ue01", subscribed=True)
+        assert "WF_RENDER_CROSS_HOST" not in codes(registry, make_run())
+
+    def test_no_clients_at_all_is_not_a_cross_host_finding(self):
+        # With zero clients there is no host to be "co-located" with; that
+        # situation is WF_CLIENT_ABSENT's to report, not this finding's.
+        registry = Registry()
+        join(registry, NodeType.EDGE, "mec01", subscribed=True)
+        join(registry, NodeType.RENDER, "ue02", subscribed=True)
+        assert "WF_RENDER_CROSS_HOST" not in codes(registry, make_run())

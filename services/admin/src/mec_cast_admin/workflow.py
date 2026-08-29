@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .protocol import NodeType
+from .protocol import NodeState, NodeType
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
@@ -138,6 +138,32 @@ def diagnose(
                     "confirm the renderer's `reliability` matches the edge's "
                     "`result_reliability`: a best_effort publisher with a reliable "
                     "subscriber is an incompatible pair and delivers nothing.",
+                )
+            )
+
+    # A renderer on a host with no lidar client loses ADR-0009's property:
+    # its e2e_ns subtracts a capture stamp taken on ANOTHER host's clock, so
+    # the "PTP-free round trip" quietly becomes PTP-dependent like every
+    # other cross-host figure. The number still computes; it just no longer
+    # means what site 2 is documented to mean — which is exactly the kind of
+    # silent redefinition worth interrupting someone for.
+    client_hosts = {c.host for c in clients}
+    for render in renderers:
+        if not run_is_active or render.state is not NodeState.RUNNING:
+            continue
+        if client_hosts and render.host not in client_hosts:
+            findings.append(
+                Finding(
+                    "WF_RENDER_CROSS_HOST",
+                    "warn",
+                    render.node_id,
+                    f"Renderer {render.node_id} runs on {render.host!r} but no lidar "
+                    "client does. Its e2e_ns is a cross-host difference — "
+                    "PTP-dependent, not the PTP-free round trip of ADR-0009.",
+                    "Co-locate a lidar client on that host to restore the PTP-free "
+                    "round trip, or treat this renderer's e2e_ns like any other "
+                    "cross-host metric: valid only while `context.ptp.reliable` "
+                    "is true.",
                 )
             )
 

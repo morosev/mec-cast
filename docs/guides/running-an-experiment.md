@@ -15,11 +15,20 @@ Each run produces `runs/<run_id>/`:
 | Path | Contents |
 |---|---|
 | `run.json` | Full configuration + git SHAs of repo and submodules |
-| `pub/samples.csv` | Per-frame samples, sender side |
-| `edge/samples.csv` | Per-frame samples, receiver side |
-| `ran/samples.csv` | RAN KPIs (lab runs only) |
-| `render/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
-| `render/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
+| `pub-<i>/samples.csv` | Per-frame samples, sender side — one directory per lidar instance |
+| `edge-0/samples.csv` | Per-frame samples, receiver side |
+| `ran/samples.csv` | RAN KPIs (lab runs only; single-instance, no suffix) |
+| `render-<j>/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
+| `render-<j>/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
+
+Directory leaves are instance-suffixed (`pub-0`, `pub-1`, …) since the
+multi-instance model: a UE can host several lidar and render instances in one
+process (`LIDAR_INSTANCES` / `RENDER_INSTANCES`), and every instance keeps its
+own directory and its own instance-suffixed logging identity
+(`mec-cast-pub-0`, …). A single-instance run simply has the `-0` directories.
+When several lidars publish, the edge's CSV holds their interleaved streams —
+its `seq` column mixes the senders, so per-instance analysis reads the
+per-instance `pub-<i>` files.
 
 The renderer's rows are the odd ones out, and usefully so: its `e2e_ns` is a
 **round trip**, stamped at capture and at display on the same host, so it is

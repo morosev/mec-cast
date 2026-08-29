@@ -31,8 +31,20 @@ services:
 
   lidar-client:
     image: mec-cast-ros
+    # The UE agent: N lidar instances in one process (M1 of the extended node
+    # model). LIDAR_INSTANCES=1 reproduces the old single-node behaviour —
+    # global -p args reach every instance, and each instance gets a distinct
+    # node_id / output dir (pub-0, pub-1, ...) via admin_instance overrides.
+    #
+    # hostname matches the render overlay's on purpose: these two containers
+    # model ONE UE host split for isolation, and they share the kernel clock —
+    # so node identity (client-<host>-<i>) and the WF_RENDER_CROSS_HOST
+    # co-location check must see one host, not two random container ids.
+    hostname: ue-local
     command: >
-      ros2 run mec_cast_lidar_client lidar_client --ros-args
+      ros2 run mec_cast_ue ue_agent --ros-args
+      -p lidar_count:=${LIDAR_INSTANCES:-1}
+      -p render_count:=0
       -p num_points:=${NUM_POINTS:-30000}
       -p rate_hz:=${RATE_HZ:-10.0}
       -p seed:=${SEED:-42}

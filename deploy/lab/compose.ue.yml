@@ -5,23 +5,36 @@
 # dials out to it across the UPF (which is exactly why Zenoh was chosen
 # over multicast DDS discovery — see docs/architecture/adr/0001).
 #
-# Required env: RUN_ID, EDGE_HOST, LOGGING_HOST
-# Optional: RENDER_SINK (null | rerun | ros) turns on the renderer beside the
-# client. It needs PUBLISH_RESULT=1 on the edge role or it will sit starved —
-# the admin page says so with WF_RENDER_STARVED.
+# Required env: EDGE_HOST, LOGGING_HOST (RUN_ID only without the admin)
+# Optional: LIDAR_INSTANCES (default 1), RENDER_INSTANCES (default 0),
+# RENDER_SINK (null | rerun | ros), VIEWER_HOST (the address the operator's
+# BROWSER reaches this UE on — localhost is wrong the moment it is another
+# machine). A renderer needs PUBLISH_RESULT=1 on the edge role or it sits
+# starved — the admin page says so with WF_RENDER_STARVED. A renderer on a
+# UE with no lidar loses the PTP-free round trip: WF_RENDER_CROSS_HOST.
 services:
-  lidar-client:
+  # The UE agent: every UE node type in one ROS2 process — N lidar instances
+  # and, when RENDER_INSTANCES > 0, M render instances beside them. One robot,
+  # one process, however many sensors and displays it carries. Each instance
+  # keeps a distinct node_id (client-<host>-<i>) and output directory
+  # (pub-0, pub-1, ...). The renderer needs PUBLISH_RESULT=1 on the edge role
+  # or it sits starved — the admin page says so with WF_RENDER_STARVED.
+  ue-agent:
     image: mec-cast-ros
     build:
       context: ../..
       dockerfile: deploy/docker/ros.Dockerfile
     network_mode: host
     command: >
-      ros2 run mec_cast_lidar_client lidar_client --ros-args
+      ros2 run mec_cast_ue ue_agent --ros-args
+      -p lidar_count:=${LIDAR_INSTANCES:-1}
+      -p render_count:=${RENDER_INSTANCES:-0}
       -p num_points:=${NUM_POINTS:-30000}
       -p rate_hz:=${RATE_HZ:-10.0}
       -p seed:=${SEED:-42}
       -p pattern:=${PATTERN:-uniform_cube}
+      -p sink:=${RENDER_SINK:-null}
+      -p viewer_host:=${VIEWER_HOST:-localhost}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
@@ -41,32 +54,8 @@ services:
     devices:
       - /dev/ptp0
 
-  # The renderer: draws what the edge sends back, and measures a round trip
-  # that never leaves this host's clock. Both capture_ns (stamped by
-  # lidar-client above) and process_done_ns (stamped here) come off the same
-  # CLOCK_REALTIME, so its e2e_ns is the one latency figure in the lab that
-  # does not depend on PTP discipline. See ADR-0009.
-  #
-  # Only started when RENDER_SINK is set: `docker compose --profile render up`.
-  render:
-    image: mec-cast-ros
-    profiles: ["render"]
-    network_mode: host
-    command: >
-      ros2 run mec_cast_render render --ros-args
-      -p sink:=${RENDER_SINK:-null}
-      -p reliability:=${RESULT_RELIABILITY:-best_effort}
-      -p qos_depth:=${RESULT_QOS_DEPTH:-1}
-    environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
-      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/${EDGE_HOST}:7447?rel=1"]'
-      RUN_ID: ${RUN_ID:-}
-      ADMIN_URL: ${ADMIN_URL:-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
-      RUNS_DIR: /runs
-      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
-    volumes:
-      - ../../runs:/runs
-      - /dev/ptp0:/dev/ptp0
-    devices:
-      - /dev/ptp0
+  # The renderer is no longer a separate service: RENDER_INSTANCES=1 (with
+  # RENDER_SINK=rerun to actually draw) hosts it inside ue-agent above,
+  # co-located with the lidar — which is what keeps its e2e_ns the PTP-free
+  # round trip of ADR-0009. Both capture_ns and process_done_ns then come off
+  # this one host's CLOCK_REALTIME.

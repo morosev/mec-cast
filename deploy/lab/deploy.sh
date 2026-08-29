@@ -88,7 +88,8 @@ done
 # not. Keep in step with the ${...} references in deploy/lab/compose.*.yml.
 OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           RENDER_SINK PUBLISH_RESULT RESULT_RELIABILITY RESULT_QOS_DEPTH \
-          PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL"
+          PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL \
+          LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mec_cast_ue</name>
+  <version>0.1.0</version>
+  <description>
+    UE agent: one process hosting N lidar and M render instances. The robot
+    side of the extended node model — every UE node type in one ROS2
+    application, spawned per-instance with distinct identities.
+  </description>
+  <maintainer email="morosev@gmail.com">Vladimir Morosev</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>mec_cast_lidar_client</depend>
+  <depend>mec_cast_render</depend>
+  <depend>mec_cast_admin_client</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

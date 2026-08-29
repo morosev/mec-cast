@@ -249,6 +249,69 @@ class TestCommands:
         assert runs[0]["allowed"] == ["remove"]
         assert runs[0]["reports"][node]["samples_written"] == 42
 
+    def test_every_instance_appears_in_sites(self, client):
+        # The regression this pins: sites used to be keyed by a constant
+        # per-type string with setdefault, so the second instance of a type
+        # was silently omitted from the manifest. Now the node reports its
+        # own directory leaf (params.out_leaf) and sites is keyed by node_id.
+        run = client.post("/api/v1/runs", json={}).json()
+        run_id = run["run_id"]
+        a = p.node_id(p.NodeType.CLIENT, "ue01", 0)
+        b = p.node_id(p.NodeType.CLIENT, "ue01", 1)
+        with client.websocket_connect("/ws/node") as sa, \
+             client.websocket_connect("/ws/node") as sb:
+            for sock, node, leaf in ((sa, a, "pub-0"), (sb, b, "pub-1")):
+                send(sock, p.MessageType.HELLO,
+                     p.HelloPayload(node_type=p.NodeType.CLIENT, node_id=node, host="ue01"),
+                     node_id=node)
+                recv(sock)
+            client.post(f"/api/v1/runs/{run_id}/start")
+            for sock, node, leaf in ((sa, a, "pub-0"), (sb, b, "pub-1")):
+                recv_type(sock, p.MessageType.COMMAND)
+                send(sock, p.MessageType.STATUS,
+                     p.StatusPayload(
+                         node_type=p.NodeType.CLIENT,
+                         state=p.NodeState.RUNNING,
+                         run_id=run_id,
+                         streaming=True,
+                         params={"out_leaf": leaf},
+                     ),
+                     node_id=node)
+            for _ in range(200):
+                row = client.get("/api/v1/state").json()["runs"][0]
+                if len(row["sites"]) == 2:
+                    break
+        assert set(row["sites"]) == {a, b}
+        assert row["sites"][a]["path"] == f"runs/{run_id}/pub-0"
+        assert row["sites"][b]["path"] == f"runs/{run_id}/pub-1"
+        assert row["sites"][a]["role"] == "client"
+
+    def test_a_node_without_out_leaf_falls_back_to_the_derived_path(self, client):
+        # The gNB collector predates out_leaf and stays single-instance; its
+        # site path is still derived from the node type.
+        run = client.post("/api/v1/runs", json={}).json()
+        run_id = run["run_id"]
+        node = p.node_id(p.NodeType.GNB, "gnb01", 0)
+        with client.websocket_connect("/ws/node") as sock:
+            send(sock, p.MessageType.HELLO,
+                 p.HelloPayload(node_type=p.NodeType.GNB, node_id=node, host="gnb01"),
+                 node_id=node)
+            recv(sock)
+            client.post(f"/api/v1/runs/{run_id}/start")
+            recv_type(sock, p.MessageType.COMMAND)
+            send(sock, p.MessageType.STATUS,
+                 p.StatusPayload(
+                     node_type=p.NodeType.GNB,
+                     state=p.NodeState.RUNNING,
+                     run_id=run_id,
+                 ),
+                 node_id=node)
+            for _ in range(200):
+                row = client.get("/api/v1/state").json()["runs"][0]
+                if row["sites"]:
+                    break
+        assert row["sites"][node]["path"] == f"runs/{run_id}/ran"
+
     def test_goodbye_records_the_final_report(self, client):
         run = client.post("/api/v1/runs", json={}).json()
         client.post(f"/api/v1/runs/{run['run_id']}/start")

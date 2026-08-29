@@ -6,22 +6,15 @@ voxel count), stamps `process_done_ns`, and feeds the sample to the shared
 telemetry recorder (per-frame CSV + periodic snapshots to the logging
 service).
 
-Parameters:
+Parameters (shared set from MecCastNode: run_id, runs_dir, logging_url,
+admin_url, admin_autostart, admin_instance — every environment variable is
+demoted to a default, so a laptop run needs no exports):
     reliability      (str,  default reliable)  must match the publisher's
     qos_depth        (int,  default 10)
     publish_result   (bool, default false) republish the processed cloud on
                      `mec_cast/result` for a renderer at the UE
     result_reliability (str, default best_effort)  downlink QoS
     result_qos_depth (int,  default 1)  display semantics: newest frame wins
-    admin_url        (str,  default $ADMIN_URL)  empty = standalone
-    admin_autostart  (bool, default true)  join the active run on connect
-    admin_instance   (int,  default 0)  distinguishes edges on one host
-
-Environment:
-    RUN_ID       experiment run id (must match the publisher's for joins)
-    LOGGING_URL  mec-cast-logging-service base URL (optional)
-    RUNS_DIR     base directory for per-run output (default ./runs)
-    ADMIN_URL    admin service, e.g. ws://admin:8099/ws/node (optional)
 
 With `publish_result` false — the default — this node is a terminal consumer
 exactly as it always was, and the uplink measurements are byte-for-byte
@@ -30,42 +23,30 @@ adds a return path so `mec_cast_render` can measure a round trip that never
 leaves the UE's clock; see ADR-0009.
 
 With no `admin_url` the node behaves exactly as it always has: one Recorder
-built at startup from the environment's RUN_ID, one subscription, recording
-until the process stops. With an admin, the run lifecycle moves to the control
+built at startup from the run_id parameter, one subscription, recording until
+the process stops. With an admin, the run lifecycle moves to the control
 plane and the Recorder is built per run — see ADR-0007.
 """
 
 import os
-import signal
-import socket
 
 import numpy as np
-import rclpy
-from rclpy.executors import ExternalShutdownException
-from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 
 import mec_cast_telemetry as tel
-from mec_cast_admin_client import AdminClient
 from mec_cast_admin_client import protocol as ap
+from mec_cast_admin_client.node_base import MecCastNode, spin
+from mec_cast_admin_client.sites import SITE_EDGE
 from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
 
-SITE_EDGE = 1
 VOXEL_SIZE = 0.5
 CLOUD_TOPIC = "mec_cast/cloud"
 #: Downlink: the processing result, for a renderer at the UE. Off by default
 #: — see the `publish_result` parameter.
 RESULT_TOPIC = "mec_cast/result"
 RESULT_FRAME_ID = "mec_cast_edge"
-
-#: How often commands from the admin are applied. Everything the admin asks
-#: for happens on the executor thread, in this callback.
-ADMIN_POLL_S = 0.1
-#: How often status is pushed when nothing else changed. Doubles as the
-#: liveness signal, so the admin need not rely on pong alone.
-STATUS_PERIOD_S = 2.0
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -139,14 +120,23 @@ def make_pointcloud2(points: np.ndarray, stamp, frame_id: str) -> PointCloud2:
     return msg
 
 
-class EdgeNode(Node):
-    def __init__(self) -> None:
-        super().__init__("mec_cast_edge")
+class EdgeNode(MecCastNode):
+    NODE_TYPE = ap.NodeType.EDGE
+    SERVICE = "mec-cast-edge"
+    SITE = SITE_EDGE
+    OUT_LEAF = "edge"
+    PEER_TOPIC = CLOUD_TOPIC
+
+    def __init__(self, *, node_name: str | None = None,
+                 parameter_overrides: list | None = None) -> None:
+        super().__init__(
+            "mec_cast_edge",
+            node_name=node_name,
+            parameter_overrides=parameter_overrides,
+            autostart_default=True,
+        )
         self.declare_parameter("reliability", "reliable")
         self.declare_parameter("qos_depth", 10)
-        self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
-        self.declare_parameter("admin_autostart", True)
-        self.declare_parameter("admin_instance", 0)
         # Downlink. Off by default: turning it on changes what the edge does
         # with every frame, and old runs must stay comparable.
         self.declare_parameter(
@@ -160,11 +150,6 @@ class EdgeNode(Node):
         self.result_reliability = str(self.get_parameter("result_reliability").value)
         self.result_qos_depth = int(self.get_parameter("result_qos_depth").value)
 
-        self.runs_dir = os.environ.get("RUNS_DIR", "runs")
-        self.logging_url = os.environ.get("LOGGING_URL") or None
-
-        self.run_id: str | None = None
-        self.recorder: tel.Recorder | None = None
         self.sub = None
         self.result_pub = None
         self.frames = 0
@@ -172,34 +157,11 @@ class EdgeNode(Node):
         self.seq_gaps = 0
         self.last_seq: int | None = None
 
-        self.admin = AdminClient(
-            node_type=ap.NodeType.EDGE,
-            host=socket.gethostname(),
-            url=str(self.get_parameter("admin_url").value),
-            instance=int(self.get_parameter("admin_instance").value),
-            version_sha=os.environ.get("VCS_REF", ""),
-            version_tag=os.environ.get("VERSION", ""),
-            pid=os.getpid(),
+        self._start()
+        self.get_logger().info(
+            f"edge up ({'admin=' + self.admin.url if self.admin.enabled else 'run_id=' + str(self.run_id)}, "
+            f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
         )
-        self.autostart = bool(self.get_parameter("admin_autostart").value)
-        self._last_status: dict | None = None
-
-        if self.admin.enabled:
-            self.admin.update_identity(autostart=self.autostart, params=self.params())
-            self.admin.start()
-            self.create_timer(ADMIN_POLL_S, self._drain_admin)
-            self.create_timer(STATUS_PERIOD_S, self._report_status)
-            self.get_logger().info(
-                f"edge up (admin={self.admin.url}, node_id={self.admin.node_id}, "
-                f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
-            )
-        else:
-            # Standalone: the environment names the run, exactly as before.
-            self.start_run(os.environ.get("RUN_ID", "dev-run"))
-            self.get_logger().info(
-                f"edge up (run_id={self.run_id}, "
-                f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
-            )
 
     # --- run lifecycle ----------------------------------------------------
 
@@ -212,11 +174,17 @@ class EdgeNode(Node):
             "result_qos_depth": self.result_qos_depth,
         }
 
-    @property
-    def running(self) -> bool:
-        return self.recorder is not None
+    def counters(self) -> dict:
+        return {
+            "frames": self.frames,
+            "seq_gaps": self.seq_gaps,
+            "results_published": self.results_published,
+        }
 
-    def start_run(self, run_id: str) -> None:
+    def _status_extra(self) -> dict:
+        return {"subscribed": self.sub is not None}
+
+    def start_run(self, run_id: str, args: dict | None = None) -> None:
         """Build a Recorder for this run and subscribe.
 
         Subscribing here rather than in __init__ is what makes a stopped edge
@@ -228,17 +196,11 @@ class EdgeNode(Node):
                 return
             self.stop_run()
 
-        self.run_id = run_id
         self.frames = 0
         self.results_published = 0
         self.seq_gaps = 0
         self.last_seq = None
-        self.recorder = tel.Recorder(
-            run_id,
-            "mec-cast-edge",
-            os.path.join(self.runs_dir, run_id, "edge"),
-            logging_url=self.logging_url,
-        )
+        self._make_recorder(run_id)
         self.sub = self.create_subscription(
             CloudWithTelemetry,
             CLOUD_TOPIC,
@@ -267,91 +229,14 @@ class EdgeNode(Node):
         if self.result_pub is not None:
             self.destroy_publisher(self.result_pub)
             self.result_pub = None
-        report = self.recorder.shutdown()
-        self.recorder = None
+        report = self._close_recorder()
         self.get_logger().info(
             f"edge stopped run {self.run_id}: frames={self.frames} "
             f"seq_gaps={self.seq_gaps} report={report}"
         )
         return report
 
-    # --- admin ------------------------------------------------------------
-
-    def _drain_admin(self) -> None:
-        """Apply whatever the admin asked for, on the executor thread."""
-        for frame in self.admin.poll():
-            payload = frame.get("payload") or {}
-            if frame["type"] == ap.MessageType.WELCOME:
-                active = payload.get("active_run")
-                if active and self.autostart:
-                    self.start_run(active["run_id"])
-                self._report_status(force=True)
-            elif frame["type"] == ap.MessageType.COMMAND:
-                self._apply_command(frame, payload)
-
-    def _apply_command(self, frame: dict, payload: dict) -> None:
-        command = payload.get("command")
-        ok, error, stop_report = True, None, None
-        try:
-            if command in (ap.CommandType.RUN_START, ap.CommandType.STREAM_START):
-                run_id = payload.get("run_id")
-                if not run_id:
-                    raise ValueError("run.start without a run_id")
-                self.start_run(run_id)
-            elif command in (ap.CommandType.RUN_STOP, ap.CommandType.STREAM_STOP):
-                stop_report = self.stop_run()
-            elif command != ap.CommandType.STATUS_REPORT:
-                raise ValueError(f"unknown command {command!r}")
-        except Exception as exc:  # a bad command must not kill the node
-            ok, error = False, str(exc)
-            self.get_logger().error(f"admin command {command} failed: {exc}")
-        self.admin.publish_ack(frame["msg_id"], ok=ok, error=error)
-        # The report travels with the status: an admin-driven stop leaves this
-        # process alive, so it must not wait for the goodbye frame.
-        self._report_status(force=True, report=stop_report)
-
-    def peers(self) -> list[dict]:
-        """Who is publishing to us, from the ROS graph.
-
-        The graph already knows, so this needs no change to the wire format —
-        and `CloudWithTelemetry` carries no sender identity by design, since
-        `TimingEnvelope` is a pinned 64-byte contract shared with the C ABI.
-        """
-        if not self.running:
-            return []
-        try:
-            infos = self.get_publishers_info_by_topic(CLOUD_TOPIC)
-        except Exception:
-            return []
-        return [ap.peer(info.node_name or "unknown") for info in infos]
-
-    def _report_status(self, force: bool = False, report: dict | None = None) -> None:
-        if not self.admin.enabled:
-            return
-        payload = ap.status_payload(
-            node_type=ap.NodeType.EDGE,
-            state=ap.NodeState.RUNNING if self.running else ap.NodeState.IDLE,
-            run_id=self.run_id,
-            subscribed=self.sub is not None,
-            peers=self.peers(),
-            params=self.params(),
-            counters={
-                "frames": self.frames,
-                "seq_gaps": self.seq_gaps,
-                "results_published": self.results_published,
-            },
-            autostart=self.autostart,
-            report=report or {},
-        )
-        # Status on every change, per the protocol — but a periodic resend
-        # doubles as liveness, so an unchanged payload still goes out on the
-        # timer rather than being suppressed entirely.
-        if force or payload != self._last_status:
-            self._last_status = payload
-            self.admin.update_identity(
-                state=payload["state"], run_id=self.run_id, params=self.params()
-            )
-            self.admin.publish_status(payload)
+    # --- the hot path -----------------------------------------------------
 
     def publish_result_cloud(self, env, voxels: np.ndarray) -> None:
         """Send the processed cloud back down to a renderer at the UE.
@@ -400,6 +285,9 @@ class EdgeNode(Node):
         voxel_count = int(voxels.shape[0])
         process_done_ns = tel.now_ns()
 
+        # With several publishers on one topic their seq streams interleave,
+        # so this counter overcounts there — per-instance truth lives in each
+        # publisher's own CSV. Kept because it is exact in the 1-client case.
         if self.last_seq is not None and env.seq != self.last_seq + 1:
             self.seq_gaps += 1
         self.last_seq = env.seq
@@ -412,7 +300,7 @@ class EdgeNode(Node):
             recv_ns=recv_ns,
             process_done_ns=process_done_ns,
             payload_bytes=len(msg.cloud.data),
-            site=SITE_EDGE,
+            site=self.SITE,
             trace_id=bytes(env.trace_id),
         )
         self.frames += 1
@@ -424,28 +312,9 @@ class EdgeNode(Node):
             f"network_ns={recv_ns - env.send_ns}"
         )
 
-    def finish(self) -> None:
-        """Stop producing, drain, then say goodbye. Tolerant of no active run:
-        an admin-driven node may be idle when it is told to exit."""
-        report = self.stop_run()
-        self.admin.goodbye(reason="shutdown", run_id=self.run_id, final_report=report)
-        self.get_logger().info(f"edge done: report={report}")
-
 
 def main(args=None) -> None:
-    rclpy.init(args=args)
-    # docker stop sends SIGTERM: exit spin cleanly so the recorder flushes.
-    signal.signal(signal.SIGTERM, lambda *_: rclpy.shutdown())
-    node = EdgeNode()
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
-    finally:
-        node.finish()
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    spin(EdgeNode, args)
 
 
 if __name__ == "__main__":

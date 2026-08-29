@@ -106,7 +106,7 @@ def rows(run_id: str, site: str) -> list[dict]:
 
 def test_the_edge_result_reaches_a_renderer_on_the_other_side(render_run):
     """Reverse routing works: the edge publishes back and the UE receives."""
-    edge, render = rows(render_run, "edge"), rows(render_run, "render")
+    edge, render = rows(render_run, "edge-0"), rows(render_run, "render-0")
     assert render, f"renderer recorded nothing — the downlink never arrived\n{DIAG}"
 
     # Not a trickle: the renderer must see essentially everything the edge
@@ -119,8 +119,8 @@ def test_the_edge_result_reaches_a_renderer_on_the_other_side(render_run):
 
 
 def test_the_round_trip_is_measured_and_exceeds_the_one_way(render_run):
-    edge = {int(r["seq"]): r for r in rows(render_run, "edge")}
-    render = {int(r["seq"]): r for r in rows(render_run, "render")}
+    edge = {int(r["seq"]): r for r in rows(render_run, "edge-0")}
+    render = {int(r["seq"]): r for r in rows(render_run, "render-0")}
     common = sorted(set(edge) & set(render))
     assert common, f"no seq joins between edge and render\n{DIAG}"
 
@@ -150,8 +150,8 @@ def test_every_stamp_is_consistent_frame_by_frame(render_run):
     segment no stamp covers. A negative value means the renderer's capture_ns
     is not the publisher's; a large one means work crept in between.
     """
-    edge = {int(r["seq"]): r for r in rows(render_run, "edge")}
-    render = {int(r["seq"]): r for r in rows(render_run, "render")}
+    edge = {int(r["seq"]): r for r in rows(render_run, "edge-0")}
+    render = {int(r["seq"]): r for r in rows(render_run, "render-0")}
 
     residuals = []
     for s in sorted(set(edge) & set(render)):
@@ -172,8 +172,8 @@ def test_every_stamp_is_consistent_frame_by_frame(render_run):
 
 def test_the_downlink_is_smaller_than_the_uplink(render_run):
     """The point of sending a *result* back rather than echoing the cloud."""
-    pub = {int(r["seq"]): r for r in rows(render_run, "pub")}
-    render = {int(r["seq"]): r for r in rows(render_run, "render")}
+    pub = {int(r["seq"]): r for r in rows(render_run, "pub-0")}
+    render = {int(r["seq"]): r for r in rows(render_run, "render-0")}
     common = sorted(set(pub) & set(render))
     up = statistics.mean(int(pub[s]["payload_bytes"]) for s in common)
     down = statistics.mean(int(render[s]["payload_bytes"]) for s in common)
