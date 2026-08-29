@@ -28,7 +28,7 @@ from .protocol import NodeState, NodeType
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
-from .topology import TopologySpec
+from .topology import DEFAULT_CELL, TopologySpec
 
 #: A client may legitimately publish for a moment before the edge reports its
 #: first peer. Below this, "no peer" is startup rather than a fault.
@@ -42,6 +42,10 @@ class Finding:
     subject: str
     message: str
     remedy: str
+    #: Which cell this is about. Empty for fleet-wide findings that belong to
+    #: no single cell. Carried so a run's manifest can freeze its OWN
+    #: problems and not another cell's.
+    cell: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +54,7 @@ class Finding:
             "subject": self.subject,
             "message": self.message,
             "remedy": self.remedy,
+            "cell": self.cell,
         }
 
 
@@ -98,6 +103,20 @@ def diagnose(
     # caller got before topology existed — the defaults ARE today's behaviour.
     spec = topology if topology is not None else TopologySpec()
     online = registry.online()
+
+    # Everything role-shaped below is judged WITHIN a cell. A flat partition
+    # would let a gNB in cell B satisfy cell A's WF_GNB_ABSENT, and would
+    # pair every client against every edge across cells — N x M spurious
+    # WF_QOS_MISMATCH and WF_NO_PEER findings the moment a second cell
+    # exists. An undeclared deployment has exactly one cell, so this is the
+    # same computation it always was.
+    cell_of = lambda r: r.cell or DEFAULT_CELL  # noqa: E731
+    cells = sorted({cell_of(r) for r in online}) or [DEFAULT_CELL]
+    if run is not None and getattr(run, "cell", None):
+        # A run is scoped to its cell: diagnosing the others while it is the
+        # subject would attribute their faults to it.
+        cells = [c for c in cells if c == run.cell] or [run.cell]
+
     clients = [r for r in online if r.node_type == NodeType.CLIENT]
     edges = [r for r in online if r.node_type == NodeType.EDGE]
     gnbs = [r for r in online if r.node_type == NodeType.GNB]
@@ -114,30 +133,29 @@ def diagnose(
     # spec's business now — the same source the quorum rule and the page's
     # role chips read, so the three cannot disagree. Only the prose stays
     # here, because a remedy is operator documentation and not a rule.
-    present = {
-        NodeType.CLIENT: clients,
-        NodeType.EDGE: edges,
-        NodeType.GNB: gnbs,
-        NodeType.RENDER: renderers,
-    }
-    for role_spec in spec.roles:
-        if role_spec.absence is None or present.get(role_spec.role):
-            continue
-        if not run_is_active:
-            continue
-        detail = _ABSENCE_PROSE.get(role_spec.role)
-        if detail is None:
-            continue
-        message, remedy = detail
-        findings.append(
-            Finding(
-                f"WF_{str(role_spec.role).upper()}_ABSENT",
-                role_spec.absence,
-                str(role_spec.role),
-                message,
-                remedy,
+    for cell in cells:
+        in_cell = [r for r in online if cell_of(r) == cell]
+        present = {role: [r for r in in_cell if r.node_type == role] for role in NodeType}
+        for role_spec in spec.roles:
+            if role_spec.absence is None or present.get(role_spec.role):
+                continue
+            if not run_is_active:
+                continue
+            detail = _ABSENCE_PROSE.get(role_spec.role)
+            if detail is None:
+                continue
+            message, remedy = detail
+            where = f" in cell {cell}" if len(cells) > 1 else ""
+            findings.append(
+                Finding(
+                    f"WF_{str(role_spec.role).upper()}_ABSENT",
+                    role_spec.absence,
+                    str(role_spec.role) if len(cells) == 1 else f"{cell}/{role_spec.role}",
+                    message.rstrip(".") + where + "." if where else message,
+                    remedy,
+                    cell=cell,
+                )
             )
-        )
 
     # --- the declared fleet, when there is one ----------------------------
     # Only meaningful once an operator has written deploy/lab/topology.yml.
@@ -266,7 +284,12 @@ def diagnose(
     # --- the silent failures ----------------------------------------------
     streaming_clients = [c for c in clients if c.streaming]
     for client in streaming_clients:
+        # Only edges in the SAME cell. Across cells this was a cross-product:
+        # N clients x M edges, every pair generating findings about a link
+        # that does not exist.
         for edge in edges:
+            if cell_of(edge) != cell_of(client):
+                continue
             if not edge.subscribed:
                 continue
 
@@ -282,6 +305,7 @@ def diagnose(
                         f"{edge_reliability!r}. That pair delivers nothing, silently.",
                         "Set the same `reliability` on both, e.g. RELIABILITY=reliable "
                         "for the whole topology, and restart the run.",
+                        cell=cell_of(client),
                     )
                 )
                 continue
@@ -297,6 +321,7 @@ def diagnose(
                         "The client and edge are not meeting on the Zenoh router. Check the "
                         "router is reachable from the UE at udp/<edge>:7447?rel=1 and that "
                         "ZENOH_CONFIG_OVERRIDE names the right host.",
+                        cell=cell_of(client),
                     )
                 )
                 continue
@@ -314,6 +339,7 @@ def diagnose(
                         "Frames are leaving the client and not arriving. Check the Zenoh "
                         "router and, if netem is active, whether the offered load exceeds "
                         "what the impaired link can carry.",
+                        cell=cell_of(client),
                     )
                 )
 
@@ -334,6 +360,12 @@ def diagnose(
     # --- consistency ------------------------------------------------------
     if run is not None:
         for record in online:
+            # Only within this run's own cell. A node in another cell is
+            # recording that cell's run, which is correct, not a mismatch —
+            # comparing across cells reported every other cell's nodes as
+            # being on the wrong run the moment two ran at once.
+            if cell_of(record) != (getattr(run, "cell", None) or DEFAULT_CELL):
+                continue
             if record.run_id and record.run_id != run.run_id:
                 findings.append(
                     Finding(
@@ -341,8 +373,9 @@ def diagnose(
                         "error",
                         record.node_id,
                         f"{record.node_id} is recording run {record.run_id} while the active "
-                        f"run is {run.run_id}.",
+                        f"run in cell {cell_of(record)} is {run.run_id}.",
                         "Stop that node's run from this page, then start the active run again.",
+                        cell=cell_of(record),
                     )
                 )
 

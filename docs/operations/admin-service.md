@@ -92,9 +92,12 @@ it, since the edge's `publish_result` is off unless asked for.
 
 Two rules worth knowing:
 
-- **One non-terminal run at a time.** A second start is refused with a message
-  naming the run in the way. This falls out of one active Recorder per node
-  process; see ADR-0007.
+- **One non-terminal run at a time, per cell.** A second start in the same
+  cell is refused with a message naming the run in the way. This falls out of
+  one active Recorder per node process (ADR-0007) — a per-node limit, and so
+  a per-cell one, never a global one. Two cells are independent deployments
+  of the same platform and run independently; a deployment that has not
+  declared a topology has exactly one cell and so still runs one at a time.
 - **A stopped run never restarts.** Restarting would append a second
   experiment into the first run's CSV, since the recorder appends by design.
 
@@ -133,6 +136,14 @@ The three `WF_TOPOLOGY_*` findings only appear once a topology is declared —
 see below. Without one they are silent, which is the point: an undeclared
 fleet is not a wrong fleet.
 
+**Every finding is scoped to a cell.** Role checks, the client-to-edge
+pairing, and quorum are all judged within one cell, so a gNB in cell B cannot
+satisfy cell A's `WF_GNB_ABSENT`, and clients are never paired against edges
+they can never reach. Each finding carries the `cell` it belongs to, and a
+run freezes only its own cell's findings into its manifest — pinning another
+cell's problems onto a run's permanent record would misattribute them to
+whoever reads it months later.
+
 `WF_QOS_MISMATCH` and `WF_NO_FRAMES` are the failure modes the node docstrings
 already call out as silent: both produce zero frames, zero errors, and a
 full-length run discovered worthless at analysis time. This is the first thing
@@ -167,6 +178,17 @@ else in the platform would say so.
 The file is read **once, at startup**. A topology change is a deployment
 change; re-reading it live would let the rules shift under a run that is
 already being judged against them.
+
+### Cells
+
+A cell is one `UE → gNB → Edge` chain. Runs are per-cell: each cell has at
+most one active run, and `run.start` recruits only that cell's nodes while
+`run.stop` reaches only the nodes actually recording that run. Those are
+different questions and the distinction is load-bearing — start cannot target
+run membership, because recruiting the members is what start is *for*.
+
+A node names its cell with `CELL` (or `-p cell:=`). Empty means the single
+default cell, which is every deployment that has not declared a topology.
 
 It also carries optional `roles:` overrides, merged onto the defaults, with
 `required` (counts toward quorum) and `absence` (error / warn / null)

@@ -33,6 +33,11 @@ if ! SHORT=$(git rev-parse --short HEAD 2>/dev/null); then
     say "version" "${DEPLOYED_VERSION:-unknown}  ${DIM}(rsync deploy, no git here)${RST}"
     say "commit" "$SHORT"
     say "deployed" "${DEPLOYED_AT:-?} by ${DEPLOYED_FROM:-?} as role ${DEPLOYED_ROLE:-?}"
+    # DEPLOYED_ROLES accumulates across deploys; older stamps have only
+    # DEPLOYED_ROLE, so say nothing rather than contradicting them.
+    if [ -n "${DEPLOYED_ROLES:-}" ] && [ "${DEPLOYED_ROLES}" != "${DEPLOYED_ROLE:-}" ]; then
+      say "roles here" "$DEPLOYED_ROLES"
+    fi
     NO_GIT=1
   else
     say "version" "${BOLD}UNKNOWN${RST} — no git checkout and no .deployed-version"
@@ -67,15 +72,28 @@ fi
 
 # ---------------------------------------------------------------- role
 echo
-ROLE="none running"
+# Every role running here, not the first one found. Two roles on one machine
+# is supported and normal in a small lab — reporting only one would let an
+# operator conclude the other is not deployed.
+ROLES=""
 for r in ue edge gnb infra; do
   f="deploy/lab/compose.$r.yml"
   [ -f "$f" ] || continue
   if docker compose -f "$f" ps -q 2>/dev/null | grep -q .; then
-    ROLE="$r  ${DIM}(compose.$r.yml)${RST}"
-    break
+    ROLES="$ROLES $r"
   fi
 done
+ROLES="${ROLES# }"
+if [ -n "$ROLES" ]; then
+  COUNT=$(echo "$ROLES" | wc -w)
+  if [ "$COUNT" -gt 1 ]; then
+    ROLE="$ROLES  ${DIM}($COUNT roles on this host)${RST}"
+  else
+    ROLE="$ROLES  ${DIM}(compose.$ROLES.yml)${RST}"
+  fi
+else
+  ROLE="none running"
+fi
 # The local all-in-one topology is not a lab role but is worth naming.
 if [ "$ROLE" = "none running" ] &&
    docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml ps -q 2>/dev/null | grep -q .; then

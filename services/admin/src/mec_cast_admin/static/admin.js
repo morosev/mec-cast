@@ -145,6 +145,38 @@ function roleChips(run, nodes, topology) {
   }).join('')}</span>`;
 }
 
+// A cell chip, shown only once a deployment actually has more than one.
+// Every single-cell deployment would otherwise gain a column of identical
+// "default" labels that carry no information.
+function cellChip(cell, snapshot) {
+  const cells = new Set((snapshot.nodes || []).map((n) => n.cell || 'default'));
+  for (const r of snapshot.runs || []) cells.add(r.cell || 'default');
+  if (cells.size < 2) return '';
+  return `<span class="pill draft">${esc(cell || 'default')}</span>`;
+}
+
+// Populate the Add-run cell selector from whatever cells actually exist —
+// the declared ones, plus any a live node reports. Hidden entirely while
+// there is only one, so a single-cell deployment's form is unchanged.
+function renderCellChoices(snapshot) {
+  const cells = new Set((snapshot.topology || {}).cells || []);
+  for (const n of snapshot.nodes || []) cells.add(n.cell || 'default');
+  if (!cells.size) cells.add('default');
+
+  const field = $('f_cell_field');
+  const select = $('f_cell');
+  if (!field || !select) return;
+  field.classList.toggle('hidden', cells.size < 2);
+
+  const wanted = [...cells].sort().join('\u0000');
+  if (select.dataset.cells === wanted) return;   // no churn while typing
+  select.dataset.cells = wanted;
+  const previous = select.value;
+  select.innerHTML = [...cells].sort()
+    .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  if (cells.has(previous)) select.value = previous;
+}
+
 function renderTopology(snapshot) {
   const topology = snapshot.topology || {};
   const card = $('topologyCard');
@@ -188,7 +220,10 @@ function renderRuns(snapshot) {
 
   body.innerHTML = runs.map((run) => {
     const allowed = run.allowed || [];
-    const isActive = run.run_id === snapshot.active_run_id;
+    const activeIds = Object.values(snapshot.active_runs || {});
+    const isActive = activeIds.length
+      ? activeIds.includes(run.run_id)
+      : run.run_id === snapshot.active_run_id;
     const button = (action, label, cls) =>
       `<button type="button" class="${cls || ''}" data-run="${esc(run.run_id)}" ` +
       `data-action="${action}" ${allowed.includes(action) ? '' : 'disabled'}>${label}</button>`;
@@ -196,7 +231,7 @@ function renderRuns(snapshot) {
       <td class="mono dim">${run.seq}</td>
       <td class="mono"><span class="copy" title="${esc(run.run_id)} — click to copy"
           data-copy="${esc(run.run_id)}">${esc(shortId(run.run_id))}</span></td>
-      <td>${esc(run.label) || '<span class="dim">—</span>'}</td>
+      <td>${esc(run.label) || '<span class="dim">—</span>'} ${cellChip(run.cell, snapshot)}</td>
       <td><span class="pill ${esc(run.state)}">${esc(run.state)}</span></td>
       <td>${roleChips(run, snapshot.nodes, snapshot.topology)}</td>
       <td class="mono dim">${when(run.started_utc)}</td>
@@ -248,7 +283,7 @@ function renderNodes(snapshot) {
       .map(([k, v]) => `${k}=${v}`).join(' ') || '—';
     return `<tr>
       <td class="mono">${esc(n.node_id)}</td>
-      <td>${esc(n.node_type)}</td>
+      <td>${esc(n.node_type)} ${cellChip(n.cell, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
       <td class="mono">${(n.peers || []).length}</td>
@@ -269,6 +304,7 @@ function render(snapshot) {
   renderFindings(snapshot);
   renderNodes(snapshot);
   renderTopology(snapshot);
+  renderCellChoices(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */
@@ -286,7 +322,8 @@ $('addForm').addEventListener('submit', async (event) => {
     qos_depth: Number($('f_depth').value),
   };
   try {
-    await call('POST', '/runs', { label: $('f_label').value.trim(), params });
+    const cell = $('f_cell').value || 'default';
+    await call('POST', '/runs', { label: $('f_label').value.trim(), cell, params });
     $('addForm').classList.remove('open');
     $('f_label').value = '';
   } catch { /* the banner already says why */ }

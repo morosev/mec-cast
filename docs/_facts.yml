@@ -74,8 +74,9 @@ services:
   # model: the logging `service` field carries mec-cast-pub-0, mec-cast-pub-1…
   # so sibling instances stay distinguishable in PostgreSQL. The base names
   # above remain the identities; mec-cast-ran and mec-cast-admin are
-  # single-instance and unsuffixed.
-  instance_suffix: "-<instance>, on pub/edge/render only"
+  # single-instance and unsuffixed. Kept as a comment rather than a key:
+  # every entry under `services` is checked as a service identifier, and a
+  # note is not one.
 
 # --- ports and protocols ----------------------------------------------------
 ports:
@@ -159,7 +160,11 @@ admin:
   reconnect_s: 30
   run_id_format: "UUIDv7, canonical hyphenated; minted by the admin"
   run_states: [draft, starting, running, degraded, stopping, stopped, failed]
-  concurrent_runs: 1
+  # One per CELL, not one per platform. An undeclared deployment has exactly
+  # one cell, so it still runs one at a time — the limit falls out of one
+  # active Recorder per node process (ADR-0007), which is per-node and so
+  # per-cell, never global.
+  concurrent_runs: "1 per cell"
   protocol_fixture: "services/admin/tests/vectors.json (asserted by all three implementations)"
 
 # --- logging service contract ----------------------------------------------

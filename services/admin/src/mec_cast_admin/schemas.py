@@ -19,6 +19,13 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     label: str = Field(default="", max_length=200, description="Free-text tag for the run.")
+    cell: str = Field(
+        default="default",
+        max_length=64,
+        description="Which cell this run covers. Each cell runs at most one "
+        "run at a time; a deployment that has not declared a topology has "
+        "exactly one cell and can leave this alone.",
+    )
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="Workload knobs carried to the nodes with run.start: "

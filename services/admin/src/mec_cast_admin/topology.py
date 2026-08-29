@@ -33,7 +33,7 @@ what the fleet should be.
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .protocol import NodeType
@@ -197,9 +197,7 @@ def _parse_nodes(raw: Any, source: str) -> tuple[NodeSpec, ...]:
         role = str(entry.get("role", "")).strip()
         host = str(entry.get("host", "")).strip()
         if role not in valid_roles:
-            raise TopologyError(
-                f"{where}: role {role!r} is not one of {sorted(valid_roles)}"
-            )
+            raise TopologyError(f"{where}: role {role!r} is not one of {sorted(valid_roles)}")
         if not host:
             raise TopologyError(f"{where}: `host` is required")
         instance = int(entry.get("instance", 0))
@@ -250,17 +248,15 @@ def _parse_roles(raw: Any, source: str) -> tuple[RoleSpec, ...]:
         base = by_role[NodeType(role)]
         absence = value.get("absence", base.absence)
         if absence not in ("error", "warn", None):
-            raise TopologyError(
-                f"{source}: roles.{role}.absence must be 'error', 'warn' or null"
-            )
+            raise TopologyError(f"{source}: roles.{role}.absence must be 'error', 'warn' or null")
         by_role[NodeType(role)] = RoleSpec(
             role=base.role,
             required=bool(value.get("required", base.required)),
             absence=absence,
             min_per_cell=int(value.get("min_per_cell", base.min_per_cell)),
-            max_per_cell=(
-                value["max_per_cell"] if "max_per_cell" in value else base.max_per_cell
-            ),
+            # An explicit `max_per_cell: null` means unbounded, and .get
+            # returns that None unchanged — same result as the longhand.
+            max_per_cell=value.get("max_per_cell", base.max_per_cell),
         )
     # Keep DEFAULT_ROLES' order so the UI's chips do not reshuffle per file.
     return tuple(by_role[s.role] for s in DEFAULT_ROLES)

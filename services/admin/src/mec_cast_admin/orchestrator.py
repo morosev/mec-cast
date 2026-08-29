@@ -18,12 +18,13 @@ from typing import Any
 
 from . import __version__
 from . import protocol as p
+from . import topology as topo
 from .config import Settings
 from .events import EventLog
 from .registry import Registry
 from .state import Action, Event, RunState, TransitionError, advance, allowed_actions, occupies_slot
 from .store import Run, RunStore, utc_now, uuid7
-from . import topology as topo
+from .topology import DEFAULT_CELL
 from .workflow import diagnose
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,10 @@ class Orchestrator:
         self._node_sockets: dict[str, Any] = {}
         self._ui_sockets: set[Any] = set()
 
-        self._starting_since: float | None = None
+        #: run_id -> when it entered `starting`. Per-run since runs became
+        #: per-cell: one scalar would let cell A's start reset cell B's
+        #: timeout clock, so a slow cell could hold a fast one open forever.
+        self._starting_since: dict[str, float] = {}
         #: Findings are computed once per supervise pass, not per snapshot.
         #: The "is this counter rising?" checks compare against the previous
         #: pass, so evaluating them at an arbitrary moment would read a counter
@@ -95,11 +99,27 @@ class Orchestrator:
     # --- runs -------------------------------------------------------------
 
     @property
-    def active_run(self) -> Run | None:
+    def active_runs(self) -> list[Run]:
+        """Every run holding a slot, at most one per cell.
+
+        Derived rather than stored, as `active_run` always was — so lifting
+        the single-run limit corrupts no schema and needs no migration.
+        """
+        return [r for r in self._runs.values() if occupies_slot(r.state)]
+
+    def active_run_in(self, cell: str) -> Run | None:
         for run in self._runs.values():
-            if occupies_slot(run.state):
+            if occupies_slot(run.state) and run.cell == cell:
                 return run
         return None
+
+    @property
+    def active_run(self) -> Run | None:
+        """The first active run, for the single-cell callers and the page's
+        `active_run_id`. Kept because a deployment with one cell has exactly
+        one active run, and every one-cell caller means precisely that."""
+        runs = self.active_runs
+        return runs[0] if runs else None
 
     def visible_runs(self) -> list[Run]:
         """Newest first. UUIDv7 sorts chronologically, which is the point."""
@@ -115,19 +135,39 @@ class Orchestrator:
             raise OrchestratorError(f"No run {run_id}.")
         return run
 
-    def create_run(self, label: str = "", params: dict[str, Any] | None = None) -> Run:
+    def create_run(
+        self,
+        label: str = "",
+        params: dict[str, Any] | None = None,
+        cell: str = DEFAULT_CELL,
+    ) -> Run:
+        # An unknown cell is refused rather than silently accepted: a typo
+        # would create a run that no node can ever join, which looks exactly
+        # like a broken deployment. Only checked against a DECLARED topology,
+        # since without one any name is as good as another.
+        if self.topology.declared and cell not in self.topology.cells:
+            raise OrchestratorError(
+                f"No cell {cell!r} in {self.topology.source}. "
+                f"Declared cells: {', '.join(self.topology.cells)}."
+            )
         run = Run(
             run_id=uuid7(),
             seq=max((r.seq for r in self._runs.values()), default=0) + 1,
             label=label,
             params=params or {},
+            cell=cell or DEFAULT_CELL,
         )
         self._runs[run.run_id] = run
         self._persist(run, "created", {"to": str(run.state)})
         self.events.emit(
             "run created",
             run_id=run.run_id,
-            context={"label": run.label, "params": run.params, "seq": run.seq},
+            context={
+                "label": run.label,
+                "params": run.params,
+                "seq": run.seq,
+                "cell": run.cell,
+            },
         )
         self.mark_dirty()
         return run
@@ -137,11 +177,16 @@ class Orchestrator:
         run = self.get_run(run_id)
 
         if action is Action.START:
-            blocking = self.active_run
+            # One active run per CELL. Two cells are independent deployments
+            # of the same platform, so a run in one must not block the other;
+            # within a cell the limit still holds, because it falls out of
+            # one active Recorder per node process (ADR-0007).
+            blocking = self.active_run_in(run.cell)
             if blocking is not None and blocking.run_id != run_id:
                 raise OrchestratorError(
-                    f"Run {blocking.seq} ({blocking.run_id}) is still {blocking.state}. "
-                    "Only one run can be active at a time; stop it first."
+                    f"Run {blocking.seq} ({blocking.run_id}) is still {blocking.state} "
+                    f"in cell {run.cell}. Only one run can be active per cell; "
+                    "stop it first."
                 )
 
         try:
@@ -152,12 +197,16 @@ class Orchestrator:
         if action is Action.START:
             run.started_utc = utc_now()
             run.participants = {}
-            self._starting_since = time.monotonic()
+            self._starting_since[run.run_id] = time.monotonic()
+            # Start recruits, so it goes to the cell rather than to members.
             await self._broadcast_command(
-                p.CommandType.RUN_START, run_id=run.run_id, args=run.params
+                p.CommandType.RUN_START, run_id=run.run_id, args=run.params, run=run
             )
         elif action is Action.STOP:
-            await self._broadcast_command(p.CommandType.RUN_STOP, run_id=run.run_id)
+            # Stop goes only to the nodes actually recording this run.
+            await self._broadcast_command(
+                p.CommandType.RUN_STOP, run_id=run.run_id, run=run, by_membership=True
+            )
         elif action is Action.REMOVE:
             run.removed = True
 
@@ -201,6 +250,49 @@ class Orchestrator:
             logger.debug("send to %s failed: %s", node_id, exc)
             return False
 
+    def _command_targets(
+        self,
+        *,
+        run: Run | None,
+        by_membership: bool,
+        node_type: p.NodeType | None,
+    ) -> list[str]:
+        """Who a command is actually for.
+
+        The two lifecycle commands need different answers, and conflating
+        them is the bug this replaces — the old code shouted at every online
+        node, so with two concurrent runs a `run.stop` for one cell stopped
+        the other cell's nodes mid-measurement.
+
+        * **stop** targets run MEMBERSHIP: exactly the nodes recording this
+          run. Nothing else should hear it.
+        * **start** cannot target membership — no node is in the run yet;
+          recruiting them is what start is for. It targets the run's CELL
+          instead, which is the set of nodes eligible to join.
+
+        A node that reports no cell is treated as being in the default cell,
+        so an undeclared single-cell deployment keeps receiving everything
+        exactly as before.
+        """
+        online = self.registry.online(node_type)
+        if node_type is not None:
+            online = [r for r in online if r.node_type == node_type]
+        if run is None:
+            return [r.node_id for r in online]
+
+        in_cell = [r for r in online if (r.cell or DEFAULT_CELL) == run.cell]
+        if not by_membership:
+            return [r.node_id for r in in_cell]
+
+        # Membership, plus the nodes that have not said yet. A node that took
+        # `run.start` a moment ago has no run_id on its record until its first
+        # status lands, and missing the stop would leave it streaming into a
+        # run everyone else has left. A node recording a DIFFERENT run has a
+        # different non-empty run_id and is still correctly excluded, which is
+        # the property that matters — being scoped to the cell already, this
+        # can only over-reach within the run's own cell.
+        return [r.node_id for r in in_cell if r.run_id == run.run_id or not r.run_id]
+
     async def _broadcast_command(
         self,
         command: p.CommandType,
@@ -208,16 +300,14 @@ class Orchestrator:
         run_id: str | None = None,
         node_type: p.NodeType | None = None,
         args: dict[str, Any] | None = None,
+        run: Run | None = None,
+        by_membership: bool = False,
     ) -> int:
         payload = p.CommandPayload(
             command=command, target_node_type=node_type, run_id=run_id, args=args or {}
         )
         frame = p.build(p.MessageType.COMMAND, payload)
-        targets = [
-            r.node_id
-            for r in self.registry.online(node_type)
-            if node_type is None or r.node_type == node_type
-        ]
+        targets = self._command_targets(run=run, by_membership=by_membership, node_type=node_type)
         sent = 0
         for node_id in targets:
             # One frame, one msg_id: acks are per-command, not per-node.
@@ -231,7 +321,9 @@ class Orchestrator:
         record = self.registry.on_hello(hello)
         await self.attach_node(record.node_id, socket)
 
-        run = self.active_run
+        # The run for THIS node's cell, not simply the first active one — a
+        # node joining cell B must not be told to start cell A's run.
+        run = self.active_run_in(record.cell or DEFAULT_CELL)
         active = None
         if run is not None:
             active = p.ActiveRun(run_id=run.run_id, label=run.label, params=run.params)
@@ -270,7 +362,7 @@ class Orchestrator:
                 reported.reports[node_id] = dict(status.report)
                 self._store.save(reported)
 
-        run = self.active_run
+        run = self._runs.get(record.run_id or "") or self.active_run_in(record.cell or DEFAULT_CELL)
         if run is not None and record.run_id == run.run_id:
             run.participants.setdefault(
                 node_id,
@@ -339,45 +431,64 @@ class Orchestrator:
 
     def _refresh_findings(self) -> None:
         before = self._findings
-        self._findings = [
-            f.to_dict()
-            for f in diagnose(
+        # One pass per active run, because diagnostics are cell-scoped: with
+        # two runs, diagnosing only the first left the other cell with no
+        # diagnosis at all while reporting its nodes as being on the wrong
+        # run. With no active run, one pass with None — an idle platform
+        # still has version skew and reachability to report.
+        runs = self.active_runs or [None]
+        seen: set[tuple[str, str, str]] = set()
+        merged: list[dict[str, Any]] = []
+        for run in runs:
+            for finding in diagnose(
                 self.registry,
-                self.active_run,
+                run,
                 admin_sha=self._admin_sha,
                 topology=self.topology,
-            )
-        ]
+            ):
+                # Fleet-wide findings (version skew, logging reachability)
+                # are produced by every pass; keep one.
+                key = (finding.code, finding.subject, finding.cell)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(finding.to_dict())
+        self._findings = merged
         if self._findings != before:
             self.mark_dirty()
 
     async def _supervise_once(self) -> None:
-        run = self.active_run
-        if run is None:
-            return
+        # Every active run, not just the first: with runs per cell there can
+        # be several, and supervising only one would leave the others stuck
+        # in `starting` forever.
+        for run in self.active_runs:
+            await self._supervise_run(run)
 
+    async def _supervise_run(self, run: Run) -> None:
         participants = self.registry.participants_of(run.run_id)
         online = [r for r in participants if r.is_online(self._settings.offline_timeout_s)]
         running = [r for r in online if r.state is p.NodeState.RUNNING]
         # Which roles quorum needs comes from the topology spec, so this rule
         # and the page's role chips and the WF_*_ABSENT findings cannot drift
         # apart. Default spec = one client and one edge, exactly as before.
+        # Judged among THIS run's participants, which are already scoped to
+        # the run — so a client in cell B cannot satisfy cell A's quorum.
         has_quorum = all(
-            any(r.node_type == role for r in running)
-            for role in self.topology.required_roles
+            any(r.node_type == role for r in running) for role in self.topology.required_roles
         )
 
         before = run.state
         if run.state is RunState.STARTING:
+            started_at = self._starting_since.get(run.run_id)
             if has_quorum:
                 run.state = advance(run.state, Event.QUORUM_MET)
-                self._starting_since = None
+                self._starting_since.pop(run.run_id, None)
             elif (
-                self._starting_since is not None
-                and time.monotonic() - self._starting_since > self._settings.start_timeout_s
+                started_at is not None
+                and time.monotonic() - started_at > self._settings.start_timeout_s
             ):
                 run.state = advance(run.state, Event.START_TIMEOUT)
-                self._starting_since = None
+                self._starting_since.pop(run.run_id, None)
         elif run.state is RunState.RUNNING and not has_quorum:
             run.state = advance(run.state, Event.PARTICIPANT_LOST)
         elif run.state is RunState.DEGRADED and has_quorum:
@@ -395,8 +506,11 @@ class Orchestrator:
             if run.state in {RunState.STOPPED, RunState.FAILED}:
                 run.stopped_utc = utc_now()
                 # Freeze the diagnostics into the manifest: why a run ended
-                # badly is part of its provenance.
-                run.findings = list(self._findings)
+                # badly is part of its provenance. Only this cell's findings —
+                # pinning another cell's problems onto this run's record would
+                # misattribute them forever, and the manifest is the artefact
+                # someone reads months later.
+                run.findings = [f for f in self._findings if f.get("cell") in (None, "", run.cell)]
             self._persist(run, "auto", {"from": str(before), "to": str(run.state)})
             self.events.emit(
                 f"run {before} -> {run.state}",
@@ -442,6 +556,9 @@ class Orchestrator:
             "server_version": __version__,
             "protocol": p.PROTOCOL_VERSION,
             "active_run_id": run.run_id if run else None,
+            # Per-cell, since runs are per-cell. `active_run_id` above stays
+            # for the single-cell case and for readers that predate this.
+            "active_runs": {r.cell: r.run_id for r in self.active_runs},
             "runs": [
                 {**r.to_dict(), "allowed": allowed_actions(r.state)} for r in self.visible_runs()
             ],

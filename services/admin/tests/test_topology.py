@@ -5,8 +5,9 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+
 from mec_cast_admin import topology as topo
-from mec_cast_admin.protocol import HelloPayload, NodeType, StatusPayload, NodeState
+from mec_cast_admin.protocol import HelloPayload, NodeState, NodeType, StatusPayload
 from mec_cast_admin.registry import Registry
 from mec_cast_admin.state import RunState
 from mec_cast_admin.store import Run
@@ -29,9 +30,7 @@ def join(
     cell: str = "",
 ) -> str:
     node = f"{node_type}-{host}-{instance}"
-    registry.on_hello(
-        HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell)
-    )
+    registry.on_hello(HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell))
     registry.on_status(
         node,
         StatusPayload(
@@ -76,39 +75,59 @@ class TestDefaults:
 
 class TestParsing:
     def test_nodes_get_derived_ids_matching_the_wire(self, tmp_path):
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, instance: 1, cell: cell-a}
-"""))
+""",
+            )
+        )
         assert spec.declared
         # Exactly what protocol.node_id() builds, or comparison is pointless.
         assert spec.nodes[0].node_id == "client-ue01-1"
         assert spec.nodes[0].cell == "cell-a"
 
     def test_cells_default_to_one(self, tmp_path):
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: edge, host: mec01}
-"""))
+""",
+            )
+        )
         assert spec.cells == (topo.DEFAULT_CELL,)
 
     def test_role_overrides_merge_rather_than_replace(self, tmp_path):
         # A file naming only the gNB must not drop the client/edge rules and
         # leave a fleet with no quorum requirement at all.
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 roles:
   gnb: {required: true}
-"""))
+""",
+            )
+        )
         assert spec.required_roles == (NodeType.CLIENT, NodeType.EDGE, NodeType.GNB)
         assert spec.role(NodeType.EDGE).required is True
 
     def test_a_duplicate_node_id_is_refused(self, tmp_path):
         with pytest.raises(topo.TopologyError, match="duplicate"):
-            topo.load(write(tmp_path, """
+            topo.load(
+                write(
+                    tmp_path,
+                    """
 nodes:
   - {role: client, host: ue01}
   - {role: client, host: ue01}
-"""))
+""",
+                )
+            )
 
     def test_an_unknown_role_is_refused(self, tmp_path):
         with pytest.raises(topo.TopologyError, match="not one of"):
@@ -136,11 +155,16 @@ nodes:
 
 class TestValidation:
     def _spec(self, tmp_path) -> topo.TopologySpec:
-        return topo.load(write(tmp_path, """
+        return topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
-"""))
+""",
+            )
+        )
 
     def test_an_undeclared_node_is_reported(self, tmp_path):
         registry = Registry()
@@ -168,9 +192,7 @@ nodes:
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01")
         join(registry, NodeType.EDGE, "mec01")
-        codes = {
-            f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))
-        }
+        codes = {f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))}
         assert not {c for c in codes if c.startswith("WF_TOPOLOGY")}
 
     def test_nothing_is_validated_without_a_declaration(self):
@@ -187,12 +209,17 @@ class TestMermaid:
         assert topo.to_mermaid(topo.TopologySpec()) == ""
 
     def test_cells_become_subgraphs_with_the_data_path(self, tmp_path):
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01,  cell: cell-a}
   - {role: gnb,    host: gnb01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
-"""))
+""",
+            )
+        )
         out = topo.to_mermaid(spec)
         assert 'subgraph CELL0["cell-a"]' in out
         # client -> gnb -> edge, the architecture's own order.
@@ -203,13 +230,18 @@ nodes:
         # The bug a live run caught: walking a flat role-ordered list and
         # joining consecutive pairs drew client-0 --> client-1, a link that
         # does not exist. Each client reaches the gNB independently.
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, instance: 0, cell: cell-a}
   - {role: client, host: ue01, instance: 1, cell: cell-a}
   - {role: gnb,    host: gnb01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
-"""))
+""",
+            )
+        )
         out = topo.to_mermaid(spec)
         assert "N_client_ue01_0 --> N_client_ue01_1" not in out
         assert "N_client_ue01_0 --> N_gnb_gnb01_0" in out
@@ -217,20 +249,30 @@ nodes:
 
     def test_a_cell_with_no_gnb_sends_clients_straight_to_the_edge(self, tmp_path):
         # The local topology: no radio, so the hop must not be dropped.
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
-"""))
+""",
+            )
+        )
         assert "N_client_ue01_0 --> N_edge_mec01_0" in topo.to_mermaid(spec)
 
     def test_the_renderer_hangs_off_the_edge_downlink(self, tmp_path):
-        spec = topo.load(write(tmp_path, """
+        spec = topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
   - {role: render, host: ue01, cell: cell-a}
-"""))
+""",
+            )
+        )
         # Dotted: the downlink only exists when publish_result is on.
         assert "N_edge_mec01_0 -.-> N_render_ue01_0" in topo.to_mermaid(spec)
 
@@ -246,11 +288,16 @@ class TestCellOnTheWire:
     """`cell` is additive under the extra="ignore" rule — no version bump."""
 
     def _spec(self, tmp_path) -> topo.TopologySpec:
-        return topo.load(write(tmp_path, """
+        return topo.load(
+            write(
+                tmp_path,
+                """
 nodes:
   - {role: client, host: ue01, cell: cell-a}
   - {role: edge,   host: mec01, cell: cell-a}
-"""))
+""",
+            )
+        )
 
     def test_a_node_in_the_wrong_cell_is_reported(self, tmp_path):
         # CELL set wrong on the host, or the wrong compose file deployed. The
@@ -273,18 +320,14 @@ nodes:
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01")
         join(registry, NodeType.EDGE, "mec01")
-        codes = {
-            f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))
-        }
+        codes = {f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))}
         assert "WF_TOPOLOGY_CELL_MISMATCH" not in codes
 
     def test_a_matching_cell_is_silent(self, tmp_path):
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01", cell="cell-a")
         join(registry, NodeType.EDGE, "mec01", cell="cell-a")
-        codes = {
-            f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))
-        }
+        codes = {f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))}
         assert not {c for c in codes if c.startswith("WF_TOPOLOGY")}
 
     def test_the_registry_keeps_what_the_node_reported(self):

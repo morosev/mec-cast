@@ -45,7 +45,12 @@ async def get_state(orchestrator: OrchestratorDep) -> StateResponse:
     summary="Create a run",
 )
 async def create_run(body: RunCreate, orchestrator: OrchestratorDep) -> dict:
-    run = orchestrator.create_run(label=body.label, params=body.params)
+    try:
+        run = orchestrator.create_run(label=body.label, params=body.params, cell=body.cell)
+    except OrchestratorError as exc:
+        # 409 like every other refused operator action: the request is
+        # well-formed, the platform just cannot honour it.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**run.to_dict(), "allowed": ["start", "remove"]}
 
 

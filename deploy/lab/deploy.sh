@@ -117,12 +117,23 @@ echo "==> Stamping deployed version"
 DEPLOY_SHA=$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
 DEPLOY_VER=$(git -C "$ROOT_DIR" describe --tags --match 'platform-v*' --always --dirty \
              2>/dev/null || echo unknown)
+# Two roles can share a host, so the stamp accumulates them rather than
+# recording only the last one deployed. Reading the previous value first
+# means a host that has had `infra` and then `edge` deployed reports both,
+# which is what `make version` on that host should say.
+PREV_ROLES=$(ssh "$TARGET" "grep -h '^DEPLOYED_ROLES=' $REMOTE_DIR/.deployed-version 2>/dev/null | tail -1 | cut -d= -f2-" || true)
+ALL_ROLES=$(printf '%s\n%s\n' "$PREV_ROLES" "$ROLE" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
+ALL_ROLES=${ALL_ROLES% }
 # shellcheck disable=SC2029
 ssh "$TARGET" "cat > $REMOTE_DIR/.deployed-version" <<EOF
 # Written by deploy/lab/deploy.sh. Do not edit; it is overwritten every deploy.
 DEPLOYED_VERSION=$DEPLOY_VER
 DEPLOYED_SHA=$DEPLOY_SHA
+# The role this deploy pushed, and every role ever deployed to this host.
+# Both are kept: the first answers "what did I just do", the second "what
+# is this machine".
 DEPLOYED_ROLE=$ROLE
+DEPLOYED_ROLES=$ALL_ROLES
 DEPLOYED_AT=$(date -Iseconds)
 DEPLOYED_FROM=$(whoami)@$(hostname)
 EOF

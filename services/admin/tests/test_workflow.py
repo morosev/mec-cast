@@ -249,7 +249,14 @@ class TestContract:
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01", streaming=True)
         for finding in diagnose(registry, make_run()):
-            assert set(finding.to_dict()) == {"code", "severity", "subject", "message", "remedy"}
+            assert set(finding.to_dict()) == {
+                "code",
+                "severity",
+                "subject",
+                "message",
+                "remedy",
+                "cell",
+            }
 
 
 class TestRenderer:
@@ -324,10 +331,7 @@ class TestRenderer:
         join(registry, NodeType.CLIENT, "ue01", streaming=True)
         join(registry, NodeType.EDGE, "mec01", subscribed=True)
         join(registry, NodeType.RENDER, "ue02", subscribed=True)
-        found = [
-            f for f in diagnose(registry, make_run())
-            if f.code == "WF_RENDER_CROSS_HOST"
-        ]
+        found = [f for f in diagnose(registry, make_run()) if f.code == "WF_RENDER_CROSS_HOST"]
         assert found and found[0].severity == "warn"
         assert "ue02" in found[0].message
         assert "ptp" in found[0].remedy.lower()
