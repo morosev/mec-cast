@@ -259,7 +259,16 @@ looks like a broken renderer:
   without it the run is `dev-run`. Not an error, but the recorder *appends*, so
   every unnamed run piles into a single `dev-run` directory under `runs/`
   and no new directory ever appears.
-- **`NETEM_LOSS=0%`** — the default `0.5%` is survivable at the default 5,000
+- **`NETEM=0`** — drop the impairment sidecar entirely, on any `up-` target:
+  `NETEM=0 make up-render-admin`. `make up-unimpaired` is the shorthand for
+  the plain topology. This is the floor worth knowing: measured at the 5,000
+  point default, the whole pipeline costs **p50 6.0 ms, p99 10.0 ms** with a
+  clean link, of which 1.5 ms is network and 4 ms is the edge's own
+  processing. Everything above that is the impairment, not the platform.
+  It must be repeated on every `up`: an impaired `up` after an unimpaired one
+  recreates the sidecar.
+- **`NETEM_LOSS=0%`** — keeps the delay but removes the loss. The default
+  `0.5%` is survivable at the default 5,000
   points (94% of frames reach the edge) but it does not leave the tail alone:
   p50 56 ms against p99 849 ms. Set it to `0%` when you want a clean latency
   figure, and raise `NUM_POINTS` instead when you want to study collapse. At

@@ -51,6 +51,15 @@ COMPOSE_ADMIN := $(COMPOSE) -f deploy/compose/admin.yml
 COMPOSE_RENDER := $(COMPOSE) -f deploy/compose/render.yml
 COMPOSE_RENDER_ADMIN := $(COMPOSE_ADMIN) -f deploy/compose/render.yml
 
+# NETEM=0 leaves the link unimpaired on ANY up- target: `NETEM=0 make up-render-admin`.
+# The sidecar is a leaf -- it shares the lidar client's netns and nothing depends
+# on it -- so scaling it to zero is enough. Scaling rather than naming the
+# services to start keeps this correct when local.yml gains a service, which
+# an explicit list would not. It must be repeated on every `up`, because compose
+# recreates anything not scaled away: one impaired `up` after an unimpaired one
+# silently puts netem back.
+NETEM_SCALE = $(if $(filter 0,$(NETEM)),--scale netem=0,)
+
 # On macOS, ring's C objects are compiled against the SDK's deployment target
 # while a bare `cc` link defaults to the host's — so ld warns once per object.
 # Pin the link to the SDK to match. Expands to nothing on other platforms.
@@ -200,14 +209,24 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 
 # ─── run ──────────────────────────────────────────────────────────────────
 ##@ Run — local compose topology
-.PHONY: up-local up-admin up-render up-render-admin up-logging down down-hard logs view
+.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)} \
-	  $(COMPOSE) up -d --build
+	  $(COMPOSE) up -d --build $(NETEM_SCALE)
+
+# Shorthand for the plain case. Anything else takes the modifier directly:
+#   NETEM=0 make up-render-admin
+up-unimpaired: ## Local topology with NO netem impairment (the clean-link floor)
+	@$(MAKE) --no-print-directory up-local NETEM=0
+	@echo "no impairment applied — NETEM_DELAY/JITTER/LOSS are all ignored here."
+	@echo "  This is the floor: what the pipeline costs with a perfect link."
+	@echo "  Latency still is not zero — a cloud is many packets and a frame"
+	@echo "  completes on its last one. Use it as the baseline to subtract."
+	@echo "  For other topologies:  NETEM=0 make up-render-admin"
 
 up-admin: build-ros2 ## Local topology + the admin control plane (no RUN_ID needed)
-	$(COMPOSE_ADMIN) up -d --build
+	$(COMPOSE_ADMIN) up -d --build $(NETEM_SCALE)
 	@echo "admin page: http://localhost:8099/admin"
 
 # Printed by BOTH render targets. Two things it has to get right, because
@@ -261,11 +280,11 @@ fi
 endef
 
 up-render: build-ros2 ## Local topology + the return path and a renderer at the UE
-	$(COMPOSE_RENDER) up -d --build
+	$(COMPOSE_RENDER) up -d --build $(NETEM_SCALE)
 	@$(call render_hint,$(COMPOSE_RENDER),up-render)
 
 up-render-admin: build-ros2 ## Return path + renderer, driven by the control plane
-	ADMIN_URL=ws://admin:8099/ws/node $(COMPOSE_RENDER_ADMIN) up -d --build
+	ADMIN_URL=ws://admin:8099/ws/node $(COMPOSE_RENDER_ADMIN) up -d --build $(NETEM_SCALE)
 	@echo "admin page: http://localhost:8099/admin"
 	@$(call render_hint,$(COMPOSE_RENDER_ADMIN),up-render-admin,admin)
 
