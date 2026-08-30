@@ -58,11 +58,13 @@ CC_VERSION_MIN := $(shell test "$$(uname -s)" = Darwin && \
                     printf -- '-mmacosx-version-min=%s' "$$(xcrun --show-sdk-version)")
 
 # ─── setup ────────────────────────────────────────────────────────────────
+##@ Setup — this machine
 .PHONY: bootstrap
 bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
 	bash scripts/bootstrap-dev.sh
 
 # ─── build ────────────────────────────────────────────────────────────────
+##@ Build — this machine
 .PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc
 
 # Stamp images with the commit they came from, so a container found running on
@@ -96,6 +98,7 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 	  ninja -C out/release_x64 webrtc
 
 # ─── test ─────────────────────────────────────────────────────────────────
+##@ Test — this machine
 .PHONY: test test-all test-rust test-python test-admin test-ros2 test-e2e test-legacy test-ffi
 
 test: test-rust test-ffi test-python test-admin ## Fast tests (no docker)
@@ -163,6 +166,7 @@ test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
 	  bash tests/legacy/e2e_local.sh $(DURATION)
 
 # ─── lint ─────────────────────────────────────────────────────────────────
+##@ Lint — this machine
 .PHONY: lint fmt
 lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 	cargo fmt --all --check
@@ -195,6 +199,7 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 	fi
 
 # ─── run ──────────────────────────────────────────────────────────────────
+##@ Run — local compose topology
 .PHONY: up-local up-admin up-render up-render-admin up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
@@ -319,9 +324,11 @@ view: ## Watch the live point cloud in the native rerun viewer (UE only)
 # ─── misc ─────────────────────────────────────────────────────────────────
 .PHONY: clean help version
 
+##@ Lab / production — a deployed host
 version: ## What is actually deployed on this host (role, commit, images, PTP)
 	@bash scripts/version.sh
 
+##@ Misc
 clean: ## Remove build artifacts (keeps runs/ and third_party/)
 	cargo clean
 	rm -rf telemetry/python/build telemetry/python/*.egg-info
@@ -329,5 +336,11 @@ clean: ## Remove build artifacts (keeps runs/ and third_party/)
 
 help: ## Show this help
 	@# [0-9] matters: without it test-ros2, test-e2e and build-ros2 vanish.
-	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
-	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@# Two patterns, one pass: `##@ ` opens a group, `target: ## ` is a target.
+	@grep -hE '^(##@ |[a-zA-Z0-9_-]+:.*?## )' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN {FS = ":.*?## "} \
+	         /^##@ / {printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next} \
+	         {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@printf '\n\033[1mDeploying to the lab\033[0m\n'
+	@printf '  Not a make target: \033[36mbash deploy/lab/deploy.sh ROLE user@host\033[0m\n'
+	@printf '  Roles: ue, gnb, edge, infra · see docs/operations/deploy-manual.md\n'
