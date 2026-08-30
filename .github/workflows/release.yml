@@ -1,0 +1,57 @@
+name: release
+
+# A pushed tag is not a GitHub Release: the tag is a pointer in the repo, the
+# Release is a separate object with notes. Nothing creates one implicitly, so
+# this does.
+#
+# A SEPARATE workflow rather than a job in platform.yml, because that one is
+# path-filtered. When `paths:` is present, a tag push has to satisfy it too,
+# and the filter is evaluated against the pushed commits -- so whether a
+# release happened would depend on which files the tagged commit touched.
+# Nothing here needs a path filter, and coupling the two would make the
+# release the unreliable half.
+
+on:
+  push:
+    tags: ["platform-v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating a release writes to the repository. The default token is
+      # read-only on repositories configured that way, and the failure reads
+      # as a 403 from gh rather than as a missing permission.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The annotated tag's message is the release notes, and a shallow
+          # clone does not fetch the tag OBJECT -- only the commit it points
+          # at. Without this, --notes-from-tag has nothing to read.
+          fetch-depth: 0
+
+      - name: Create the release from the tag's own message
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Idempotent: re-running the workflow, or force-pushing a tag,
+          # must not fail the run over a release that already exists.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — nothing to do"
+            exit 0
+          fi
+
+          # --verify-tag refuses to invent a tag that is not on the remote.
+          # --notes-from-tag reuses the annotation, which is where the reason
+          # for the version choice and the list of breaking changes already
+          # live; regenerating notes would replace that with a commit list.
+          gh release create "$TAG" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-from-tag
+
+          echo "created release $TAG"
