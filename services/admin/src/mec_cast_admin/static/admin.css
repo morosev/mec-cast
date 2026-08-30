@@ -145,25 +145,23 @@ td.actions button { margin-left: 6px; padding: 4px 10px; min-height: 28px; }
   gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
 }
 .bulkbar { display: inline-flex; align-items: center; gap: 10px; }
+
+/* Show-removed switch. Sits with the toolbar controls, not the bulk bar,
+   because it is a view setting rather than an action on a selection. */
+.toggle {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+  font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none;
+}
+.toggle input { cursor: pointer; margin: 0; }
+.toggle:hover { color: var(--text); }
+
+/* A removed row is context, not a participant: legible, clearly inactive. */
+tbody tr.removed td { opacity: 0.55; }
 .bulkbar.hidden { display: none; }
 
 /* Selection column. Narrow and centred; the header box drives select-all. */
 th.pick, td.pick { width: 28px; text-align: center; padding-left: 10px; padding-right: 0; }
 th.pick input, td.pick input { cursor: pointer; margin: 0; vertical-align: middle; }
-
-/* Service card: label/value pairs that wrap into columns as width allows.
-   Not a table -- there is one row per fact and no relationship between them,
-   so a table would promise a structure that is not there. */
-.infogrid {
-  display: grid; gap: 10px 28px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-.infoitem {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--grid);
-}
-.infoitem .k { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
-.infoitem .v { font-size: 12px; text-align: right; word-break: break-all; }
 
 .empty {
   padding: 36px 20px; text-align: center; color: var(--text-muted);

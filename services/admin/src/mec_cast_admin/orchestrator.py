@@ -38,9 +38,6 @@ class Orchestrator:
     def __init__(self, settings: Settings, store: RunStore) -> None:
         self._settings = settings
         self._store = store
-        #: When this process came up. The page shows uptime from it, which is
-        #: the first thing to check when nodes look like they have vanished.
-        self._started_utc = utc_now()
         self.registry = Registry(offline_timeout_s=settings.offline_timeout_s)
         # Operator actions belong on the same timeline as the measurements.
         self.events = EventLog(settings.logging_url)
@@ -124,6 +121,20 @@ class Orchestrator:
         runs = self.active_runs
         return runs[0] if runs else None
 
+    def all_runs(self) -> list[Run]:
+        """Every run the store holds, newest first, removed ones included.
+
+        The page hides removed rows behind a switch that is off by default.
+        Filtering them out here would put that switch out of reach: removing a
+        run only hides its row -- the manifest and its CSVs stay on disk -- so
+        a row removed by mistake has to be recoverable from the page.
+        """
+        return sorted(
+            self._runs.values(),
+            key=lambda r: (r.created_utc, r.run_id),
+            reverse=True,
+        )
+
     def visible_runs(self) -> list[Run]:
         """Newest first, by creation time rather than by id.
 
@@ -138,11 +149,7 @@ class Orchestrator:
         to `started_utc` for the script's manifests, which have no created_utc
         of their own. run_id breaks ties within the same second.
         """
-        return sorted(
-            (r for r in self._runs.values() if not r.removed),
-            key=lambda r: (r.created_utc, r.run_id),
-            reverse=True,
-        )
+        return [r for r in self.all_runs() if not r.removed]
 
     def get_run(self, run_id: str) -> Run:
         run = self._runs.get(run_id)
@@ -574,9 +581,7 @@ class Orchestrator:
             # Per-cell, since runs are per-cell. `active_run_id` above stays
             # for the single-cell case and for readers that predate this.
             "active_runs": {r.cell: r.run_id for r in self.active_runs},
-            "runs": [
-                {**r.to_dict(), "allowed": allowed_actions(r.state)} for r in self.visible_runs()
-            ],
+            "runs": [{**r.to_dict(), "allowed": allowed_actions(r.state)} for r in self.all_runs()],
             "nodes": self.registry.to_dict(),
             # The page reads `topology.roles` for its role chips (one source
             # with the quorum rule and the findings) and `topology.nodes` for
@@ -586,19 +591,4 @@ class Orchestrator:
             "findings": list(self._findings),
             # Empty means "derive from the page's own host" — see config.
             "logging_url": self._settings.logging_public_url,
-            # What this admin is and how it is tuned. The timeouts decide when
-            # a node is called offline and when a start is called failed, so
-            # an operator reading a stale-looking page needs them visible
-            # rather than having to read the compose file.
-            "service": {
-                "version": __version__,
-                "protocol": p.PROTOCOL_VERSION,
-                "started_utc": self._started_utc,
-                "runs_dir": self._settings.runs_dir,
-                "topology_path": self._settings.topology_path,
-                "keepalive_s": self._settings.keepalive_s,
-                "offline_timeout_s": self._settings.offline_timeout_s,
-                "start_timeout_s": self._settings.start_timeout_s,
-                "diagnostics_interval_s": self._settings.diagnostics_interval_s,
-            },
         }

@@ -29,6 +29,10 @@
 
     <div class="toolbar">
       <button id="addToggle" class="primary" type="button">Add run</button>
+      <label class="toggle" title="Removed runs keep their CSVs on disk; only the row is hidden">
+        <input type="checkbox" id="showRemoved">
+        <span>Show removed</span>
+      </label>
       <div id="bulkBar" class="bulkbar hidden">
         <span id="bulkCount" class="dim"></span>
         <button id="bulkRemove" class="danger" type="button">Remove selected</button>
@@ -103,11 +107,6 @@
   </section>
 
   <section class="card">
-    <h2>Workflow <span id="findingCount" class="dim"></span></h2>
-    <div id="findings"></div>
-  </section>
-
-  <section class="card">
     <h2>Nodes</h2>
     <table id="nodesTable">
       <thead>
@@ -126,11 +125,8 @@
   </section>
 
   <section class="card">
-    <h2>Service</h2>
-    <p class="dim" style="margin:0 0 12px">
-      What this admin is, and the timings it judges nodes by.
-    </p>
-    <div id="serviceInfo" class="infogrid"></div>
+    <h2>Workflow <span id="findingCount" class="dim"></span></h2>
+    <div id="findings"></div>
   </section>
 
   <section class="card hidden" id="topologyCard">

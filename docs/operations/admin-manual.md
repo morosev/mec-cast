@@ -15,7 +15,6 @@ procedures, not the reference.
 - [Reading logs](#reading-logs)
 - [Getting inside a container](#getting-inside-a-container)
 - [Running with the admin service](#running-with-the-admin-service)
-- [The Service card](#the-service-card)
 - [Accessing the database](#accessing-the-database)
 - [Backup and restore](#backup-and-restore)
 - [Retention and disk](#retention-and-disk)
@@ -276,19 +275,6 @@ compose up -d --force-recreate --no-deps edge lidar-client
 The run table, the state machine, every `WF_*` finding and its remedy, the
 declared topology and the protocol are documented in
 [admin-service.md](admin-service.md).
-
-## The Service card
-
-Beneath **Nodes**, the page states what this admin is and the timings it judges
-nodes by: version and protocol, uptime, the runs directory, the topology file
-(or that it is absent), the logging dashboard address, and three timeouts —
-when a node is called offline, when a start is called failed, and how often
-diagnostics run.
-
-They are there because a page that looks stale has two very different causes,
-and the timeouts tell them apart: a node last seen 20 s ago is still online
-under a 30 s timeout and nothing is wrong, while the same gap under a 10 s one
-means it has already been declared offline and something is.
 
 ## Accessing the database
 

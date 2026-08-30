@@ -213,9 +213,15 @@ function renderTopology(snapshot) {
   if (pre) pre.textContent = topology.mermaid || '';
 }
 
+/** Runs the table should show: removed ones only when the switch is on. */
+function shownRuns(snapshot) {
+  const all = snapshot.runs || [];
+  return $('showRemoved')?.checked ? all : all.filter((r) => !r.removed);
+}
+
 function renderRuns(snapshot) {
   const body = $('runsTable').querySelector('tbody');
-  const runs = snapshot.runs || [];
+  const runs = shownRuns(snapshot);
   $('runCount').textContent = runs.length ? `${runs.length}` : '';
   $('runsEmpty').classList.toggle('hidden', runs.length > 0);
   $('runsTable').classList.toggle('hidden', runs.length === 0);
@@ -232,7 +238,7 @@ function renderRuns(snapshot) {
       `<button type="button" class="${cls || ''}" data-run="${esc(run.run_id)}" ` +
       `data-action="${action}" ${allowed.includes(action) ? '' : 'disabled'}>${label}</button>`;
     const picked = state.selected.has(run.run_id) ? 'checked' : '';
-    return `<tr>
+    return `<tr class="${run.removed ? 'removed' : ''}">
       <td class="pick"><input type="checkbox" class="rowpick"
           data-run="${esc(run.run_id)}" ${picked}></td>
       <td class="mono dim">${run.seq}</td>
@@ -409,41 +415,11 @@ function renderNodes(snapshot) {
   }).join('');
 }
 
-function uptime(iso) {
-  if (!iso) return '—';
-  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  const d = Math.floor(secs / 86400);
-  const h = Math.floor((secs % 86400) / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function renderService(snapshot) {
-  const svc = snapshot.service;
-  if (!svc) return;
-  const rows = [
-    ['Version', svc.version],
-    ['Protocol', `v${svc.protocol}`],
-    ['Started', `${when(svc.started_utc)} · up ${uptime(svc.started_utc)}`],
-    ['Runs directory', svc.runs_dir],
-    ['Topology file', snapshot.topology?.source || `${svc.topology_path} (absent)`],
-    ['Logging dashboard', loggingBase(snapshot)],
-    ['Node goes offline after', `${svc.offline_timeout_s}s · keepalive ${svc.keepalive_s}s`],
-    ['Start fails after', `${svc.start_timeout_s}s`],
-    ['Diagnostics run every', `${svc.diagnostics_interval_s}s`],
-  ];
-  $('serviceInfo').innerHTML = rows.map(([k, v]) =>
-    `<div class="infoitem"><span class="k">${esc(k)}</span>` +
-    `<span class="v mono">${esc(v)}</span></div>`).join('');
-}
-
 function render(snapshot) {
   state.snapshot = snapshot;
   const online = (snapshot.nodes || []).filter((n) => n.online).length;
   $('subtitle').textContent =
-    `${(snapshot.runs || []).length} run(s) · ${online} node(s) online · ` +
+    `${shownRuns(snapshot).length} run(s) · ${online} node(s) online · ` +
     `protocol v${snapshot.protocol} · server ${snapshot.server_version}`;
   renderRuns(snapshot);
   renderFindings(snapshot);
@@ -451,10 +427,18 @@ function render(snapshot) {
   renderTopology(snapshot);
   renderCellChoices(snapshot);
   serviceLinks(snapshot);
-  renderService(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */
+
+$('showRemoved').addEventListener('change', () => {
+  // Selection is dropped: a row that just disappeared must not stay selected
+  // and be acted on by the next bulk press.
+  state.selected.clear();
+  // Whole view, not just the table: the subtitle counts runs too, and the two
+  // disagreeing is worse than either being wrong.
+  if (state.snapshot) render(state.snapshot);
+});
 
 $('bulkRemove').addEventListener('click', bulkRemove);
 $('selectAll').addEventListener('change', (event) => {

@@ -136,14 +136,31 @@ class TestRunLifecycle:
         assert response.status_code == 409
         assert "draft" in response.json()["detail"]
 
-    def test_removing_a_run_hides_it_but_keeps_the_manifest(self, client, settings):
+    def test_removing_a_run_flags_it_but_keeps_the_manifest(self, client, settings):
         run = client.post("/api/v1/runs", json={"label": "gone"}).json()
         assert client.delete(f"/api/v1/runs/{run['run_id']}").status_code == 200
-        assert client.get("/api/v1/state").json()["runs"] == []
+
+        # The run stays in the payload, flagged. The page hides it behind a
+        # switch that is off by default; dropping it here would put that
+        # switch out of reach and make a mistaken removal look destructive.
+        rows = client.get("/api/v1/state").json()["runs"]
+        assert [r["run_id"] for r in rows] == [run["run_id"]]
+        assert rows[0]["removed"] is True
+
         # Measurement data is never deleted by a button.
         import pathlib
 
         assert (pathlib.Path(settings.runs_dir) / run["run_id"] / "run.json").exists()
+
+    def test_a_removed_run_is_gone_from_visible_runs(self, client):
+        # The distinction the page relies on: shipped in the snapshot, absent
+        # from the set anything else in the service treats as live.
+        run = client.post("/api/v1/runs", json={"label": "gone"}).json()
+        client.delete(f"/api/v1/runs/{run['run_id']}")
+
+        orch = client.app.state.orchestrator
+        assert [r.run_id for r in orch.all_runs()] == [run["run_id"]]
+        assert orch.visible_runs() == []
 
     def test_an_unknown_run_is_a_409_not_a_crash(self, client):
         assert client.post("/api/v1/runs/nope/start").status_code == 409

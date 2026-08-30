@@ -47,7 +47,7 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 
 | Column | Meaning |
 |---|---|
-| ☐ | Selection box; the header box selects every row |
+| ☐ | Selection box; the header box selects every row shown |
 | `#` | Monotonic run number, for talking about a run out loud |
 | Run | Last eight characters of the id; click to copy the whole thing |
 | Status | The state machine's current state |
@@ -66,6 +66,11 @@ rather than whatever the containers happened to be started with.
 
 **Remove** takes the row out of the table. It never deletes measurement data:
 `runs/<run_id>/` and its CSVs stay exactly where they are.
+
+**Show removed** brings those rows back, dimmed and with their actions
+disabled. It is off by default. Removed runs are still sent in the snapshot —
+hiding them server-side would put the switch itself out of reach, and a run
+removed by mistake would look destroyed when only its row had gone.
 
 **Remove selected** does the same for a set of rows. It appears only once
 something is selected, and issues one `DELETE` per run rather than a bulk call:
