@@ -60,6 +60,8 @@ the *service* (`postgres`), raw `docker` commands take the *container*
 
 ## What up and down actually do
 
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
+
 | Command | Effect |
 |---|---|
 | `compose up -d` | create and start every service, background |
@@ -100,6 +102,8 @@ make build-ros2 && compose up -d edge lidar-client
 
 ## Starting and stopping one service
 
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
+
 ```bash
 compose up --no-deps postgres
 ```
@@ -122,6 +126,8 @@ compose stop -t 15 lidar-client edge
 ```
 
 ## Reading logs
+
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
 
 Three distinct streams, answering different questions.
 
@@ -222,6 +228,8 @@ docker exec compose-edge-1 ls -la /runs
 ```
 
 ## Running with the admin service
+
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
 
 Nodes subscribe to the admin on startup and take run commands from a web page,
 instead of reading `RUN_ID` from the environment. Neither replaces the other:
@@ -428,6 +436,8 @@ the lab infra host**: that is the measurement database.
 
 ## Checking system status
 
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
+
 Start with what this host is running:
 
 ```bash
@@ -470,6 +480,8 @@ compose logs edge | grep -i drop
 
 ## Restarting and recovering
 
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
+
 **Restart one component, keep the rest running:**
 
 ```bash
@@ -511,6 +523,8 @@ make down-hard && make build-ros2 && make up-local
 ```
 
 ## Troubleshooting
+
+> `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
 
 | Symptom | Likely cause | Check |
 |---|---|---|

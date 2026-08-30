@@ -83,6 +83,8 @@ LiDARs and renderers in one process.
 
 ## One container per terminal
 
+> `compose` is the shell function defined under [Four concepts first](#four-concepts-first).
+
 Six components, started in this order. Each command runs in the foreground,
 printing that component's logs, and stops with `Ctrl-C`.
 
