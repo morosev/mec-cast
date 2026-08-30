@@ -38,13 +38,21 @@ shapes three things you must respect when deploying to the lab:
   can both ingest and read every log entry. Bind it to the management LAN
   only — never to a UE-reachable or public interface. `deploy/lab/` keeps
   it on the infra role for exactly this reason.
+- **There is now a browser UI, and it is unauthenticated too.** `/dashboard`
+  serves the telemetry dashboard and `/` redirects to it, so the root of the
+  service is a readable page rather than a 404. This does not widen what is
+  exposed — querying was always open — but it changes who reaches it: an
+  unauthenticated API invites a deliberate `curl`, an unauthenticated page
+  invites anyone who pastes the host into a browser. Treat the port as the
+  boundary, not the path.
 - **Bulk deletion is not an HTTP endpoint.** Retention is a CLI command
   (`mec-cast-logs purge --days 30 --dry-run`) precisely so that destructive
   bulk operations are not reachable over an unauthenticated API. Run it
-  from cron or a systemd timer; nothing is deleted automatically.
-- **Explicitly out of scope upstream:** auth, rate limiting, a web UI, and
-  non-HTTP ingestion (syslog, message queues). If a mec-cast component
-  needs one of these, it is a change to the service, not a workaround here.
+  from cron or a systemd timer; nothing is deleted automatically. Still true
+  with the dashboard in place: it is strictly read-only.
+- **Explicitly out of scope upstream:** auth, rate limiting, and non-HTTP
+  ingestion (syslog, message queues). If a mec-cast component needs one of
+  these, it is a change to the service, not a workaround here.
 
 ## The schema contract
 

@@ -195,6 +195,16 @@ awk -F, 'NR>1 && $11 != "" {print $11}' runs/$RUN_ID/edge-0/samples.csv | sort -
 The only view that spans hosts. Query by `trace_id`, service, level or free
 text — see [Accessing the database](#accessing-the-database).
 
+Its dashboard opens on the **last 30 days**. Widen it with the Period control:
+24 hours, 7 days, 30, 90, **All time**, or a custom range. All time is bounded
+only by retention, so it is the one to reach for when a run you remember is
+not in the list. The picker holds the newest 500 sessions and says so when
+there are more.
+
+A run missing from *every* period was never recorded rather than aged out:
+nodes post telemetry only when `LOGGING_URL` is set, and `make down-hard` — or
+any `compose down -v` — deletes the database volume outright.
+
 ### Legacy WebRTC client (Profile B)
 
 Not containerised; it writes files directly:
