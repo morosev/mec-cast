@@ -26,10 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The annotated tag's message is the release notes, and a shallow
-          # clone does not fetch the tag OBJECT -- only the commit it points
-          # at. Without this, --notes-from-tag has nothing to read.
           fetch-depth: 0
+          # actions/checkout fetches with --no-tags by default, so the tag
+          # OBJECT never reaches the runner -- only the commit it points at.
+          # gh then finds no annotation and silently falls back to the commit
+          # message, which is how v0.4.1 first shipped with the wrong notes.
+          # fetch-depth alone does not cover this.
+          fetch-tags: true
 
       - name: Create the release from the tag's own message
         env:
@@ -45,13 +48,27 @@ jobs:
             exit 0
           fi
 
+          # Re-fetch the tag by explicit refspec. Belt and braces over
+          # fetch-tags: this is the one thing the whole job depends on, and
+          # the failure is silent -- a release appears, with the wrong notes.
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+
+          # Read the annotation ourselves rather than trusting --notes-from-tag
+          # to find it, so that a lightweight tag FAILS here instead of
+          # quietly publishing the commit message as the release note.
+          git for-each-ref "refs/tags/$TAG" --format='%(contents)' > /tmp/notes.txt
+          if [ "$(git cat-file -t "$TAG")" != tag ] || [ ! -s /tmp/notes.txt ]; then
+            echo "::error::$TAG is not an annotated tag, or its message is empty." >&2
+            echo "Release notes come from the tag: git tag -a $TAG -F notes.txt" >&2
+            exit 1
+          fi
+
+          echo "notes (first line): $(head -1 /tmp/notes.txt)"
+
           # --verify-tag refuses to invent a tag that is not on the remote.
-          # --notes-from-tag reuses the annotation, which is where the reason
-          # for the version choice and the list of breaking changes already
-          # live; regenerating notes would replace that with a commit list.
           gh release create "$TAG" \
             --verify-tag \
             --title "$TAG" \
-            --notes-from-tag
+            --notes-file /tmp/notes.txt
 
           echo "created release $TAG"
