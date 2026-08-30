@@ -5,7 +5,7 @@
 # dials out to it across the UPF (which is exactly why Zenoh was chosen
 # over multicast DDS discovery — see docs/architecture/adr/0001).
 #
-# Required env: EDGE_HOST, LOGGING_HOST (RUN_ID only without the admin)
+# Required env: EDGE_HOST, INFRA_HOST (RUN_ID only without the admin)
 # Optional: LIDAR_INSTANCES (default 1), RENDER_INSTANCES (default 0),
 # RENDER_SINK (null | rerun | ros), VIEWER_HOST (the address the operator's
 # BROWSER reaches this UE on — localhost is wrong the moment it is another
@@ -48,9 +48,9 @@ services:
       # plane, take the run id from RUN_ID", and `:-` cannot express
       # that because it substitutes the default for empty as well as
       # unset. See operations/deploy-manual.md.
-      ADMIN_URL: ${ADMIN_URL-ws://${LOGGING_HOST:?set LOGGING_HOST}:8099/ws/node}
+      ADMIN_URL: ${ADMIN_URL-ws://${INFRA_HOST:?set INFRA_HOST}:8099/ws/node}
       RUNS_DIR: /runs
-      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
       # Which radio cell this node reports. Empty unless the deployment
       # declares a topology; see docs/operations/admin-service.md.
       CELL: ${CELL:-}

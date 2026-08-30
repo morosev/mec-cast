@@ -147,7 +147,7 @@ flowchart LR
 
   subgraph UEH["Host 1 — role: ue"]
     direction TB
-    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST, LOGGING_HOST"]
+    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST, INFRA_HOST"]
     PTPU["/dev/ptp0"]
   end
 

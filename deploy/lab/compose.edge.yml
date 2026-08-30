@@ -8,7 +8,7 @@
 # for the fleet — two registries, two runs/ directories, two halves of a
 # declared topology, and no way to start a run that spans cells.
 #
-# Required env: LOGGING_HOST — the infra host, which now serves both the
+# Required env: INFRA_HOST — the infra host, which serves both the
 # logging service (:8000) and the admin (:8099). RUN_ID is required only
 # without the admin: with ADMIN_URL set the admin names the runs.
 services:
@@ -40,7 +40,7 @@ services:
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
-      LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
+      LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
       # Which radio cell this node reports. Empty unless the deployment
       # declares a topology; see docs/operations/admin-service.md.
       CELL: ${CELL:-}
@@ -48,7 +48,7 @@ services:
       # plane, take the run id from RUN_ID", and `:-` cannot express
       # that because it substitutes the default for empty as well as
       # unset. See operations/deploy-manual.md.
-      ADMIN_URL: ${ADMIN_URL-ws://${LOGGING_HOST:?set LOGGING_HOST}:8099/ws/node}
+      ADMIN_URL: ${ADMIN_URL-ws://${INFRA_HOST:?set INFRA_HOST}:8099/ws/node}
     volumes:
       - ../../runs:/runs
       - /dev/ptp0:/dev/ptp0

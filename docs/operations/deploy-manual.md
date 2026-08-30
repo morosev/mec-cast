@@ -215,19 +215,19 @@ it retries against a router that is not there yet.
 From your workstation, once per host:
 
 ```bash
-LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh infra ops@infra-host
+INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh infra ops@infra-host
 ```
 
 ```bash
-LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@edge-host
+INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@edge-host
 ```
 
 ```bash
-EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh gnb ops@gnb-host
+EDGE_HOST=10.0.0.20 INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh gnb ops@gnb-host
 ```
 
 ```bash
-EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh ue ops@ue-host
+EDGE_HOST=10.0.0.20 INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh ue ops@ue-host
 ```
 
 Each call rsyncs the repo (excluding `third_party/`, `runs/`, `target/`),
@@ -253,11 +253,11 @@ shared read-only, and `deploy.sh` passes no `--remove-orphans`, so deploying a
 second role does not evict the first. Deploy them one after the other:
 
 ```bash
-LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh infra ops@small-lab-host
+INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh infra ops@small-lab-host
 ```
 
 ```bash
-LOGGING_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@small-lab-host
+INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@small-lab-host
 ```
 
 The version report on that host then lists both roles.
@@ -268,7 +268,7 @@ The control plane is optional in the lab exactly as it is on a laptop. Pass an
 **empty** `ADMIN_URL` and name the run yourself:
 
 ```bash
-ADMIN_URL= RUN_ID=$(uuidgen) EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 \
+ADMIN_URL= RUN_ID=$(uuidgen) EDGE_HOST=10.0.0.20 INFRA_HOST=10.0.0.10 \
   bash deploy/lab/deploy.sh ue ops@ue-host
 ```
 
@@ -289,7 +289,7 @@ rather than `${ADMIN_URL:-…}`: the `:-` form cannot tell empty from absent.
 Deploying by hand on the host, the same thing:
 
 ```bash
-ADMIN_URL= RUN_ID=<the-one-run-id> LOGGING_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 \
+ADMIN_URL= RUN_ID=<the-one-run-id> INFRA_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 \
   docker compose -f deploy/lab/compose.ue.yml up -d --build
 ```
 
@@ -315,23 +315,23 @@ cd ~/mec-cast && export RUN_ID=<the-one-run-id-for-all-hosts>
 docker compose -f deploy/lab/compose.infra.yml up -d --build
 ```
 
-**edge** (`LOGGING_HOST` is the infra host's management-LAN address):
+**edge** (`INFRA_HOST` is the infra host's management-LAN address — it serves both the logging service on `:8000` and the admin on `:8099`):
 
 ```bash
-LOGGING_HOST=10.0.0.10 docker compose -f deploy/lab/compose.edge.yml up -d --build
+INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.edge.yml up -d --build
 ```
 
 **gNB** — also point srsRAN at it in `gnb.yml` under `metrics:` with
 `addr: <gnb-host>` and `port: 55555`:
 
 ```bash
-LOGGING_HOST=10.0.0.10 docker compose -f deploy/lab/compose.gnb.yml up -d --build
+INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.gnb.yml up -d --build
 ```
 
 **UE** (`EDGE_HOST` must be reachable across the UPF):
 
 ```bash
-LOGGING_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 docker compose -f deploy/lab/compose.ue.yml up -d --build
+INFRA_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 docker compose -f deploy/lab/compose.ue.yml up -d --build
 ```
 
 To run one in the foreground for debugging, drop `-d` and name the service.
@@ -343,7 +343,7 @@ role:
 
 ```bash
 RENDER_SINK=rerun RENDER_INSTANCES=1 PUBLISH_RESULT=1 \
-  EDGE_HOST=10.0.0.20 LOGGING_HOST=10.0.0.10 \
+  EDGE_HOST=10.0.0.20 INFRA_HOST=10.0.0.10 \
   bash deploy/lab/deploy.sh ue ops@ue-host
 ```
 
@@ -496,7 +496,7 @@ behind. Hosts you `git pull` keep their checkout and never consult it.
 ### Pre-campaign checklist
 
 1. `bash deploy/lab/ptp/verify-ptp.sh` on UE, edge and gNB — all must pass.
-2. `curl -sf http://$LOGGING_HOST:8000/health/ready`
+2. `curl -sf http://$INFRA_HOST:8000/health/ready`
 3. Confirm the gNB's `gnb.yml` `metrics.addr/port` points at the gNB host's
    collector (default port 55555).
 4. One short smoke run; confirm `runs/<id>/{pub-0,edge-0,ran}/samples.csv` all

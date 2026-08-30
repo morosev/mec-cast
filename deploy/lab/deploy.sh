@@ -15,13 +15,18 @@
 #
 # Variables are read from THIS shell and forwarded to the remote compose. An
 # export here does not otherwise survive the ssh hop, so a locally-set
-# LOGGING_HOST used to fail on the far side as "required variable is missing",
+# INFRA_HOST used to fail on the far side as "required variable is missing",
 # which reads like the variable was never set at all:
 #
-#   LOGGING_HOST=10.0.0.5 bash deploy/lab/deploy.sh edge iconic@edge-host
+#   INFRA_HOST=10.0.0.5 bash deploy/lab/deploy.sh edge iconic@edge-host
 #
-# Required per role: edge needs LOGGING_HOST; ue and gnb need EDGE_HOST and
-# LOGGING_HOST; infra needs none.
+# Required per role: edge needs INFRA_HOST; ue and gnb need EDGE_HOST and
+# INFRA_HOST; infra needs none.
+#
+# INFRA_HOST names the host, not a service: it serves the logging service on
+# :8000 and, since the admin moved off the edge, the control plane on :8099.
+# It was called LOGGING_HOST until 2026-08-30, which named only half of what
+# it addresses.
 set -euo pipefail
 
 ROLE=${1:-}
@@ -44,9 +49,19 @@ REMOTE_DIR="~/mec-cast"
 # Fail here rather than after a two-minute rsync and image build: compose
 # would report it as a missing variable on the far side, which is true but
 # points at the wrong machine.
+# Accept the old name for now. Without this an existing shell or runbook
+# fails on a variable the operator never set and has never heard of, which
+# reads as a bug in the script rather than as a rename.
+if [ -z "${INFRA_HOST:-}" ] && [ -n "${LOGGING_HOST:-}" ]; then
+  INFRA_HOST="$LOGGING_HOST"
+  export INFRA_HOST
+  echo "NOTE: LOGGING_HOST is deprecated — it now addresses the admin too." >&2
+  echo "  Use INFRA_HOST. Continuing with INFRA_HOST=$INFRA_HOST." >&2
+fi
+
 case "$ROLE" in
-  edge)    REQUIRED="LOGGING_HOST" ;;
-  ue|gnb)  REQUIRED="EDGE_HOST LOGGING_HOST" ;;
+  edge)    REQUIRED="INFRA_HOST" ;;
+  ue|gnb)  REQUIRED="EDGE_HOST INFRA_HOST" ;;
   infra)   REQUIRED="" ;;
 esac
 for v in $REQUIRED; do

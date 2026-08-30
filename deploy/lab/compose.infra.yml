@@ -79,7 +79,7 @@ services:
   #
   # Ports rather than network_mode: host, matching logging and postgres on
   # this role. It reaches the logging service by its compose service name;
-  # every node reaches it at ${LOGGING_HOST}:8099.
+  # every node reaches it at ${INFRA_HOST}:8099.
   admin:
     build:
       context: ../../services/admin
