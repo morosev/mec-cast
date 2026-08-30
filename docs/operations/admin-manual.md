@@ -472,6 +472,70 @@ docker exec compose-logging-1 mec-cast-logs purge --days 30
 In the lab, run it from cron or a systemd timer on the infra host at whatever
 cadence your volume needs.
 
+### Deleting old runs
+
+`runs/` is the bigger consumer, and nothing prunes it. Two stores hold a run
+and neither is a backup of the other: the per-frame CSVs under `runs/<id>/`
+are the source of truth for whole-run statistics, and the telemetry in
+PostgreSQL is windowed summaries of the same run. `purge` above handles the
+database; this handles the disk.
+
+**Dry run by default** — it prints what it would remove and removes nothing:
+
+```bash
+bash scripts/prune-runs.sh -d 30
+```
+
+```
+runs dir : runs
+cutoff   : older than 30 days (before 2026-07-31)
+mode     : dry run — nothing is removed
+
+  01a03d64-fb68-7000-bbcb-871860b08477     2026-08-26     450 MB  removed
+  f9c9c1bc-13bb-4cf5-9c23-99c1040d8e23     2026-08-18       0 MB  no manifest
+
+Would delete 76 run(s), 612 MB — re-run with -a to apply
+```
+
+Add `-a` to apply:
+
+```bash
+bash scripts/prune-runs.sh -d 30 -a
+```
+
+| Flag | Meaning |
+|---|---|
+| `-d N` | Older than N days (default 30) |
+| `-a` | Actually delete. Without it, nothing is removed |
+| `-r` | Only runs already **removed** from the table — the conservative sweep |
+| `-D DIR` | A different runs directory (default `runs`) |
+
+Three things it will not do:
+
+- **It never deletes a run that is not in a terminal state.** A `draft`,
+  `starting`, `running` or `stopping` run is live or mid-flight, and removing
+  it under the admin corrupts a run in progress rather than reclaiming space.
+  Those are reported as kept, whatever their age.
+- **It does not need a manifest.** Most run directories have none —
+  `run-experiment.sh` writes CSVs without one — so age falls back to the
+  directory's own mtime. Age comes from `created_utc` where a manifest exists.
+- **It does not touch the database.** Use `purge` above for that, and note the
+  two take separate `--days`: pruning the disk does not remove the summaries,
+  and purging the database does not reclaim the CSVs.
+
+`-r` is the sweep to reach for first. Removing a run from the admin page only
+hides its row; the data stays. `prune-runs.sh -r -a` deletes exactly what you
+already decided you were finished with.
+
+**The admin keeps its run table in memory**, so rows for deleted runs remain
+on the page until it reloads. The script says so after applying:
+
+```bash
+docker compose -f deploy/lab/compose.infra.yml restart admin
+```
+
+### Disk
+
 Runs are large — 10 Hz for 10 minutes is ~6000 rows per site, and images plus
 volumes add up faster than the data does:
 
