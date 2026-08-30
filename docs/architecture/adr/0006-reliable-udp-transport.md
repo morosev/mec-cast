@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-18
+- **Amended:** 2026-08-20 (the link is not QUIC), 2026-08-30 (the tail cost of
+  ordered retransmission — measured, and it does not reverse the decision)
 
 ## Context
 
@@ -170,11 +172,40 @@ a parameter, not adopted as the default.
   `block.wait_before_close: 5000000`. It governs what happens when the local
   tx queue fills (drop the sample or block the publisher); it is not network
   congestion control and does not pace the sender.
+- **Ordered retransmission converts packet loss into multi-second stalls, on
+  a single stream.** Added 2026-08-30. `rel=1` delivers in order, so one lost
+  packet holds every frame queued behind it while the publisher keeps
+  producing. Measured at the local defaults, slow frames arrive in clusters
+  rather than singly — 98 episodes over 3,875 frames, mean 6.1 consecutive,
+  **longest 58 frames, about 5.8 s of stalled stream** — and the delay climbs
+  through an episode (158 → 223 → 334 → 553 ms) as the backlog drains. It is
+  a queue, not independent losses.
+
+  This is amplified by fragmentation, and the amplification is the part that
+  surprises. A 5,000-point cloud is 58,800 bytes, roughly 42 UDP packets, so
+  0.5% per-packet loss is a **19% chance of touching any given frame**. The
+  impairment knob reads mild because it is stated per packet; the platform
+  measures per frame.
+
+  **ROS `best_effort` does not avoid this.** `rel=1` sits below the ROS QoS,
+  so selecting best_effort leaves transport retransmission running: measured
+  p99 was 1,021 ms against 938 ms for reliable — no better, and with 14% of
+  frames missing as well. The only in-build lever is the link scheme itself.
+
+  This does not reverse the decision. The ADR's case against TCP was
+  congestion collapse under random loss, which is a worse failure than an
+  ordered stall, and the head-to-head above still holds. But the cost was
+  unpriced, and an experiment designed around p99 must either keep frames
+  small enough that loss rarely touches one, or accept a tail set by
+  retransmission rather than by the radio.
+
 - **Revisit if:** UE mobility across handover turns out to matter on the real
   radio — that requires the `quic/` scheme with TLS, and this link cannot
   provide it; a Zenoh release exposes link stats or a congestion controller
-  for the UDP link; or mixed traffic classes make head-of-line blocking worth
-  addressing, which again means `quic/`.
+  for the UDP link; or the ordered-delivery tail above becomes the binding
+  constraint on a study. That last one was written as a future concern about
+  *mixed traffic classes*; it is now measured on the single point-cloud
+  stream, and the escape is still `quic/`.
 
 ## Measurements
 
@@ -218,6 +249,44 @@ A single RelUDP run appearing to beat TCP by 2.6× was sampling noise —
 at that size only ~2% of frames are touched by loss, and p99 over ~424
 frames *is* that 2%. Tail claims need ≥ ~1,000 frames per run.
 
+**Isolating the tail, 2026-08-30.** All at 10 Hz, `netem delay=20ms
+jitter=5ms`, edge leg (`capture_ns → process_done_ns` at the edge), one rig,
+same image. Each row changes exactly one thing from the first:
+
+| Config | p50 ms | p90 ms | p99 ms | max ms | delivered |
+|---|---:|---:|---:|---:|---:|
+| 5,000 pts, 0.5% loss, `rel=1` *(defaults)* | 54 | 202 | **938** | 1396 | ~99% |
+| …with loss 0% | 29 | 32 | 151 | 369 | 100% |
+| …with 500 pts (≈5 packets/frame) | 25 | 27 | **75** | 302 | ~100% |
+| …with ROS `best_effort` | 59 | 346 | 1021 | 1229 | 86% |
+| …with `rel=0` (no transport reliability) | 54 | 87 | **148** | 180 | 89% |
+
+`rel=0` is the controlled proof that the tail is ordered retransmission and
+not the loss itself: same loss, same frame size, p99 falls 938 → 148 ms, and
+the longest stall drops from 58 consecutive frames to 10. The cost is that
+~11% of frames go missing rather than arriving late — which for a latency
+study may be the better trade, and for a completeness study is not.
+
+**Caveat, by this ADR's own standard.** The four comparison runs are ~75 s,
+750–870 frames each, below the ≥1,000-frame threshold set out above; only the
+defaults row (3,875 frames) clears it. The effect sizes are 6–13× where the
+sampling noise that threshold guards against was 2.6×, so the ranking is not
+in doubt — but the individual figures should be treated as one repeat, not as
+established percentiles.
+
+Unimpaired floor, `NETEM=0`, same workload — what the pipeline costs with a
+clean link, and the baseline every impaired number should be read against:
+
+| Stage | p50 ms | p99 ms |
+|---|---:|---:|
+| sender | 0.38 | 0.74 |
+| network | 1.50 | 2.86 |
+| edge processing | 4.08 | 6.79 |
+| **e2e** | **6.0** | **10.0** |
+
+Note the largest component with a clean link is the edge's own voxelisation,
+not the network.
+
 Unimpaired, TCP, to locate the pipeline ceiling:
 
 | Points | Offered | Achieved | Loss |
@@ -243,3 +312,21 @@ bash scripts/run-experiment.sh -n 3000 -r 10.0 -d 120 -l 25ms -j 5ms -L 0.4%
 Set `RELIABILITY=best_effort` to switch the data plane's QoS contract.
 Compare `runs/<id>/pub/samples.csv` against `runs/<id>/edge/samples.csv`
 for loss, and the `network_ns` column for latency.
+
+For the 2026-08-30 rows, the clean-link floor and the `rel=0` arm:
+
+```bash
+# Floor: same workload, impairment sidecar not started.
+NETEM=0 make up-local
+
+# rel=0 arm: copy both configs, patch the scheme, mount the copies. Editing
+# the tracked files in place is how an arm ends up committed by accident.
+sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/router-config.json5  > /tmp/z/router-config.json5
+sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/session-config.json5 > /tmp/z/session-config.json5
+# then mount /tmp/z at /zenoh in zenoh-router, lidar-client and edge.
+```
+
+Clustering is what separates head-of-line blocking from independent loss:
+take `network_ns` from the edge CSV, mark frames over a threshold, and count
+consecutive runs. Independent losses give episodes of length 1; ordered
+retransmission gives long ones with the delay climbing inside them.
