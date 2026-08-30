@@ -54,6 +54,102 @@ shapes three things you must respect when deploying to the lab:
   ingestion (syslog, message queues). If a mec-cast component needs one of
   these, it is a change to the service, not a workaround here.
 
+## What is actually written to the database
+
+One row per **snapshot window** per recorder, in `log_entries`. A node with a
+recorder posts one every `interval_s` (2 s by default) while a run is
+streaming, so a five-minute run with three components writes roughly 450 rows,
+not one per frame. Per-frame truth lives in `samples.csv`; the database holds
+the aggregate.
+
+The top level is the service's own `LogEntryCreate` shape and carries nothing
+mec-cast-specific — everything of ours goes inside `context`:
+
+| Column | Value |
+|---|---|
+| `service` | `mec-cast-<role>-<instance>` — `mec-cast-edge-0`, `mec-cast-pub-1` |
+| `host` | the reporting host |
+| `trace_id` | **the `RUN_ID`** — the join key across every component |
+| `message` | a human line; the numbers are all in `context` |
+| `context` | the snapshot, below |
+
+`context` is written by the Rust recorder and looks like this:
+
+```json
+{
+  "run_id": "01a04fae-50a5-7000-ad8e-5f539cdfc60f",
+  "interval_s": 2.0,
+  "metrics": {
+    "e2e":        { "count": 19, "min_ns": 103808154, "max_ns": 371037189,
+                    "mean_ns": 240082532.4, "stddev_ns": 78518589.3,
+                    "p50_ns": 240732239, "p90_ns": 362828722,
+                    "p99_ns": 371037189, "last_ns": 103808154 },
+    "network":    { "…same shape…" },
+    "processing": { "…same shape…" },
+    "sender":     { "…same shape…" }
+  },
+  "drops":       { "samples_total": 0, "samples_delta": 0, "snapshots": 0 },
+  "ptp":         { "offset_ns": 0, "reliable": false },
+  "seq":         { "first": 0, "last": 19 },
+  "rows_written": 20
+}
+```
+
+Every metric block has the same nine keys. A metric is **absent** rather than
+zero when its two stamps were not both set, which is how a publisher's window
+carries no `e2e` at all.
+
+### The four metrics, and why `e2e` is not one thing
+
+Each is a difference between two stamps in the 64-byte timing envelope, and
+the recorder derives all of them the same way wherever it runs:
+
+| Metric | Stamps | Notes |
+|---|---|---|
+| `sender` | `capture_ns → send_ns` | time inside the publisher. Local, PTP-free |
+| `network` | `send_ns → recv_ns` | one wire hop. **PTP-dependent** |
+| `processing` | `recv_ns → process_done_ns` | work at the receiver. Local |
+| `e2e` | `capture_ns → process_done_ns` | see below |
+
+`e2e` is derived identically everywhere, so **it measures whatever leg the
+recording node closes**:
+
+- **`mec-cast-edge-*`** stamps `process_done_ns` when voxelisation finishes,
+  so its `e2e` is the **sending leg — lidar to edge**. This is the platform's
+  headline measurement. It is PTP-dependent, because the two stamps come off
+  two hosts.
+- **`mec-cast-render-*`** stamps it when the draw returns, so its `e2e` is the
+  **full round trip**. Per ADR-0009 this one is PTP-free, since `capture_ns`
+  and `process_done_ns` both come off the paired UE's clock — but only while
+  the paired lidar is on that same host, which `WF_RENDER_CROSS_HOST` exists
+  to catch.
+- **`mec-cast-pub-*`** never sets `process_done_ns`, so it reports **no `e2e`
+  at all**. Its windows carry `sender` only.
+
+The three are not comparable and must not be pooled. Querying them together
+gives a number that is neither leg — which is exactly what the dashboard used
+to do, and why its headline is now scoped to the sending leg.
+
+### Reading it back
+
+Sessions are separated by `context ? 'metrics'`, which is what distinguishes a
+telemetry snapshot from an ordinary log line and rides the existing GIN index.
+To pull one run's sending leg straight from SQL:
+
+```sql
+SELECT "timestamp",
+       (context->'metrics'->'e2e'->>'p50_ns')::bigint / 1e6 AS p50_ms,
+       (context->'metrics'->'e2e'->>'p99_ns')::bigint / 1e6 AS p99_ms
+FROM log_entries
+WHERE trace_id = '<RUN_ID>'
+  AND service LIKE 'mec-cast-edge-%'
+  AND context ? 'metrics'
+ORDER BY "timestamp";
+```
+
+Drop the `service` filter and the rows from three components interleave, one
+per window each.
+
 ## The schema contract
 
 Snapshots posted by `mec-cast-telemetry` must match `LogEntryCreate`
