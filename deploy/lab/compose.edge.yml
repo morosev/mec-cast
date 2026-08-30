@@ -3,11 +3,14 @@
 # Hosts the Zenoh router (the rendezvous point the UE dials into) and the
 # ingest node that stamps arrival and computes latency.
 #
-# Also hosts the admin service: the control plane belongs on the management
-# LAN beside the edge, not across the UPF (same reasoning as ADR-0003 for PTP).
+# The admin service used to live here. It moved to infra: runs are per cell,
+# and a control plane on the edge means one authority PER cell rather than one
+# for the fleet — two registries, two runs/ directories, two halves of a
+# declared topology, and no way to start a run that spans cells.
 #
-# Required env: LOGGING_HOST. RUN_ID is required only without the admin —
-# with ADMIN_URL set the admin names the runs, so it defaults to empty.
+# Required env: LOGGING_HOST — the infra host, which now serves both the
+# logging service (:8000) and the admin (:8099). RUN_ID is required only
+# without the admin: with ADMIN_URL set the admin names the runs.
 services:
   zenoh-router:
     image: mec-cast-ros
@@ -45,7 +48,7 @@ services:
       # plane, take the run id from RUN_ID", and `:-` cannot express
       # that because it substitutes the default for empty as well as
       # unset. See operations/deploy-manual.md.
-      ADMIN_URL: ${ADMIN_URL-ws://127.0.0.1:8099/ws/node}
+      ADMIN_URL: ${ADMIN_URL-ws://${LOGGING_HOST:?set LOGGING_HOST}:8099/ws/node}
     volumes:
       - ../../runs:/runs
       - /dev/ptp0:/dev/ptp0
@@ -53,29 +56,3 @@ services:
       - /dev/ptp0
     depends_on:
       - zenoh-router
-
-  admin:
-    build:
-      context: ../../services/admin
-      dockerfile_inline: |
-        FROM python:3.12-slim
-        WORKDIR /app
-        COPY pyproject.toml README.md ./
-        COPY src ./src
-        RUN pip install --no-cache-dir .
-        EXPOSE 8099
-        CMD ["mec-cast-admin", "serve", "--host", "0.0.0.0", "--port", "8099"]
-    network_mode: host
-    environment:
-      MECADM_RUNS_DIR: /runs
-      MECADM_LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
-    volumes:
-      # The manifests live here, on the edge host. Each node's CSVs live on
-      # its own machine — the admin records which, in the manifest's `sites`.
-      - ../../runs:/runs
-      # The declared topology, if there is one. Directory rather than file:
-      # a bind whose source file is missing makes compose create a directory
-      # in its place, which would then break every deployment that has not
-      # declared one.
-      - ../../deploy/lab:/etc/mec-cast:ro
-    restart: unless-stopped

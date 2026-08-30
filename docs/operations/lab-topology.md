@@ -4,8 +4,8 @@
 
 | Role | Runs | Deploy |
 |---|---|---|
-| **infra** | Logging service + PostgreSQL | `bash deploy/lab/deploy.sh infra user@host` |
-| **edge** | Zenoh router + ROS2 ingest node + admin service (:8099) | `bash deploy/lab/deploy.sh edge user@host` |
+| **infra** | Admin service (:8099) + logging service + PostgreSQL | `bash deploy/lab/deploy.sh infra user@host` |
+| **edge** | Zenoh router + ROS2 ingest node | `bash deploy/lab/deploy.sh edge user@host` |
 | **ue** | LiDAR + ROS2 client node, behind the 5G modem | `bash deploy/lab/deploy.sh ue user@host` |
 | **gnb** | srsRAN metrics collector (beside the O-DU) | `bash deploy/lab/deploy.sh gnb user@host` |
 
@@ -18,7 +18,7 @@ buffer-then-drop while it is unreachable.
 │ LiDAR      │   Uu    ┌────────┐  ┌─────────┐   │ zenoh      │   │ logging    │
 │ ros2 client├─modem───┤ srsRAN ├──┤ Open5GS ├───┤ router     │   │ service    │
 │            │  USRP   │ gNB    │  │ core    │UPF│ edge node  ├──►│ postgres   │
-│            │         │        │  │         │   │ admin :8099│   │            │
+│            │         │        │  │         │   │            │   │ admin :8099│
 └─────┬──────┘         └───┬────┘  └─────────┘   └─────┬──────┘   └─────▲──────┘
       │                    │ metrics UDP               │                │
       │                    ▼                           │                │
@@ -47,7 +47,9 @@ export RUN_ID=$(uuidgen)          # only without the admin; see below
 that correlates UE, edge, and RAN records for one experiment.
 
 With the admin service, do not set it. Every role defaults `ADMIN_URL` to
-`ws://${EDGE_HOST}:8099/ws/node`, the admin mints the run id, and the nodes
+`ws://${LOGGING_HOST}:8099/ws/node` — the admin runs on **infra**, one
+authority for the fleet, because runs are per cell and an admin per edge would
+be an authority per cell. The admin mints the run id, and the nodes
 ignore `RUN_ID` entirely — which removes the "same value across all roles"
 requirement that is easy to get wrong by hand. See
 [admin-service.md](admin-service.md).

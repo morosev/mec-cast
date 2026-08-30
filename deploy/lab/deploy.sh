@@ -64,8 +64,7 @@ done
 # this machine. The remote cannot fix it either — .git is excluded from the
 # sync, so there is no repository there to update. Check the sending side.
 case "$ROLE" in
-  infra) NEEDS_CONTEXT="services/logging" ;;
-  edge)  NEEDS_CONTEXT="services/admin" ;;
+  infra) NEEDS_CONTEXT="services/logging services/admin" ;;
   *)     NEEDS_CONTEXT="" ;;
 esac
 for c in $NEEDS_CONTEXT; do
@@ -76,10 +75,19 @@ for c in $NEEDS_CONTEXT; do
   fi
   if [ ! -f "$ROOT_DIR/$c/pyproject.toml" ]; then
     echo "ERROR: $c is empty; role '$ROLE' builds an image from it." >&2
-    echo "  On THIS machine:  git submodule update --init --recursive" >&2
-    echo "  ...or point at a sibling checkout:" >&2
-    echo "    MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service \\" >&2
-    echo "      bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
+    # Only services/logging is a submodule. Telling someone to run
+    # `git submodule update` for services/admin sends them after a submodule
+    # that does not exist, while the real cause -- a broken or partial
+    # checkout -- goes unmentioned.
+    if [ "$c" = "services/logging" ]; then
+      echo "  On THIS machine:  git submodule update --init --recursive" >&2
+      echo "  ...or point at a sibling checkout:" >&2
+      echo "    MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service \\" >&2
+      echo "      bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
+    else
+      echo "  $c is part of this repository, not a submodule, so this is a" >&2
+      echo "  broken or partial checkout. On THIS machine:  git status $c" >&2
+    fi
     exit 2
   fi
 done

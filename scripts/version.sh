@@ -105,7 +105,7 @@ say "role" "$ROLE"
 echo
 mapfile -t RUNNING < <(
   docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/null \
-    | grep -E 'mec-cast|zenoh|lidar|edge|ran-collector|logging|postgres' || true
+    | grep -E 'mec-cast|zenoh|lidar|edge|ran-collector|logging|postgres|admin' || true
 )
 
 if [ ${#RUNNING[@]} -eq 0 ]; then

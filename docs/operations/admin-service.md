@@ -33,14 +33,14 @@ make up-admin
 Then open `http://localhost:8099/admin`. No `RUN_ID` is needed — the admin
 mints one per run.
 
-In the lab the admin runs on the **edge** host, brought up by the existing role:
+In the lab the admin runs on the **infra** host, brought up by the existing role:
 
 ```bash
-bash deploy/lab/deploy.sh edge <user@host>
+bash deploy/lab/deploy.sh infra <user@host>
 ```
 
 The UE and gNB roles dial it at `ws://${EDGE_HOST}:8099/ws/node`. The
-documented start order `infra → edge → gnb → ue` already brings it up before
+documented start order `infra → edge → gnb → ue` already brings it up first,
 the nodes that dial it, and a node that starts first simply retries every 30 s.
 
 ## The run table

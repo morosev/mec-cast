@@ -261,11 +261,6 @@ flowchart TB
   linkStyle 6,7,8,9,10,11,12 stroke:#9AA0A6,stroke-width:1px,stroke-dasharray:4 4;
 ```
 
-Note: today's deployment differs from this picture in one load-bearing way —
-the admin service currently runs in the **edge** role, not on infra. Moving it
-is required by the multi-cell milestone (two edges would otherwise mean two
-authorities) and is tracked there, not a drawing error here.
-
 ## Detailed dataflow
 
 Too large to embed readably; rendered instead.

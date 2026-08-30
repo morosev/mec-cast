@@ -1,4 +1,5 @@
-# Lab role: infra — logging service + PostgreSQL, shared by every other role.
+# Lab role: infra — the admin control plane, logging service and PostgreSQL,
+# shared by every other role.
 #
 # Deploy this first: the UE, edge, and gNB roles all POST snapshots here and
 # will buffer-then-drop if it is unreachable.
@@ -69,6 +70,44 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # The control plane. It lives here rather than on the edge because runs are
+  # per cell and there must be ONE authority for the fleet: an admin per edge
+  # would give each cell its own registry, its own runs/ directory and its own
+  # half of the declared topology, with no way to start a run spanning cells.
+  #
+  # Ports rather than network_mode: host, matching logging and postgres on
+  # this role. It reaches the logging service by its compose service name;
+  # every node reaches it at ${LOGGING_HOST}:8099.
+  admin:
+    build:
+      context: ../../services/admin
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        WORKDIR /app
+        COPY pyproject.toml README.md ./
+        COPY src ./src
+        RUN pip install --no-cache-dir .
+        EXPOSE 8099
+        CMD ["mec-cast-admin", "serve", "--host", "0.0.0.0", "--port", "8099"]
+    environment:
+      MECADM_RUNS_DIR: /runs
+      MECADM_LOGGING_URL: http://logging:8000
+    ports:
+      - "8099:8099"
+    volumes:
+      # Run manifests live here now, on infra, beside the database that holds
+      # the telemetry for the same runs. Each node's CSVs stay on its own
+      # machine — the manifest's `sites` records which.
+      - ../../runs:/runs
+      # The declared topology, if there is one. Directory rather than file:
+      # a bind whose source file is missing makes compose create a directory
+      # in its place, which would then break every deployment that has not
+      # declared one.
+      - ../../deploy/lab:/etc/mec-cast:ro
+    depends_on:
+      - logging
     restart: unless-stopped
 
 volumes:

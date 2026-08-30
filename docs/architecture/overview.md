@@ -124,10 +124,10 @@ publisher, edge, and RAN.
 
 Data flows UE → edge and everything reports to the logging service. Run
 *lifecycle* is a separate concern, and since ADR-0007 it has its own path:
-`mec-cast-admin` on the edge host, speaking JSON over WebSocket to every node.
+`mec-cast-admin` on the infra host, speaking JSON over WebSocket to every node.
 
 ```
-              ┌──────────── mec-cast-admin (edge, :8099) ────────────┐
+              ┌──────────── mec-cast-admin (infra, :8099) ───────────┐
               │  run table · state machine · workflow diagnostics    │
               └───▲──────────────────▲───────────────────────▲───────┘
                   │ ws               │ ws                    │ ws

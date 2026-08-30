@@ -21,12 +21,12 @@ services:
     network_mode: host
     environment:
       RUN_ID: ${RUN_ID:-}
-      # The admin runs on the edge host; without it the node needs RUN_ID.
+      # The admin runs on the infra host; without it the node needs RUN_ID.
       # `-` not `:-`: an explicitly empty ADMIN_URL means "no control
       # plane, take the run id from RUN_ID", and `:-` cannot express
       # that because it substitutes the default for empty as well as
       # unset. See operations/deploy-manual.md.
-      ADMIN_URL: ${ADMIN_URL-ws://${EDGE_HOST:?set EDGE_HOST}:8099/ws/node}
+      ADMIN_URL: ${ADMIN_URL-ws://${LOGGING_HOST:?set LOGGING_HOST}:8099/ws/node}
       RUNS_DIR: /runs
       LOGGING_URL: http://${LOGGING_HOST:?set LOGGING_HOST}:8000
       # Which radio cell this node reports. Empty unless the deployment

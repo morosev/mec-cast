@@ -140,5 +140,5 @@ standalone env-`RUN_ID` path. With `ADMIN_URL` set the nodes ignore `RUN_ID` —
 the admin names the runs. Port 8099, no authentication; see
 [docs/operations/admin-service.md](../docs/operations/admin-service.md).
 
-In the lab the admin is part of the **edge** role, so no new role or deploy
+In the lab the admin is part of the **infra** role, so no new role or deploy
 target is needed.
