@@ -237,6 +237,9 @@ function renderRuns(snapshot) {
       <td class="mono dim">${when(run.started_utc)}</td>
       <td class="mono">${isActive && findingsByRun ? `<span class="pill failed">${findingsByRun}</span>` : '<span class="dim">—</span>'}</td>
       <td class="actions">
+        <a class="svc" href="${esc(runLogsUrl(snapshot, run.run_id))}"
+           target="_blank" rel="noopener"
+           title="open the logging dashboard on this run">point cloud viewer ↗</a>
         ${button('start', 'Start', 'primary')}
         ${button('stop', 'Stop')}
         ${button('remove', 'Remove', 'danger')}
@@ -270,6 +273,55 @@ function renderFindings(snapshot) {
     </div>`).join('');
 }
 
+function viewerCell(n) {
+  // Only a renderer that is online and actually serving reports a URL, so the
+  // link appears exactly when there is something at the other end.
+  const url = n.online ? (n.params || {}).viewer_url : null;
+  if (!url) return '';
+  return ` <a class="svc" href="${esc(url)}" target="_blank" rel="noopener">viewer ↗</a>`;
+}
+
+function loggingBase(snapshot) {
+  // The service tells us its browser-facing address; empty means "same host
+  // as this page, port 8000", which is right locally and overridable with
+  // MECADM_LOGGING_PUBLIC_URL for the lab, where logging is on another host.
+  // A base URL with no path — callers append their own.
+  const raw = snapshot.logging_url
+    || `${location.protocol}//${location.hostname}:8000`;
+  return raw.replace(/\/+$/, '');
+}
+
+function runLogsUrl(snapshot, runId) {
+  // The dashboard, not the raw API. It reads ?run= and opens that session —
+  // charts, percentiles and the glass-to-glass series — instead of handing
+  // the operator a page of JSON. The run id is the trace_id, which is the
+  // join key across every component, so one session covers client, edge,
+  // renderer and RAN.
+  return `${loggingBase(snapshot)}/dashboard?run=${encodeURIComponent(runId)}`;
+}
+
+function serviceLinks(snapshot) {
+  // The dashboard with no run selected — it opens the newest session. This
+  // pointed at /docs while the static assets were missing from the checked-out
+  // submodule commit and the root 404'd; they are present again, so the
+  // operator-facing page is the right destination.
+  const lg = $('loggingLink');
+  lg.href = `${loggingBase(snapshot)}/dashboard`;
+  lg.hidden = false;
+
+  // Viewer: whichever renderer is online and serving. There is normally one;
+  // with several, the first is linked and every row carries its own.
+  const node = (snapshot.nodes || []).find(
+    (n) => n.online && (n.params || {}).viewer_url);
+  const vw = $('viewerLink');
+  if (node) {
+    vw.href = node.params.viewer_url;
+    vw.hidden = false;
+  } else {
+    vw.hidden = true;
+  }
+}
+
 function renderNodes(snapshot) {
   const nodes = snapshot.nodes || [];
   const body = $('nodesTable').querySelector('tbody');
@@ -287,7 +339,7 @@ function renderNodes(snapshot) {
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
       <td class="mono">${(n.peers || []).length}</td>
-      <td class="mono dim" style="font-size:11px">${esc(counters)}</td>
+      <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>
       <td class="mono dim">${n.silent_for_s}s</td>
     </tr>`;
@@ -305,6 +357,7 @@ function render(snapshot) {
   renderNodes(snapshot);
   renderTopology(snapshot);
   renderCellChoices(snapshot);
+  serviceLinks(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */
@@ -316,6 +369,7 @@ $('addForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const params = {
     num_points: Number($('f_points').value),
+    pattern: $('f_pattern').value,
     rate_hz: Number($('f_rate').value),
     seed: Number($('f_seed').value),
     reliability: $('f_reliability').value,

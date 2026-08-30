@@ -55,7 +55,7 @@ class FakeNode:
         if self.node_type is p.NodeType.CLIENT:
             reliability = "best_effort" if self.misbehave == "qos" else "reliable"
             return {
-                "num_points": 30000,
+                "num_points": 5000,
                 "rate_hz": 10.0,
                 "seed": 42,
                 "pattern": "uniform_cube",

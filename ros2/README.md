@@ -57,9 +57,9 @@ per-publish attachments to the application layer.
 | Parameter | Default | Purpose |
 |---|---|---|
 | `seed` | 42 | Reproducible contents |
-| `num_points` | 30000 | Payload size — the primary sweep variable |
+| `num_points` | 5000 | Payload size — the primary sweep variable |
 | `rate_hz` | 10.0 | Publish rate |
-| `pattern` | `uniform_cube` | `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane` — see `workload.patterns` in `docs/_facts.yml` for how much each compresses on the downlink |
+| `pattern` | `uniform_cube` | Ten shapes: `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane`, `torus`, `helix`, `wave`, `cylinder`, `cube_edges`, `swarm` — see `workload.patterns` in `docs/_facts.yml` for how much each compresses on the downlink (1.4x to 23.5x) |
 
 Fixing the seed across a size sweep means only the size varies.
 

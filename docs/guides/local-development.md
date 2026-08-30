@@ -257,10 +257,13 @@ looks like a broken renderer:
   without it the run is `dev-run`. Not an error, but the recorder *appends*, so
   every unnamed run piles into a single `dev-run` directory under `runs/`
   and no new directory ever appears.
-- **`NETEM_LOSS=0%`** — the default `0.5%` against the default 30,000 points at
-  10 Hz is about 7× what the impaired link carries. Frames die on the uplink
-  before the edge sees them, and the renderer draws nothing while reporting
-  itself perfectly healthy. See
+- **`NETEM_LOSS=0%`** — the default `0.5%` is survivable at the default 5,000
+  points (94% of frames reach the edge) but it does not leave the tail alone:
+  p50 56 ms against p99 849 ms. Set it to `0%` when you want a clean latency
+  figure, and raise `NUM_POINTS` instead when you want to study collapse. At
+  30,000 points the same 0.5% delivers 1.9%, frames die on the uplink before
+  the edge sees them, and the renderer draws nothing while reporting itself
+  perfectly healthy. See
   [Choosing an impairment the link can carry](running-an-experiment.md#choosing-an-impairment-the-link-can-carry).
 - **`RENDER_SINK=rerun`** — without it the sink is `null`: the node measures and
   draws nothing, so the published ports accept nothing.
@@ -369,12 +372,15 @@ delivered 1.53% and 1.54% to the edge — the difference is noise. The downlink
 runs at 100% even while the uplink collapses, because it carries a quarter of
 the bytes and is not behind the impairment.
 
-**`local.yml`'s defaults are over capacity on purpose.** 30,000 points at 10 Hz
-with 0.5% loss is the documented congestion-collapse case. It is a legitimate
-experiment and a useless latency measurement. The renderer simply makes it
-*visible*: it prints one line per frame received, so at 1.9% delivery it appears
-to hang and then emit a burst. It logs a heartbeat every 5 s, so a starved
-renderer now says so in words:
+**Check the workload before blaming the renderer.** The default is now 5,000
+points, which fits the impaired link — 94% of frames reach the edge. But
+`NUM_POINTS=30000` at 10 Hz with 0.5% loss is the documented
+congestion-collapse case — see
+[running-an-experiment.md](running-an-experiment.md#choosing-an-impairment-the-link-can-carry)
+— and delivers **1.9%**. That is a legitimate experiment and a useless latency
+measurement, and the renderer is what makes it visible: it prints one line per
+frame received, so at that rate it appears to hang and then emit a burst. It
+logs a heartbeat every 5 s, so a starved renderer says so in words:
 
 ```
 [WARN] render alive but received NOTHING in 5s (total=1). The process is fine.

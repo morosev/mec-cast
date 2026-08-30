@@ -4,7 +4,7 @@
 #   bash scripts/run-experiment.sh [options]
 #
 #   -d SECONDS    run duration            (default 60)
-#   -n POINTS     points per cloud        (default 30000)
+#   -n POINTS     points per cloud        (default 5000)
 #   -r HZ         publish rate            (default 10.0)
 #   -l DELAY      netem one-way delay     (default 20ms)
 #   -j JITTER     netem jitter            (default 5ms)
@@ -20,7 +20,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DURATION=60
-NUM_POINTS=30000
+NUM_POINTS=5000
 RATE_HZ=10.0
 NETEM_DELAY=20ms
 NETEM_JITTER=5ms

@@ -149,11 +149,20 @@ class RenderNode(MecCastNode):
     # --- run lifecycle ----------------------------------------------------
 
     def params(self) -> dict:
-        return {
+        p = {
             "sink": self.sink_kind,
             "reliability": self.reliability,
             "qos_depth": self.qos_depth,
         }
+        # The node is the only thing that knows where its viewer actually is:
+        # the address has to resolve in the operator's browser, which is why
+        # it is built from viewer_host rather than from anything the admin
+        # could infer about the container. Reported so the admin page can
+        # link straight to it instead of asking the operator to read a log.
+        url = getattr(self.sink, "url", None)
+        if url:
+            p["viewer_url"] = url
+        return p
 
     def counters(self) -> dict:
         return {

@@ -15,7 +15,9 @@
       <h1>Run control</h1>
       <p id="subtitle">Connecting…</p>
     </div>
-    <div>
+    <div class="topright">
+      <a id="loggingLink" class="svc" href="#" target="_blank" rel="noopener" hidden>logging dashboard ↗</a>
+      <a id="viewerLink" class="svc" href="#" target="_blank" rel="noopener" hidden>viewer ↗</a>
       <span id="link" class="pill draft">offline</span>
     </div>
   </header>
@@ -36,7 +38,22 @@
       </div>
       <div class="field">
         <label for="f_points">Points</label>
-        <input id="f_points" type="number" min="1" value="30000">
+        <input id="f_points" type="number" min="1" value="5000">
+      </div>
+      <div class="field">
+        <label for="f_pattern">Shape</label>
+        <select id="f_pattern">
+          <option value="uniform_cube" selected>uniform_cube — noise, 1.4×</option>
+          <option value="lidar_scan">lidar_scan — 16-beam room sweep, 9.0×</option>
+          <option value="sphere">sphere — hollow shell, 5.2×</option>
+          <option value="torus">torus — tumbling ring, 8.4×</option>
+          <option value="helix">helix — two strands, 16.4×</option>
+          <option value="wave">wave — rippling sheet, 6.5×</option>
+          <option value="cylinder">cylinder — fluted duct, 5.4×</option>
+          <option value="rotating_plane">rotating_plane — flat sheet, 11.7×</option>
+          <option value="swarm">swarm — 8 drifting blobs, 6.7×</option>
+          <option value="cube_edges">cube_edges — wireframe, 23.5×</option>
+        </select>
       </div>
       <div class="field">
         <label for="f_rate">Rate (Hz)</label>

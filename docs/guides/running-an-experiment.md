@@ -93,9 +93,19 @@ each host before attributing a large-payload result to the network.
 
 `run-experiment.sh` prints a warning when the workload exceeds this estimate.
 It does not refuse: measuring an over-capacity link is a legitimate experiment,
-as long as that is what you meant to do. Note the script's own defaults
-(30,000 points, 10 Hz, 0.5% loss) are over capacity — good for observing
-congestion collapse, useless for a glass-to-glass latency number.
+as long as that is what you meant to do.
+
+The default is **5,000 points**, which fits. Measured at the default
+impairment (20 ms delay, 5 ms jitter, 0.5% loss): 94% of published frames
+reach the edge and 100% of the edge's replies reach the renderer, at 0.60 MB/s
+offered. It was 30,000 until it was clear that nobody wants congestion
+collapse by accident — that workload delivered **1.9%**, and every first run
+looked like broken software rather than a saturated link.
+
+Ask for 30,000 explicitly (`-n 30000`) when collapse is the thing being
+studied. Note that even at 5,000 the tail is not flat: p50 network delay
+measured 56 ms against a p99 of 849 ms, because 0.5% loss with retransmission
+still queues. Drop the loss (`-L 0%`) for a clean latency floor.
 
 ## Reading results
 

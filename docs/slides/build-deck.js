@@ -294,12 +294,12 @@ function bullets(s, x, y, w, h, items, size) {
 
   box(s, { x: M, y: 3.15, w: 5.9, h: 1.95, title: "Test vectors are a controlled variable", lines: [
     "seed         42            reproducible contents",
-    "num_points   30000         payload size — the main sweep",
+    "num_points   5000          payload size — the main sweep",
     "rate_hz      10.0          publish rate",
-    "pattern      lidar_scan    also uniform_cube, sphere,",
-    "                           rotating_plane — 1.2x to 6.6x",
-    "                           voxel compression, which sets",
-    "                           the return payload too",
+    "pattern      lidar_scan    ten shapes: cube, sphere,",
+    "                           torus, helix, wireframe, swarm…",
+    "                           1.4x to 23.5x voxel compression,",
+    "                           which sets the return payload too",
   ], fs: 11 });
 
   bullets(s, M + 6.4, 3.15, 5.83, 1.95, [

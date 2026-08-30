@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     # the same timeline as the measurements. Empty disables it.
     logging_url: str = ""
 
+    # Where the *operator's browser* reaches the logging service, which is not
+    # the same address this service uses. `logging_url` is a container-network
+    # name like http://logging:8000 and resolves nowhere outside the compose
+    # network. Empty means "same host as this page, port 8000", which is right
+    # locally and wrong in the lab, where logging lives on the infra host.
+    #
+    # A base URL with no path: the page appends /docs for the header link and
+    # /api/v1/logs?trace_id=... for the per-run link.
+    logging_public_url: str = ""
+
     # Keep-alive. These numbers are also compiled into both node clients, so
     # they are published in the welcome frame rather than assumed.
     keepalive_s: float = Field(default=10.0, gt=0)

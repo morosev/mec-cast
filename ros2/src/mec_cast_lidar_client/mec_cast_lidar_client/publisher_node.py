@@ -10,7 +10,7 @@ Parameters (all environment variables are demoted to defaults, so a laptop
 run needs no exports — see MecCastNode for the shared set: run_id, runs_dir,
 logging_url, admin_url, admin_autostart, admin_instance):
     seed        (int,   default 42)      RNG seed — same seed, same clouds
-    num_points  (int,   default 30000)   points per frame (size sweep knob)
+    num_points  (int,   default 5000)    points per frame (size sweep knob)
     rate_hz     (float, default 10.0)    frames per second
     pattern     (str,   default $PATTERN or uniform_cube)
     reliability (str,   default reliable)  must match the edge's
@@ -40,7 +40,24 @@ import uuid
 #: reproducible frame for frame. They voxel-compress very differently, which
 #: makes the choice an experimental variable and not only a visual one — see
 #: ADR-0009 for what that does to the downlink.
-PATTERNS = ("uniform_cube", "rotating_plane", "sphere", "lidar_scan")
+PATTERNS = (
+    "uniform_cube",
+    "rotating_plane",
+    "sphere",
+    "lidar_scan",
+    "torus",
+    "helix",
+    "wave",
+    "cylinder",
+    "cube_edges",
+    "swarm",
+)
+#: Every generator keeps its points inside this box, so one camera position
+#: suits all of them and voxel counts stay comparable between patterns.
+EXTENT = 10.0
+CENTRE = 5.0
+ADMIN_POLL_S = 0.1
+STATUS_PERIOD_S = 2.0
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -119,7 +136,7 @@ class PointCloudPublisher(MecCastNode):
             autostart_default=os.environ.get("ADMIN_AUTOSTART", "").lower() == "true",
         )
         self.declare_parameter("seed", 42)
-        self.declare_parameter("num_points", 30000)
+        self.declare_parameter("num_points", 5000)
         self.declare_parameter("rate_hz", 10.0)
         self.declare_parameter("pattern", os.environ.get("PATTERN", "uniform_cube"))
         self.declare_parameter("reliability", "reliable")
@@ -240,8 +257,10 @@ class PointCloudPublisher(MecCastNode):
             v /= np.linalg.norm(v, axis=1, keepdims=True)
             return np.ascontiguousarray(v * 4.0 + 5.0, dtype=np.float32)
 
-        if self.pattern == "lidar_scan":
-            return self.lidar_scan()
+        for name in ("lidar_scan", "torus", "helix", "wave", "cylinder",
+                     "cube_edges", "swarm"):
+            if self.pattern == name:
+                return getattr(self, name)()
 
         # rotating_plane: a flat sheet rotating with frame index — compresses
         # very differently from noise, deterministic per (seed, seq).
@@ -261,7 +280,113 @@ class PointCloudPublisher(MecCastNode):
             ],
             dtype=np.float32,
         )
-        return np.ascontiguousarray(pts @ rot.T, dtype=np.float32)
+        # Centred in the box like every other pattern. It was on the origin,
+        # which put it half out of frame whenever the viewer was framed for
+        # the others — harmless while it was the only alternative to the
+        # cube, wrong now that a dropdown puts all ten side by side.
+        return np.ascontiguousarray(pts @ rot.T + CENTRE, dtype=np.float32)
+
+    def _phase(self) -> float:
+        """One revolution every 360 frames, so motion is visible but slow."""
+        return (self.seq % 360) * (np.pi / 180.0)
+
+    def torus(self) -> np.ndarray:
+        """A ring tumbling about the x axis. Voxelises to a closed tube."""
+        n = self.num_points
+        u = self.rng.random(n, dtype=np.float32) * (2 * np.pi)
+        v = self.rng.random(n, dtype=np.float32) * (2 * np.pi)
+        R, r = 3.0, 1.0
+        x = (R + r * np.cos(v)) * np.cos(u)
+        y = (R + r * np.cos(v)) * np.sin(u)
+        z = r * np.sin(v)
+        a = self._phase()
+        y, z = y * np.cos(a) - z * np.sin(a), y * np.sin(a) + z * np.cos(a)
+        return np.ascontiguousarray(
+            np.stack([x, y, z], -1) + CENTRE, dtype=np.float32)
+
+    def helix(self) -> np.ndarray:
+        """Two strands winding up the box — a deliberately sparse shape, so
+        the voxel count stays low however many points are asked for."""
+        n = max(self.num_points // 2, 1)
+        t = np.linspace(0.0, 6 * np.pi, n, dtype=np.float32) + self._phase()
+        z = np.linspace(0.5, EXTENT - 0.5, n, dtype=np.float32)
+        out = []
+        for offset in (0.0, np.pi):
+            out.append(np.stack([
+                CENTRE + 3.0 * np.cos(t + offset),
+                CENTRE + 3.0 * np.sin(t + offset),
+                z,
+            ], -1))
+        return np.ascontiguousarray(np.concatenate(out), dtype=np.float32)
+
+    def wave(self) -> np.ndarray:
+        """A rippling sheet. Same point count as rotating_plane and a similar
+        voxel count, but the surface moves through z rather than rotating."""
+        side = max(int(np.sqrt(self.num_points)), 2)
+        g = np.linspace(0.0, EXTENT, side, dtype=np.float32)
+        xs, ys = np.meshgrid(g, g)
+        a = self._phase()
+        zs = CENTRE + 1.5 * np.sin(xs * 0.8 + a) * np.cos(ys * 0.8 + a)
+        return np.ascontiguousarray(
+            np.stack([xs, ys, zs], -1).reshape(-1, 3), dtype=np.float32)
+
+    def cylinder(self) -> np.ndarray:
+        """The inside of a fluted duct, rotating. The closest static shape to
+        an industrial scene — a pipe or a conveyor tunnel."""
+        n = self.num_points
+        x = self.rng.random(n, dtype=np.float32) * EXTENT
+        th = self.rng.random(n, dtype=np.float32) * (2 * np.pi)
+        # Flutes make the rotation visible; a smooth pipe would look static.
+        r = 3.0 + 0.4 * np.sin(3.0 * th + self._phase())
+        return np.ascontiguousarray(np.stack([
+            x, CENTRE + r * np.cos(th), CENTRE + r * np.sin(th)
+        ], -1), dtype=np.float32)
+
+    def cube_edges(self) -> np.ndarray:
+        """Points along the 12 edges of the box — a wireframe. The sparsest
+        pattern here: whatever the point count, the voxels are one deep along
+        twelve lines, so it compresses hardest of all."""
+        n = self.num_points
+        lo, hi = 0.5, EXTENT - 0.5
+        corners = np.array([[lo, lo, lo], [hi, hi, hi]], dtype=np.float32)
+        edges = []
+        for axis in range(3):
+            for i in (0, 1):
+                for j in (0, 1):
+                    a = np.empty(3, dtype=np.float32)
+                    b = np.empty(3, dtype=np.float32)
+                    other = [k for k in range(3) if k != axis]
+                    a[axis], b[axis] = lo, hi
+                    a[other[0]] = b[other[0]] = corners[i, other[0]]
+                    a[other[1]] = b[other[1]] = corners[j, other[1]]
+                    edges.append((a, b))
+        per = max(n // len(edges), 1)
+        t = np.linspace(0.0, 1.0, per, dtype=np.float32)[:, None]
+        pts = [a + (b - a) * t for a, b in edges]
+        return np.ascontiguousarray(np.concatenate(pts), dtype=np.float32)
+
+    def swarm(self) -> np.ndarray:
+        """Eight drifting blobs — several objects in the scene rather than
+        one. Voxelises into separated clusters, unlike every other pattern."""
+        k = 8
+        n = self.num_points
+        # Cluster centres are fixed for the run; only their drift moves.
+        base = np.random.default_rng(self.seed).random((k, 3)).astype(np.float32)
+        base = base * (EXTENT - 3.0) + 1.5
+        a = self._phase()
+        drift = 0.8 * np.stack([
+            np.sin(a + np.arange(k, dtype=np.float32)),
+            np.cos(a + np.arange(k, dtype=np.float32)),
+            np.sin(2 * a + np.arange(k, dtype=np.float32)),
+        ], -1)
+        per = max(n // k, 1)
+        blobs = [
+            (base[i] + drift[i])
+            + self.rng.standard_normal((per, 3)).astype(np.float32) * 0.45
+            for i in range(k)
+        ]
+        pts = np.concatenate(blobs)
+        return np.ascontiguousarray(np.clip(pts, 0.0, EXTENT), dtype=np.float32)
 
     def lidar_scan(self) -> np.ndarray:
         """A spinning multi-beam sweep inside a 10 m room.

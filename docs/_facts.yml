@@ -114,11 +114,26 @@ env:
 # carries. Ratios measured at 3,000 points and VOXEL_SIZE 0.5.
 workload:
   voxel_size_m: 0.5
+  # Compression is points / occupied voxels, measured with the edge's own
+  # voxeliser (process_cloud, edge_node.py) averaged over 30 frames. It scales
+  # with the point count -- the same shape compresses harder when more points
+  # land in the same voxels -- so the count is recorded here. These are at the
+  # 5,000-point default; the previous figures were taken at 3,000 and did not
+  # say so, which is why they read lower. These match the run form in
+  # admin.html -- that is the copy an operator reads when choosing a shape, so
+  # the two must not drift apart.
+  compression_measured_at_points: 5000
   patterns:
-    uniform_cube:   {compression: "1.2x", note: "default; random points in a 10 m cube"}
-    sphere:         {compression: "3.4x", note: "points on a shell, radius 4 about (5,5,5)"}
-    lidar_scan:     {compression: "5.4x", note: "16 beams, -15..+15 deg, ray-cast against a 10 m room; rotates 1 deg/frame"}
-    rotating_plane: {compression: "6.6x", note: "a flat sheet tumbling with the frame index"}
+    uniform_cube:   {compression: "1.4x", note: "default; random points in a 10 m cube"}
+    sphere:         {compression: "5.2x", note: "points on a shell, radius 4 about (5,5,5)"}
+    lidar_scan:     {compression: "9.0x", note: "16 beams, -15..+15 deg, ray-cast against a 10 m room; rotates 1 deg/frame"}
+    rotating_plane: {compression: "11.7x", note: "a flat sheet tumbling with the frame index; centred in the box"}
+    torus:          {compression: "8.4x", note: "a ring tumbling about the x axis; voxelises to a closed tube"}
+    helix:          {compression: "16.4x", note: "two strands winding up the box; sparse by design, so the voxel count stays low at any point count"}
+    wave:           {compression: "6.5x", note: "a rippling sheet moving through z rather than rotating"}
+    cylinder:       {compression: "5.4x", note: "the inside of a fluted rotating duct -- the closest shape to an industrial scene"}
+    cube_edges:     {compression: "23.5x", note: "a wireframe along the 12 edges of the box; the sparsest shape, so it compresses hardest"}
+    swarm:          {compression: "6.7x", note: "eight drifting blobs -- several objects in the scene, voxelising into separated clusters"}
 
 # --- output layout ----------------------------------------------------------
 outputs:

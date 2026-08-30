@@ -569,4 +569,6 @@ class Orchestrator:
             # declared, which is how the page knows to hide that card.
             "topology": {**self.topology.to_dict(), "mermaid": topo.to_mermaid(self.topology)},
             "findings": list(self._findings),
+            # Empty means "derive from the page's own host" — see config.
+            "logging_url": self._settings.logging_public_url,
         }
