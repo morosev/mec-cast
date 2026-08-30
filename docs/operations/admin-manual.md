@@ -386,7 +386,54 @@ Interactive API docs are at `http://localhost:8000/docs`.
 
 ## Backup and restore
 
-Dump the whole database:
+**In the lab, the infra role backs itself up.** A `backup` service dumps the
+database on a schedule — weekly by default — to a directory on the *host*, not
+into a volume. That is the whole point: `down -v`, a prune, or a disk swap all
+take `pgdata` with them, and a backup living inside it would go too.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `BACKUP_DIR` | `/var/backups/mec-cast` | Host directory the dumps land in |
+| `BACKUP_EVERY` | `7d` | How often. Accepts `7d`, `24h`, `90m`, `3600s` |
+| `BACKUP_KEEP` | `8` | Dumps retained; the oldest beyond this are pruned |
+| `BACKUP_CHECK_EVERY` | `1h` | How often it checks whether one is due |
+
+The schedule is derived from the directory, not from a timer inside the
+container: it asks "is the newest dump older than `BACKUP_EVERY`?". So it
+survives restarts, closes a gap after downtime rather than skipping it, and
+takes its first dump **immediately** on deployment — waiting a week to find out
+the credentials or the mount were wrong is the failure that avoids.
+
+Check it is actually working:
+
+```bash
+ls -lt /var/backups/mec-cast | head -3
+docker compose -f deploy/lab/compose.infra.yml logs backup | tail -5
+```
+
+A healthy log line reads `backup: wrote mec_cast_logs-20260830T114929Z.dump
+(296K)`. A broken one reads `backup: FAILED:` and the `pg_dump` error. **It
+retries rather than exiting**, so a persistent failure is visible only here or
+in the file dates — worth a glance whenever you touch the infra host.
+
+To reconfigure later, set the variable and recreate just that service:
+
+```bash
+BACKUP_EVERY=24h docker compose -f deploy/lab/compose.infra.yml up -d backup
+```
+
+Restore a dump into a running instance:
+
+```bash
+docker exec -i compose-postgres-1 pg_restore -U postgres -d mec_cast_logs --clean \
+  < /var/backups/mec-cast/mec_cast_logs-20260830T114929Z.dump
+```
+
+**`BACKUP_DIR` must stay outside `~/mec-cast`.** `deploy.sh` rsyncs that tree
+with `--delete`, so a backup directory inside it is erased by the next deploy,
+silently, and precisely when you would most want it.
+
+The local (non-lab) compose has no backup service — dump it by hand:
 
 ```bash
 docker exec compose-postgres-1 pg_dump -U postgres -Fc mec_cast_logs > backup-$(date +%F).dump

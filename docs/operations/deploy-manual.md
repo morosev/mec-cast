@@ -11,6 +11,7 @@ that already exists is [admin-manual.md](admin-manual.md).
 
 - [Prerequisites](#prerequisites)
 - [One-time setup per machine](#one-time-setup-per-machine)
+- [Database backups (infra role)](#database-backups-infra-role)
 - [Local deployment](#local-deployment)
 - [Lab deployment](#lab-deployment)
 - [Watching a run in the lab](#watching-a-run-in-the-lab)
@@ -140,6 +141,37 @@ ssh-copy-id <user>@<host>
 Worth doing for its own sake: the last deploy step runs the version report on
 the host so you see what landed, and that is easy to abandon at a fifth
 password prompt.
+
+## Database backups (infra role)
+
+The infra role deploys a `backup` service alongside PostgreSQL. It is on by
+default at a weekly cadence, so a deployment that sets nothing still gets
+backups — and takes its first one immediately, which is what proves the
+configuration works.
+
+Set the directory at deploy time:
+
+```bash
+BACKUP_DIR=/srv/mec-cast-backups BACKUP_EVERY=24h \
+  bash deploy/lab/deploy.sh infra ops@infra-host
+```
+
+`BACKUP_DIR` is a path on the **infra host**. Point it at a mounted share
+(NFS, SMB, an attached disk) to land the dumps on another machine — the
+service only needs a writable directory, and does not care what is behind it.
+
+Two constraints worth knowing before choosing a path:
+
+- **Keep it outside `~/mec-cast`.** This script rsyncs that tree with
+  `--delete`; anything inside it that is not in the source is removed on the
+  next deploy.
+- **It is created as root** if it does not exist, because the backup container
+  runs as root to write there. Pre-create it with the ownership you want if
+  that matters on your host.
+
+`BACKUP_EVERY`, `BACKUP_KEEP` and `BACKUP_CHECK_EVERY` are forwarded the same
+way and can be changed later without redeploying — see
+[admin-manual.md](admin-manual.md#backup-and-restore).
 
 ## Local deployment
 

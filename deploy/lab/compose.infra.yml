@@ -43,5 +43,33 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Periodic pg_dump to a directory on the HOST, not into a volume. The whole
+  # point is to survive the volume: `down -v`, a prune, or a disk swap all
+  # take pgdata with them, and a backup living inside it would go too.
+  #
+  # BACKUP_DIR must stay OUTSIDE ~/mec-cast. deploy.sh rsyncs that tree with
+  # --delete, so a backup directory inside it is erased by the next deploy --
+  # silently, and exactly when you are most likely to want it.
+  backup:
+    image: postgres:16
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: mec_cast_logs
+      # How often to dump. 7d by default; accepts 7d / 24h / 90m / 3600s.
+      BACKUP_EVERY: ${BACKUP_EVERY:-7d}
+      # How many dumps to keep. Eight weeklies is roughly two months.
+      BACKUP_KEEP: ${BACKUP_KEEP:-8}
+      # How often to check whether one is due. Not the backup interval.
+      BACKUP_CHECK_EVERY: ${BACKUP_CHECK_EVERY:-1h}
+    volumes:
+      - ${BACKUP_DIR:-/var/backups/mec-cast}:/backups
+      - ./pg-backup.sh:/pg-backup.sh:ro
+    entrypoint: ["/bin/bash", "/pg-backup.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
