@@ -18,6 +18,7 @@ How runs are named and stored: [ADR-0008](../architecture/adr/0008-run-identity-
 - [Diagnostics](#diagnostics)
 - [The declared topology](#the-declared-topology)
 - [The protocol](#the-protocol)
+- [Ordering](#ordering)
 - [Where runs are stored](#where-runs-are-stored)
 - [Security posture](#security-posture)
 
@@ -46,11 +47,17 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 
 | Column | Meaning |
 |---|---|
+| ☐ | Selection box; the header box selects every row |
 | `#` | Monotonic run number, for talking about a run out loud |
 | Run | Last eight characters of the id; click to copy the whole thing |
 | Status | The state machine's current state |
 | Participants | client / edge / gnb / render counts, red when a *required* role is missing |
+| Started | When the run began. **Rows are ordered newest first by this**, not by id |
 | Findings | Count of errors currently detected for the active run |
+
+**logs ↗** on each row opens that run's session in the logging dashboard —
+`/dashboard?run=<run_id>`, since the run id is the `trace_id` every component
+files its telemetry under, so one query covers client, edge, renderer and RAN.
 
 **Add run** creates a run in `draft` with the workload it will carry —
 `num_points`, `rate_hz`, `seed`, `reliability`, `qos_depth`. Those travel to
@@ -59,6 +66,12 @@ rather than whatever the containers happened to be started with.
 
 **Remove** takes the row out of the table. It never deletes measurement data:
 `runs/<run_id>/` and its CSVs stay exactly where they are.
+
+**Remove selected** does the same for a set of rows. It appears only once
+something is selected, and issues one `DELETE` per run rather than a bulk call:
+each row gets the same 409-with-a-reason a single Remove would, and a run that
+refuses does not stop the others. The selection survives the snapshot pushes
+that replace the rest of the view.
 
 Buttons are enabled from an `allowed` list the server sends with each row. The
 page never decides for itself, so what you can press and what the service will
@@ -255,6 +268,20 @@ rather than a silent drop.
 (`ran/collector/src/admin.rs`) are separate implementations. All three test
 suites read `services/admin/tests/vectors.json`, so they cannot drift apart in
 silence. **Change that file and all three when the protocol changes.**
+
+## Ordering
+
+Newest first, by `created_utc`.
+
+Ordering by `run_id` would be free — the admin mints UUIDv7, which sorts
+chronologically, and that is why it mints them. But `run-experiment.sh` mints
+its own with `uuidgen`, and a UUIDv4's leading bytes are random. Both writers'
+manifests land in the same directory, so id order put the script's runs in
+arbitrary order among themselves and, since every v7 id begins `01`, above
+every admin-minted run as well. The newest run was reliably not at the top.
+
+`created_utc` is present for both: manifests without one fall back to
+`started_utc` when loaded, which the script always writes.
 
 ## Where runs are stored
 

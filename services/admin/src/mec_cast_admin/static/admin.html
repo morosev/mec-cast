@@ -27,8 +27,12 @@
   <section class="card">
     <h2>Runs <span id="runCount" class="dim"></span></h2>
 
-    <div style="margin-bottom:14px">
+    <div class="toolbar">
       <button id="addToggle" class="primary" type="button">Add run</button>
+      <div id="bulkBar" class="bulkbar hidden">
+        <span id="bulkCount" class="dim"></span>
+        <button id="bulkRemove" class="danger" type="button">Remove selected</button>
+      </div>
     </div>
 
     <form id="addForm" class="addform" autocomplete="off">
@@ -85,6 +89,8 @@
     <table id="runsTable">
       <thead>
         <tr>
+          <th class="pick"><input type="checkbox" id="selectAll"
+              title="select every run in the table"></th>
           <th>#</th><th>Run</th><th>Label</th><th>Status</th>
           <th>Participants</th><th>Started</th><th>Findings</th><th></th>
         </tr>
@@ -117,6 +123,14 @@
       one will appear here shortly after it starts — check <code>ADMIN_URL</code>
       if none does.
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Service</h2>
+    <p class="dim" style="margin:0 0 12px">
+      What this admin is, and the timings it judges nodes by.
+    </p>
+    <div id="serviceInfo" class="infogrid"></div>
   </section>
 
   <section class="card hidden" id="topologyCard">

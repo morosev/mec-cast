@@ -38,6 +38,9 @@ class Orchestrator:
     def __init__(self, settings: Settings, store: RunStore) -> None:
         self._settings = settings
         self._store = store
+        #: When this process came up. The page shows uptime from it, which is
+        #: the first thing to check when nodes look like they have vanished.
+        self._started_utc = utc_now()
         self.registry = Registry(offline_timeout_s=settings.offline_timeout_s)
         # Operator actions belong on the same timeline as the measurements.
         self.events = EventLog(settings.logging_url)
@@ -122,10 +125,22 @@ class Orchestrator:
         return runs[0] if runs else None
 
     def visible_runs(self) -> list[Run]:
-        """Newest first. UUIDv7 sorts chronologically, which is the point."""
+        """Newest first, by creation time rather than by id.
+
+        Sorting by run_id held only while every id was a UUIDv7, which sorts
+        chronologically. `scripts/run-experiment.sh` mints its own with
+        uuidgen -- UUIDv4, whose leading bytes are random -- so those runs
+        sorted arbitrarily among themselves and, because every admin id begins
+        `01`, above every admin-minted run as well. The newest run in the
+        table was reliably not at the top.
+
+        `created_utc` is present for both writers: `from_manifest` falls back
+        to `started_utc` for the script's manifests, which have no created_utc
+        of their own. run_id breaks ties within the same second.
+        """
         return sorted(
             (r for r in self._runs.values() if not r.removed),
-            key=lambda r: r.run_id,
+            key=lambda r: (r.created_utc, r.run_id),
             reverse=True,
         )
 
@@ -571,4 +586,19 @@ class Orchestrator:
             "findings": list(self._findings),
             # Empty means "derive from the page's own host" — see config.
             "logging_url": self._settings.logging_public_url,
+            # What this admin is and how it is tuned. The timeouts decide when
+            # a node is called offline and when a start is called failed, so
+            # an operator reading a stale-looking page needs them visible
+            # rather than having to read the compose file.
+            "service": {
+                "version": __version__,
+                "protocol": p.PROTOCOL_VERSION,
+                "started_utc": self._started_utc,
+                "runs_dir": self._settings.runs_dir,
+                "topology_path": self._settings.topology_path,
+                "keepalive_s": self._settings.keepalive_s,
+                "offline_timeout_s": self._settings.offline_timeout_s,
+                "start_timeout_s": self._settings.start_timeout_s,
+                "diagnostics_interval_s": self._settings.diagnostics_interval_s,
+            },
         }

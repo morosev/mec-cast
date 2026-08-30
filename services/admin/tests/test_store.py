@@ -148,3 +148,59 @@ class TestJournal:
         store.save(run)
         store.journal(run.run_id, "start", {"to": "teleported"})
         assert JsonRunStore(tmp_path).load()[run.run_id].state is RunState.DRAFT
+
+
+class TestRunOrdering:
+    """Newest first, across both id schemes.
+
+    The admin mints UUIDv7, which sorts chronologically. But
+    `scripts/run-experiment.sh` mints its own with uuidgen -- UUIDv4, whose
+    leading bytes are random -- and both writers' manifests land in the same
+    directory. Ordering the table by run_id therefore sorted the script's runs
+    arbitrarily among themselves and, because every v7 id begins `01`, above
+    every admin-minted run as well. The newest run was reliably not at the top.
+    """
+
+    #: A v4 id whose leading hex is above any v7 id's, paired with the OLDEST
+    #: timestamp, so id order and time order disagree by construction. Sorting
+    #: by id puts this first; sorting by time puts it last.
+    SCRIPT_RUN = "f9c9c1bc-13bb-4cf5-9c23-99c1040d8e23"
+    ADMIN_OLDER = "01a04fae-50a5-7000-ad8e-5f539cdfc60f"
+    ADMIN_NEWEST = "01a04fff-0000-7000-8000-000000000000"
+
+    def _write(self, tmp_path, run_id, started, created=None):
+        directory = tmp_path / run_id
+        directory.mkdir()
+        manifest = {"run_id": run_id, "seq": 0, "started_utc": started}
+        if created:
+            manifest["created_utc"] = created
+        (directory / "run.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    def test_newest_first_across_both_id_schemes(self, tmp_path, settings):
+        from mec_cast_admin.orchestrator import Orchestrator
+
+        # The script's manifests carry no created_utc at all; from_manifest
+        # falls back to started_utc, which is what makes them orderable.
+        self._write(tmp_path, self.SCRIPT_RUN, "2026-01-01T00:00:00Z")
+        self._write(
+            tmp_path, self.ADMIN_OLDER, "2026-06-01T00:00:00Z", created="2026-06-01T00:00:00Z"
+        )
+        self._write(
+            tmp_path, self.ADMIN_NEWEST, "2026-09-01T00:00:00Z", created="2026-09-01T00:00:00Z"
+        )
+
+        store = JsonRunStore(tmp_path)
+        orch = Orchestrator(settings, store)
+        # Orchestrator.start() is async and launches the diagnostics and
+        # broadcast tasks; the ordering under test needs neither, so the
+        # loaded runs go in directly.
+        orch._runs = store.load()
+        got = [r.run_id for r in orch.visible_runs()]
+
+        assert got == [self.ADMIN_NEWEST, self.ADMIN_OLDER, self.SCRIPT_RUN]
+
+        # And not vacuous: the old key produces a different, wrong answer, so
+        # this test fails against the behaviour it was written for.
+        by_id = sorted(got, reverse=True)
+        assert by_id != got
+        assert by_id[0] == self.SCRIPT_RUN

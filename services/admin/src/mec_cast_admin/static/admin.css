@@ -77,10 +77,10 @@ button.danger:hover:not(:disabled) { border-color: var(--rose); color: var(--ros
   display: flex; align-items: center; gap: 8px;
 }
 
-/* The action column carries three buttons and a link whose label is a phrase,
-   so below roughly 1100px the row is wider than the window. Scroll the card
-   rather than letting Remove slide off the right edge, where it is
-   unreachable and invisible at the same time. */
+/* The row carries a selection box, seven columns, three buttons and a link,
+   so below roughly 1100px it is wider than the window. Scroll the card rather
+   than letting Remove slide off the right edge, where it is unreachable and
+   invisible at the same time. */
 .card { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1040px; }
 th {
@@ -136,6 +136,34 @@ td.actions button { margin-left: 6px; padding: 4px 10px; min-height: 28px; }
 }
 .field input { width: 130px; }
 .field input.wide { width: 220px; }
+
+/* Toolbar above the runs table. The bulk bar sits on the right and appears
+   only with a selection: a Remove button that is permanently visible and
+   usually disabled reads as broken rather than as inapplicable. */
+.toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.bulkbar { display: inline-flex; align-items: center; gap: 10px; }
+.bulkbar.hidden { display: none; }
+
+/* Selection column. Narrow and centred; the header box drives select-all. */
+th.pick, td.pick { width: 28px; text-align: center; padding-left: 10px; padding-right: 0; }
+th.pick input, td.pick input { cursor: pointer; margin: 0; vertical-align: middle; }
+
+/* Service card: label/value pairs that wrap into columns as width allows.
+   Not a table -- there is one row per fact and no relationship between them,
+   so a table would promise a structure that is not there. */
+.infogrid {
+  display: grid; gap: 10px 28px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.infoitem {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--grid);
+}
+.infoitem .k { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.infoitem .v { font-size: 12px; text-align: right; word-break: break-all; }
 
 .empty {
   padding: 36px 20px; text-align: center; color: var(--text-muted);

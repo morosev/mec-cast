@@ -16,7 +16,11 @@
 const API = '/api/v1';
 const $ = (id) => document.getElementById(id);
 
-const state = { snapshot: null, socket: null, pollTimer: null };
+// `selected` is deliberately outside the snapshot: the server pushes a full
+// replacement on every change, and a selection that vanished whenever another
+// node reported would be unusable. Ids that no longer exist are pruned on
+// each render rather than accumulating.
+const state = { snapshot: null, socket: null, pollTimer: null, selected: new Set() };
 
 const esc = (text) =>
   String(text ?? '').replace(/[&<>"']/g, (c) =>
@@ -227,7 +231,10 @@ function renderRuns(snapshot) {
     const button = (action, label, cls) =>
       `<button type="button" class="${cls || ''}" data-run="${esc(run.run_id)}" ` +
       `data-action="${action}" ${allowed.includes(action) ? '' : 'disabled'}>${label}</button>`;
+    const picked = state.selected.has(run.run_id) ? 'checked' : '';
     return `<tr>
+      <td class="pick"><input type="checkbox" class="rowpick"
+          data-run="${esc(run.run_id)}" ${picked}></td>
       <td class="mono dim">${run.seq}</td>
       <td class="mono"><span class="copy" title="${esc(run.run_id)} — click to copy"
           data-copy="${esc(run.run_id)}">${esc(shortId(run.run_id))}</span></td>
@@ -239,7 +246,7 @@ function renderRuns(snapshot) {
       <td class="actions">
         <a class="svc" href="${esc(runLogsUrl(snapshot, run.run_id))}"
            target="_blank" rel="noopener"
-           title="open the logging dashboard on this run">point cloud viewer ↗</a>
+           title="open this run's session in the logging dashboard">logs ↗</a>
         ${button('start', 'Start', 'primary')}
         ${button('stop', 'Stop')}
         ${button('remove', 'Remove', 'danger')}
@@ -253,6 +260,62 @@ function renderRuns(snapshot) {
   for (const el of body.querySelectorAll('[data-copy]')) {
     el.addEventListener('click', () => copyId(el.dataset.copy));
   }
+
+  const live = new Set(runs.map((r) => r.run_id));
+  for (const id of [...state.selected]) if (!live.has(id)) state.selected.delete(id);
+
+  for (const el of body.querySelectorAll('.rowpick')) {
+    el.addEventListener('change', () => {
+      if (el.checked) state.selected.add(el.dataset.run);
+      else state.selected.delete(el.dataset.run);
+      syncSelection();
+    });
+  }
+  syncSelection();
+}
+
+/** Reflect the selection in the bulk bar and the select-all box. */
+function syncSelection() {
+  const runs = (state.snapshot?.runs || []).map((r) => r.run_id);
+  const n = state.selected.size;
+
+  $('bulkBar').classList.toggle('hidden', n === 0);
+  $('bulkCount').textContent = n === 1 ? '1 run selected' : `${n} runs selected`;
+
+  const all = $('selectAll');
+  // Indeterminate rather than a half-truth: an unchecked box next to a
+  // partial selection invites a click that silently clears it.
+  all.checked = runs.length > 0 && n === runs.length;
+  all.indeterminate = n > 0 && n < runs.length;
+}
+
+/** Remove every selected run, one request each.
+ *
+ *  There is no bulk endpoint, and adding one would need a partial-failure
+ *  contract. Sequential DELETEs give each run the same 409-with-a-reason the
+ *  single-row button gives, and a run that refuses does not stop the rest.
+ */
+async function bulkRemove() {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  const ok = confirm(
+    `Remove ${ids.length} run(s) from the table?\n\n` +
+    'Measurement data is kept: the CSVs and run.json stay on disk. Only the rows go.');
+  if (!ok) return;
+
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await call('DELETE', `/runs/${id}`);
+      state.selected.delete(id);
+    } catch {
+      failed.push(id);
+    }
+  }
+  if (failed.length) {
+    showError(`${failed.length} of ${ids.length} could not be removed — see the row's own state.`);
+  }
+  syncSelection();
 }
 
 function renderFindings(snapshot) {
@@ -346,6 +409,36 @@ function renderNodes(snapshot) {
   }).join('');
 }
 
+function uptime(iso) {
+  if (!iso) return '—';
+  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function renderService(snapshot) {
+  const svc = snapshot.service;
+  if (!svc) return;
+  const rows = [
+    ['Version', svc.version],
+    ['Protocol', `v${svc.protocol}`],
+    ['Started', `${when(svc.started_utc)} · up ${uptime(svc.started_utc)}`],
+    ['Runs directory', svc.runs_dir],
+    ['Topology file', snapshot.topology?.source || `${svc.topology_path} (absent)`],
+    ['Logging dashboard', loggingBase(snapshot)],
+    ['Node goes offline after', `${svc.offline_timeout_s}s · keepalive ${svc.keepalive_s}s`],
+    ['Start fails after', `${svc.start_timeout_s}s`],
+    ['Diagnostics run every', `${svc.diagnostics_interval_s}s`],
+  ];
+  $('serviceInfo').innerHTML = rows.map(([k, v]) =>
+    `<div class="infoitem"><span class="k">${esc(k)}</span>` +
+    `<span class="v mono">${esc(v)}</span></div>`).join('');
+}
+
 function render(snapshot) {
   state.snapshot = snapshot;
   const online = (snapshot.nodes || []).filter((n) => n.online).length;
@@ -358,9 +451,18 @@ function render(snapshot) {
   renderTopology(snapshot);
   renderCellChoices(snapshot);
   serviceLinks(snapshot);
+  renderService(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */
+
+$('bulkRemove').addEventListener('click', bulkRemove);
+$('selectAll').addEventListener('change', (event) => {
+  const ids = (state.snapshot?.runs || []).map((r) => r.run_id);
+  if (event.target.checked) for (const id of ids) state.selected.add(id);
+  else state.selected.clear();
+  renderRuns(state.snapshot || { runs: [] });
+});
 
 $('addToggle').addEventListener('click', () => $('addForm').classList.toggle('open'));
 $('addCancel').addEventListener('click', () => $('addForm').classList.remove('open'));
