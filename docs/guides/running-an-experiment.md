@@ -21,6 +21,13 @@ Each run produces `runs/<run_id>/`:
 | `render-<j>/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
 | `render-<j>/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
 
+**These CSVs are the source of truth for analysis.** The same run also reaches
+PostgreSQL through the logging service, but as one aggregate row per two-second
+window rather than per frame — good for watching a run and comparing many, and
+structurally unable to answer a session-wide percentile, because percentiles do
+not compose across windows. Which store answers what:
+[admin-manual.md](../operations/admin-manual.md#where-the-data-lives).
+
 Directory leaves are instance-suffixed (`pub-0`, `pub-1`, …) since the
 multi-instance model: a UE can host several lidar and render instances in one
 process (`LIDAR_INSTANCES` / `RENDER_INSTANCES`), and every instance keeps its

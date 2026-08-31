@@ -12,6 +12,7 @@ procedures, not the reference.
 - [Cheat sheet](#cheat-sheet)
 - [What up and down actually do](#what-up-and-down-actually-do)
 - [Starting and stopping one service](#starting-and-stopping-one-service)
+- [Where the data lives](#where-the-data-lives)
 - [Reading logs](#reading-logs)
 - [Getting inside a container](#getting-inside-a-container)
 - [Running with the admin service](#running-with-the-admin-service)
@@ -124,6 +125,79 @@ Graceful stop, with room for the recorders to flush:
 ```bash
 compose stop -t 15 lidar-client edge
 ```
+
+## Where the data lives
+
+A run is written to **two stores with different granularity**, and neither is
+a copy of the other.
+
+| | Per-frame CSV | PostgreSQL |
+|---|---|---|
+| Written by | every recorder, one row per frame | every recorder, one row per window |
+| Cadence | 10 rows/s at 10 Hz | one row per `interval_s` (2 s) |
+| Lives on | each node's **own host**, `runs/<RUN_ID>/<site>/samples.csv` | the infra host |
+| Holds | 14 columns of raw stamps and derived delays | aggregates over the window |
+| Spans hosts | no | **yes** |
+
+At 10 Hz that is **20 frames collapsed into one row** — roughly 20:1, and the
+individual frames are not recoverable from it.
+
+The CSV carries every stamp:
+
+```
+seq, modality, kind, site, capture_ns, send_ns, recv_ns, process_done_ns,
+payload_bytes, aux_ns, network_ns, e2e_ns, processing_ns, sender_ns
+```
+
+The database carries nine numbers per metric — `count, min, max, mean,
+stddev, p50, p90, p99, last` for each of `e2e`, `network`, `processing` and
+`sender` — plus PTP state, drop counters and the sequence span. Field by
+field: [logging-submodule.md](logging-submodule.md#what-is-actually-written-to-the-database).
+
+### Why the database is not the source of truth
+
+**Percentiles do not compose.** Extremes and counts do: session min, max,
+totals and the count-weighted mean can all be rebuilt exactly from windows.
+But given twenty windows each with a p99, no arithmetic recovers the session
+p99 — that needs the underlying samples, and the recorder discarded them when
+it wrote the window.
+
+So the dashboard reports the **median of window p50s**, labelled *typical*,
+with the worst window beside it. It does not call that a session p50, and
+nothing in the aggregation layer invents one. ADR-0004 took that trade
+deliberately: an exact windowed percentile is defensible, an approximation
+called `p99` is not.
+
+### Which store answers what
+
+| Question | CSV | Database |
+|---|---|---|
+| Session p99 glass-to-glass | **yes** | no |
+| Exact min / max / mean / counts | yes | **yes** |
+| Worst window observed | yes | **yes** |
+| Latency of one specific frame | **yes** | no |
+| Which frames were lost, by `seq` | **yes** | counts only |
+| Payload size against latency | **yes** | no |
+| Live view while a run is going | awkward | **yes** |
+| Compare forty runs at a glance | awkward | **yes** |
+
+Reach for the dashboard to see what is happening and to find the run worth
+looking at. Reach for the CSVs to answer a question about the measurement
+itself. A finding like head-of-line blocking — visible only as *clusters* in
+the per-frame sequence — cannot be seen in a two-second aggregate at all.
+
+### Two consequences worth knowing
+
+**The CSVs are per host.** Each node writes to the machine it runs on, so a
+lab run's data is spread across the UE, edge and gNB hosts. The manifest's
+`sites` records which host holds which directory; there is no step that
+collects them.
+
+**Durability runs the wrong way round.** The database — the lossy copy — has
+scheduled backups. The CSVs — the source of truth — have none, and
+`prune-runs.sh` can delete them. Losing the database costs you dashboards;
+losing `runs/` costs you the experiment. Back up `runs/` with ordinary file
+tooling if a campaign matters.
 
 ## Reading logs
 
@@ -446,8 +520,8 @@ docker exec -i compose-postgres-1 pg_restore -U postgres -d mec_cast_logs --clea
 ```
 
 Per-frame CSV is already on the host under `runs/` — back that up with ordinary
-file tooling. It is the source of truth for whole-run statistics; the snapshots
-in PostgreSQL are windowed summaries.
+file tooling. It is the source of truth and this backup does not cover it; see
+[Where the data lives](#where-the-data-lives).
 
 Take a dump before anything that could destroy the volume: `make down-hard`,
 `docker compose down -v`, or `docker system prune --volumes`.
