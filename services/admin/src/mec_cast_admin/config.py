@@ -43,6 +43,33 @@ class Settings(BaseSettings):
     # How long a run may sit in `starting` before it is declared failed.
     start_timeout_s: float = Field(default=30.0, gt=0)
 
+    # How long a run may RECORD before the admin stops it. A forgotten run
+    # writes until the disk is full: measured at the 5,000-point default a
+    # renderer's session.rrd alone grows 4.6 GB/day, 24x faster than the CSVs
+    # and the database put together. Four hours is comfortably longer than any
+    # experiment run so far and far short of a weekend.
+    #
+    # This is a guard, not a policy: a 24-hour soak is a legitimate
+    # experiment, so raise it for one, and 0 disables the stop entirely.
+    # WF_RUN_TOO_LONG warns at 80% either way, which is the point at which a
+    # deliberate long run can still be extended rather than cut off.
+    max_run_duration_s: float = Field(default=14400.0, ge=0)
+
+    # Free space on the runs volume, in GB. Below `start` a new run is
+    # refused; below `abort` a recording run is stopped. The danger is not the
+    # run: it is that on the infra host a full disk stops PostgreSQL writing,
+    # which takes the measurement database and every role's telemetry sink
+    # with it, and presents as "the logging service broke".
+    #
+    # abort < start on purpose. Refusing to start leaves room to investigate;
+    # by the time the lower mark is hit, stopping is the last thing that can
+    # still be done cleanly. 0 disables either check.
+    # Sized against what a run actually costs -- ~5 GB for 24 h with one
+    # renderer -- not against a big disk. A floor larger than the volume
+    # blocks every run forever, which is worse than no guard at all.
+    min_free_gb_start: float = Field(default=10.0, ge=0)
+    min_free_gb_abort: float = Field(default=2.0, ge=0)
+
     # Cadence of the derived-diagnostics pass and of UI snapshot broadcasts.
     diagnostics_interval_s: float = Field(default=5.0, gt=0)
     ui_broadcast_min_interval_s: float = Field(default=1.0, gt=0)

@@ -472,13 +472,70 @@ docker exec compose-logging-1 mec-cast-logs purge --days 30
 In the lab, run it from cron or a systemd timer on the infra host at whatever
 cadence your volume needs.
 
+### Safety guards for long runs
+
+A run nobody stops writes until the disk is full. Measured at the 5,000-point
+default, a 24-hour run costs roughly:
+
+| Writer | 24 h |
+|---|---:|
+| `session.rrd` (per renderer) | **4.6 GB** |
+| CSVs, all three sites | 0.37 GB |
+| PostgreSQL | 0.19 GB |
+
+The `.rrd` is 37× everything else. Three guards bound that, all configurable
+and all disabled by `0`:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `MECADM_MAX_RUN_DURATION_S` | `14400` (4 h) | Recording past this is stopped |
+| `MECADM_MIN_FREE_GB_START` | `10` | A new run is refused below this |
+| `MECADM_MIN_FREE_GB_ABORT` | `2` | A recording run is stopped below this |
+| `record_rrd_max_mb` (render node) | `500` | The `.rrd` stops growing past this |
+
+**These are guards, not policy.** A 24-hour soak is a legitimate experiment —
+raise the limit for one, or set it to `0`:
+
+```bash
+MECADM_MAX_RUN_DURATION_S=90000 docker compose -f deploy/lab/compose.infra.yml up -d admin
+```
+
+An auto-stop goes through the **ordinary stop path**: nodes receive `run.stop`,
+flush their recorders and send reports, so the manifest is complete. A run a
+watchdog ended is indistinguishable afterwards from one you stopped, except
+that the journal says why:
+
+```bash
+grep auto-stop runs/admin-journal.jsonl
+```
+
+```
+{"ts": "...", "run_id": "...", "event": "auto-stop",
+ "reason": "recorded 4.1 h, over the 4.0 h limit (MECADM_MAX_RUN_DURATION_S)"}
+```
+
+Refusing to start returns a 409 naming the number, which the page shows:
+
+```
+Only 6.2 GB free on /runs, and a run needs 10 GB. Free space first —
+`bash scripts/prune-runs.sh -r -a` removes runs already taken out of the table.
+```
+
+The `.rrd` cap is the one that saves the most bytes and costs nothing
+measured: when it fires the file stops growing, the live stream and every
+measurement continue, and the renderer says so once. 500 MB is about 2.6 hours
+of recording.
+
+**Pick floors that fit the volume.** A floor larger than the disk blocks every
+run forever — worse than no guard. The defaults suit a 20 GB partition or
+better; on anything smaller, lower them or set them to `0`.
+
 ### Deleting old runs
 
-`runs/` is the bigger consumer, and nothing prunes it. Two stores hold a run
-and neither is a backup of the other: the per-frame CSVs under `runs/<id>/`
-are the source of truth for whole-run statistics, and the telemetry in
-PostgreSQL is windowed summaries of the same run. `purge` above handles the
-database; this handles the disk.
+`runs/` is the bigger consumer, and nothing prunes it. It holds the per-frame
+CSVs, which the database cannot replace — see
+[Where the data lives](#where-the-data-lives). `purge` above handles the
+database; this handles the disk, and the two are not interchangeable.
 
 **Dry run by default** — it prints what it would remove and removes nothing:
 

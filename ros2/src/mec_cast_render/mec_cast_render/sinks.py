@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+import os
+
 import numpy as np
 
 if TYPE_CHECKING:  # the runtime import is inside the functions that need it
@@ -89,7 +91,8 @@ class RerunSink:
 
     def __init__(self, run_id: str, serve: bool = True, web_port: int = 9876,
                  grpc_port: int = 9877, viewer_host: str = "localhost",
-                 rrd_path: str | None = None):
+                 rrd_path: str | None = None,
+                 rrd_max_mb: float = 0.0):
         try:
             import rerun as rr
         except ImportError as exc:  # pragma: no cover - depends on the image
@@ -104,6 +107,26 @@ class RerunSink:
         # switching runs does not silently append to the previous one's timeline.
         rr.init("mec-cast-render", recording_id=run_id)
         self.rrd_path = rrd_path
+        # Kept so the cap can rebuild the sink set without the file sink and
+        # still serve: set_sinks replaces the whole set, so the server sink
+        # has to be named again.
+        self.serving = serve
+        self.grpc_port = grpc_port
+        # A cap on the .rrd, in MB. 0 means no cap.
+        #
+        # This file is the single biggest thing a long run writes: measured at
+        # the 5,000-point default it grows 3.2 MB/min -- 4.6 GB/day, against
+        # 0.37 GB/day for every CSV combined and 0.19 GB/day for the database.
+        # A run forgotten over a weekend fills a disk with it.
+        #
+        # Capping rather than disabling: the .rrd is a convenience for looking
+        # at a run afterwards, not a measurement, and the first 500 MB of one
+        # is as useful for that as the whole thing. Nothing measured is
+        # affected when the cap is hit -- samples.csv and the telemetry
+        # snapshots carry on untouched.
+        self.rrd_max_bytes = int(rrd_max_mb * 1e6) if rrd_max_mb else 0
+        self._rrd_capped = False
+        self._frames_since_size_check = 0
         # One set_sinks call carrying every destination. Both serving and
         # file-writing install a sink, and each REPLACES the whole set, so
         # doing them in two steps silently leaves only the later one alive.
@@ -213,8 +236,52 @@ class RerunSink:
         ctor = getattr(self.rr, "Scalars", None) or self.rr.Scalar
         return ctor(value)
 
+    def _rrd_over_cap(self) -> bool:
+        """Has the .rrd passed its cap?
+
+        Checked every 50 frames rather than every frame: at 10 Hz that is a
+        stat() every five seconds, and the file grows ~0.3 MB in that time --
+        far finer than any cap worth setting, and it keeps a syscall off the
+        per-frame path that also carries the measurement.
+        """
+        if not self.rrd_max_bytes or self._rrd_capped or not self.rrd_path:
+            return self._rrd_capped
+        self._frames_since_size_check += 1
+        if self._frames_since_size_check < 50:
+            return False
+        self._frames_since_size_check = 0
+        try:
+            size = os.path.getsize(self.rrd_path)
+        except OSError:
+            return False
+        if size < self.rrd_max_bytes:
+            return False
+        self._rrd_capped = True
+        # Said once, loudly: a file that silently stops growing looks like a
+        # crashed renderer to whoever finds it later.
+        print(
+            f"rerun: session.rrd reached {size / 1e6:.0f} MB "
+            f"({self.rrd_max_bytes / 1e6:.0f} MB cap) and will not grow further. "
+            "The live stream and every measurement continue unaffected; "
+            "raise record_rrd_max_mb, or set record_rrd:=false, to change that.",
+            flush=True,
+        )
+        return True
+
     def draw(self, seq: int, points: np.ndarray, meta: dict) -> None:
         rr = self.rr
+        if self._rrd_over_cap():
+            # Drop the file sink and keep serving. set_sinks replaces the
+            # whole set, so the server sink has to be named again here or the
+            # live stream dies with the file -- the exact bug that made the
+            # viewer show nothing while session.rrd grew.
+            if self.rrd_path:
+                self.rrd_path = None
+                if self.serving:
+                    rr.set_sinks(rr.GrpcServerSink(
+                        port=self.grpc_port, server_memory_limit="512MiB"))
+                else:
+                    rr.set_sinks()
         self._set_frame(seq)
         if points.shape[0] == 0:
             # An all-points-in-one-voxel frame degenerates to nothing to draw.
@@ -266,13 +333,14 @@ class RosSink:
 
 def build_sink(kind: str, *, node, run_id: str, serve: bool = False,
                web_port: int = 9876, grpc_port: int = 9877,
-               viewer_host: str = "localhost", rrd_path: str | None = None) -> Sink:
+               viewer_host: str = "localhost", rrd_path: str | None = None,
+               rrd_max_mb: float = 0.0) -> Sink:
     if kind == "null":
         return NullSink()
     if kind == "rerun":
         return RerunSink(run_id=run_id, serve=serve, web_port=web_port,
                          grpc_port=grpc_port, viewer_host=viewer_host,
-                         rrd_path=rrd_path)
+                         rrd_path=rrd_path, rrd_max_mb=rrd_max_mb)
     if kind == "ros":
         return RosSink(node)
     raise ValueError(f"unknown sink {kind!r}, expected one of {SINKS}")

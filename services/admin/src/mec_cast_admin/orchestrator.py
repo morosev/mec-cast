@@ -13,7 +13,9 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from . import __version__
@@ -135,6 +137,29 @@ class Orchestrator:
             reverse=True,
         )
 
+    def free_gb(self) -> float | None:
+        """Free space on the runs volume, or None if it cannot be read.
+
+        None means "do not know", and every caller treats that as "do not
+        block" — a guard that cannot measure must not become the reason a
+        lab cannot record.
+        """
+        try:
+            return shutil.disk_usage(self._settings.runs_dir).free / 1e9
+        except OSError:
+            logger.warning("cannot read free space for %s", self._settings.runs_dir)
+            return None
+
+    def recording_seconds(self, run: Run) -> float | None:
+        """How long `run` has been recording, from its own started_utc."""
+        if not run.started_utc:
+            return None
+        try:
+            started = datetime.fromisoformat(run.started_utc.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return (datetime.now(UTC) - started).total_seconds()
+
     def visible_runs(self) -> list[Run]:
         """Newest first, by creation time rather than by id.
 
@@ -194,6 +219,24 @@ class Orchestrator:
         self.mark_dirty()
         return run
 
+    def _check_headroom_to_start(self) -> None:
+        """Refuse a new run when the disk is already low.
+
+        Raised before any command goes out, so nothing has started recording
+        when it fails: the operator gets a 409 naming the number, which is
+        recoverable, rather than a run that dies mid-flight."""
+        floor = self._settings.min_free_gb_start
+        if not floor:
+            return
+        free = self.free_gb()
+        if free is not None and free < floor:
+            raise OrchestratorError(
+                f"Only {free:.1f} GB free on {self._settings.runs_dir}, and a run "
+                f"needs {floor:.0f} GB. Free space first — "
+                f"`bash scripts/prune-runs.sh -r -a` removes runs already taken "
+                f"out of the table."
+            )
+
     async def act(self, run_id: str, action: Action) -> Run:
         """Apply an operator action, or explain why it is not allowed."""
         run = self.get_run(run_id)
@@ -218,6 +261,7 @@ class Orchestrator:
 
         if action is Action.START:
             run.started_utc = utc_now()
+            self._check_headroom_to_start()
             run.participants = {}
             self._starting_since[run.run_id] = time.monotonic()
             # Start recruits, so it goes to the cell rather than to members.
@@ -486,7 +530,45 @@ class Orchestrator:
         for run in self.active_runs:
             await self._supervise_run(run)
 
+    async def _auto_stop(self, run: Run, why: str) -> None:
+        """Stop a run through the ordinary path, and say why.
+
+        Deliberately `act(STOP)` rather than forcing the state: the nodes get
+        their run.stop, flush their recorders and send reports, so the run
+        ends with a complete manifest. A run killed by a watchdog should be
+        indistinguishable afterwards from one an operator stopped.
+        """
+        logger.warning("auto-stopping run %s: %s", run.run_id, why)
+        self._store.journal(run.run_id, "auto-stop", {"reason": why})
+        # Already stopping or gone: nothing to do, and this pass repeats.
+        with contextlib.suppress(OrchestratorError):
+            await self.act(run.run_id, Action.STOP)
+
     async def _supervise_run(self, run: Run) -> None:
+        # Watchdogs first: a run past its limit should not also be evaluated
+        # for quorum this pass and possibly moved somewhere STOP cannot
+        # follow from.
+        if run.state in {RunState.RUNNING, RunState.DEGRADED}:
+            limit = self._settings.max_run_duration_s
+            elapsed = self.recording_seconds(run)
+            if limit and elapsed is not None and elapsed > limit:
+                await self._auto_stop(
+                    run,
+                    f"recorded {elapsed / 3600:.1f} h, over the "
+                    f"{limit / 3600:.1f} h limit (MECADM_MAX_RUN_DURATION_S)",
+                )
+                return
+
+            floor = self._settings.min_free_gb_abort
+            free = self.free_gb() if floor else None
+            if floor and free is not None and free < floor:
+                await self._auto_stop(
+                    run,
+                    f"only {free:.1f} GB free on {self._settings.runs_dir}, "
+                    f"under the {floor:.0f} GB floor (MECADM_MIN_FREE_GB_ABORT)",
+                )
+                return
+
         participants = self.registry.participants_of(run.run_id)
         online = [r for r in participants if r.is_online(self._settings.offline_timeout_s)]
         running = [r for r in online if r.state is p.NodeState.RUNNING]

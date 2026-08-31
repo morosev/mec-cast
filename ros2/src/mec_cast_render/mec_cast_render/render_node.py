@@ -117,6 +117,14 @@ class RenderNode(MecCastNode):
         self.declare_parameter("grpc_port", 9877)
         self.declare_parameter("viewer_host", os.environ.get("VIEWER_HOST", "localhost"))
         self.declare_parameter("record_rrd", True)
+        # Cap the .rrd, in MB. 0 lifts the cap.
+        #
+        # It is the largest thing a long run writes -- 3.2 MB/min measured at
+        # the 5,000-point default, so 4.6 GB/day against 0.37 GB/day for all
+        # the CSVs. 500 MB is about 2.6 hours of recording, which is longer
+        # than any run worth scrubbing through afterwards, and the cap costs
+        # nothing measured: samples.csv and the telemetry snapshots continue.
+        self.declare_parameter("record_rrd_max_mb", 500.0)
         self.declare_parameter("reliability", "best_effort")
         self.declare_parameter("qos_depth", 1)
 
@@ -128,6 +136,7 @@ class RenderNode(MecCastNode):
         self.grpc_port = int(self.get_parameter("grpc_port").value)
         self.viewer_host = str(self.get_parameter("viewer_host").value)
         self.record_rrd = bool(self.get_parameter("record_rrd").value)
+        self.record_rrd_max_mb = float(self.get_parameter("record_rrd_max_mb").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
 
@@ -201,6 +210,7 @@ class RenderNode(MecCastNode):
             grpc_port=self.grpc_port,
             viewer_host=self.viewer_host,
             rrd_path=(os.path.join(out_dir, "session.rrd") if self.record_rrd else None),
+            rrd_max_mb=self.record_rrd_max_mb,
         )
         self.sub = self.create_subscription(
             CloudWithTelemetry,

@@ -205,3 +205,65 @@ class TestRerunActuallyStreams:
             "the .rrd was not written; serving and recording must share one "
             "sink set or one silently replaces the other"
         )
+
+
+class TestRrdCap:
+    """The .rrd stops growing at its cap, and nothing else stops with it.
+
+    This file is the largest thing a long run writes -- 3.2 MB/min measured at
+    the 5,000-point default -- so a forgotten run fills a disk with it. The
+    cap is what makes a forgotten run survivable, and a cap that does not fire
+    is indistinguishable from no cap.
+    """
+
+    #: Small enough that a handful of frames passes it, above the ~12-byte
+    #: empty-file header so the check is about growth and not about existing.
+    CAP_MB = 0.05
+
+    def test_the_file_stops_growing_once_it_is_over_the_cap(self, tmp_path):
+        rr = pytest.importorskip("rerun")
+        assert rr is not None
+
+        rrd = tmp_path / "session.rrd"
+        sink = build_sink(
+            "rerun", node=None, run_id="cap-test", serve=False,
+            rrd_path=str(rrd), rrd_max_mb=self.CAP_MB,
+        )
+        try:
+            # The size check runs every 50 frames, so drive well past that.
+            for seq in range(400):
+                sink.draw(seq, cloud(2000), {"e2e_ns": 1_000_000})
+            capped_at = rrd.stat().st_size if rrd.exists() else 0
+
+            for seq in range(400, 800):
+                sink.draw(seq, cloud(2000), {"e2e_ns": 1_000_000})
+        finally:
+            sink.close()
+
+        final = rrd.stat().st_size
+        assert capped_at > 0, "nothing was written at all"
+        # Some slack: the sink is dropped between size checks, so a little
+        # more can land after the threshold is crossed.
+        assert final <= capped_at * 1.5, (
+            f"file kept growing after the cap: {capped_at} -> {final}"
+        )
+
+    def test_zero_lifts_the_cap(self, tmp_path):
+        rr = pytest.importorskip("rerun")
+        assert rr is not None
+
+        rrd = tmp_path / "session.rrd"
+        sink = build_sink(
+            "rerun", node=None, run_id="nocap-test", serve=False,
+            rrd_path=str(rrd), rrd_max_mb=0,
+        )
+        try:
+            for seq in range(200):
+                sink.draw(seq, cloud(2000), {"e2e_ns": 1_000_000})
+            early = rrd.stat().st_size
+            for seq in range(200, 800):
+                sink.draw(seq, cloud(2000), {"e2e_ns": 1_000_000})
+        finally:
+            sink.close()
+
+        assert rrd.stat().st_size > early, "uncapped file should keep growing"

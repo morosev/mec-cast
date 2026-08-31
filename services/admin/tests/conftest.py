@@ -24,6 +24,13 @@ def settings(tmp_path) -> Settings:
         offline_timeout_s=0.5,
         start_timeout_s=0.5,
         diagnostics_interval_s=0.05,
+        # The safety guards are off unless a test is about them. tmp_path
+        # lives on /tmp, which is a small tmpfs on some machines -- a GB
+        # floor meant for a lab disk would refuse every run here and fail the
+        # whole suite for a reason that has nothing to do with what it tests.
+        max_run_duration_s=0,
+        min_free_gb_start=0,
+        min_free_gb_abort=0,
         ui_broadcast_min_interval_s=0.01,
     )
 
