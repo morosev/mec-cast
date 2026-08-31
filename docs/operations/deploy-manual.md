@@ -173,6 +173,10 @@ Two constraints worth knowing before choosing a path:
 way and can be changed later without redeploying — see
 [admin-manual.md](admin-manual.md#backup-and-restore).
 
+**This covers PostgreSQL only.** The per-frame CSVs live on whichever host
+produced them and no schedule collects them; `scripts/collect-runs.sh` merges
+them into one tree and can archive it, run by hand when a campaign ends.
+
 ## Local deployment
 
 Everything on one machine, with `netem` standing in for the radio. One command:

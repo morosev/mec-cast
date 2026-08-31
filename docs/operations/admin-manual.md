@@ -519,9 +519,48 @@ Restore into a running instance:
 docker exec -i compose-postgres-1 pg_restore -U postgres -d mec_cast_logs --clean < backup-2026-08-14.dump
 ```
 
-Per-frame CSV is already on the host under `runs/` — back that up with ordinary
-file tooling. It is the source of truth and this backup does not cover it; see
-[Where the data lives](#where-the-data-lives).
+### Backing up run data
+
+The dump above covers PostgreSQL only. The per-frame CSVs are the source of
+truth ([Where the data lives](#where-the-data-lives)) and are **not** in it —
+and they are not in one place either. Each host writes only the sites it runs:
+the UE has `pub-*` and `render-*`, the edge `edge-0`, the gNB `ran`, infra
+`run.json`. No machine has ever held a whole run.
+
+`collect-runs.sh` merges the fragments and can archive the result. Dry run by
+default, like `prune-runs.sh`:
+
+```bash
+bash scripts/collect-runs.sh ops@ue-host ops@edge-host ops@gnb-host
+```
+
+```bash
+bash scripts/collect-runs.sh -a -b /srv/archive ops@ue-host ops@edge-host ops@gnb-host
+```
+
+| Flag | Meaning |
+|---|---|
+| `-a` | Actually transfer. Without it nothing is copied |
+| `-d DIR` | Collect into DIR (default `runs`) |
+| `-b DIR` | After collecting, write a timestamped `.tar.gz` into DIR |
+| `-r RUN_ID` | Only that run, plus the journal |
+| `-s PATH` | Remote runs path (default `mec-cast/runs`) |
+
+An argument containing `@` or `:` is treated as a host and read from
+`~/mec-cast/runs`; anything else is a local or mounted path, so a share works
+as a source too.
+
+**It never deletes, on either side.** No `--delete` in either direction: the
+remote fragments stay where they are, and one host's files are never removed
+because another host did not have them. Merging is safe precisely because each
+host owns different subdirectories of the same run.
+
+Run it manually, when a campaign ends. Runs are finite — unlike the database,
+which grows continuously and is why *that* one is on a timer.
+
+It also solves a problem that has nothing to do with backup: until the
+fragments are merged, **a lab run cannot be analysed without visiting three
+machines**, and the merged tree is what any whole-run statistic needs.
 
 Take a dump before anything that could destroy the volume: `make down-hard`,
 `docker compose down -v`, or `docker system prune --volumes`.
