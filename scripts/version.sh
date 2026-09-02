@@ -75,11 +75,32 @@ echo
 # Every role running here, not the first one found. Two roles on one machine
 # is supported and normal in a small lab — reporting only one would let an
 # operator conclude the other is not deployed.
+#
+# Two traps, both of which reported the wrong role rather than no role.
+#
+# `docker compose -f X ps` is scoped to the PROJECT, not to X. Every lab role
+# file sits in deploy/lab/, so they all share the project `lab`, and asking
+# compose.ue.yml what is running returns the infra containers too. `ps -q` and
+# `ps --services` are both project-wide; only `config --services` reads the
+# file. So intersect: which of THIS file's services are running.
+#
+# And these files interpolate ${EDGE_HOST:?} / ${INFRA_HOST:?}, so they refuse
+# to parse when those are unset -- which is precisely the situation `make
+# version` is run in, since nobody exports deploy variables just to ask what is
+# deployed. The failure went to /dev/null and the role was silently skipped,
+# leaving infra (the only file with no required variables) to match every host.
+# Probing with placeholders parses the file; nothing is started by it.
 ROLES=""
 for r in ue edge gnb infra; do
   f="deploy/lab/compose.$r.yml"
   [ -f "$f" ] || continue
-  if docker compose -f "$f" ps -q 2>/dev/null | grep -q .; then
+  own=$(EDGE_HOST=probe INFRA_HOST=probe \
+        docker compose -f "$f" config --services 2>/dev/null)
+  [ -n "$own" ] || continue
+  up=$(EDGE_HOST=probe INFRA_HOST=probe \
+       docker compose -f "$f" ps --services --filter status=running 2>/dev/null)
+  [ -n "$up" ] || continue
+  if printf '%s\n' "$up" | grep -qxF -f <(printf '%s\n' "$own"); then
     ROLES="$ROLES $r"
   fi
 done
