@@ -59,6 +59,21 @@ In the lab substitute `docker compose -f deploy/lab/compose.<role>.yml`.
 the *service* (`postgres`), raw `docker` commands take the *container*
 (`compose-postgres-1` — project, service, replica).
 
+**And the project differs between the two topologies.** Compose names it after
+the directory holding the compose file, so the same service is
+`compose-postgres-1` locally (`deploy/compose/`) and **`lab-postgres-1`** on a
+lab host (`deploy/lab/`). Every `docker exec` below is written for local; on a
+lab host substitute the `lab-` prefix, or avoid the question entirely by naming
+the service instead:
+
+```bash
+docker compose -f deploy/lab/compose.infra.yml exec postgres psql -U postgres -d mec_cast_logs
+```
+
+```bash
+docker ps --format '{{.Names}}'
+```
+
 ## What up and down actually do
 
 > `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).
@@ -499,7 +514,7 @@ BACKUP_EVERY=24h docker compose -f deploy/lab/compose.infra.yml up -d backup
 Restore a dump into a running instance:
 
 ```bash
-docker exec -i compose-postgres-1 pg_restore -U postgres -d mec_cast_logs --clean \
+docker exec -i lab-postgres-1 pg_restore -U postgres -d mec_cast_logs --clean \
   < /var/backups/mec-cast/mec_cast_logs-20260830T114929Z.dump
 ```
 
@@ -510,7 +525,7 @@ silently, and precisely when you would most want it.
 The local (non-lab) compose has no backup service — dump it by hand:
 
 ```bash
-docker exec compose-postgres-1 pg_dump -U postgres -Fc mec_cast_logs > backup-$(date +%F).dump
+docker exec lab-postgres-1 pg_dump -U postgres -Fc mec_cast_logs > backup-$(date +%F).dump
 ```
 
 Restore into a running instance:

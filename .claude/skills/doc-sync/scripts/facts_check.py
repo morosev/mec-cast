@@ -65,9 +65,16 @@ def check_sha_reachable(facts: dict) -> None:
 
 
 def check_ports_in_code(facts: dict) -> None:
-    """Each declared port should still appear somewhere in config."""
+    """Each declared port should still appear somewhere in config.
+
+    Not only under deploy/. The legacy WebRTC signalling server binds 8080 and
+    has no compose file at all -- it is an opt-in local target, so searching
+    only the deploy tree reported a real port as missing on every run. A gate
+    finding that everyone has learned to ignore is worth less than no finding,
+    so the search covers the component configs too.
+    """
     config = tracked("deploy/**/*.yml", "deploy/**/*.yaml", "deploy/**/*.json5",
-                     "Makefile", "*.toml")
+                     "Makefile", "*.toml", "clients/**/*.json", "*/*/client-config.json")
     blob = "\n".join(
         p.read_text(encoding="utf-8", errors="replace") for p in config if p.is_file()
     )

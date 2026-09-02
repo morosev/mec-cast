@@ -14,8 +14,8 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "4b01d402afea5cd9598b5996468abb5843760e63"
-  last_synced_date: "2026-08-30"
+  last_synced_sha: "eb0be06e69d56329a9d9d6307c182230d46f2acc"
+  last_synced_date: "2026-09-02"
 
 # --- identity ---------------------------------------------------------------
 platform:
@@ -98,7 +98,9 @@ env:
   MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the legacy WebRTC addon"}
   GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
-  ADMIN_URL:   {default: null, note: "ws://<edge>:8099/ws/node; EMPTY = standalone, node reads RUN_ID. Empty and unset differ: lab compose defaults it to a live address, so standalone needs ADMIN_URL= explicitly, and the files use ${ADMIN_URL-...} not ${ADMIN_URL:-...}"}
+  INFRA_HOST:  {default: null, note: "lab only, REQUIRED for ue/gnb/edge. The infra HOST, which serves logging :8000 and the admin :8099 -- not one service. Called LOGGING_HOST until 2026-08-30, when the admin moved off the edge and the old name covered half of what it addresses; deploy.sh still accepts it once, with a notice"}
+  EDGE_HOST:   {default: null, note: "lab only, REQUIRED for ue/gnb. The edge host, for the Zenoh router endpoint"}
+  ADMIN_URL:   {default: null, note: "ws://<infra>:8099/ws/node; EMPTY = standalone, node reads RUN_ID. Empty and unset differ: lab compose defaults it to a live address, so standalone needs ADMIN_URL= explicitly, and the files use ${ADMIN_URL-...} not ${ADMIN_URL:-...}"}
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
   PUBLISH_RESULT:  {default: "false", note: "edge only; opt into the mec_cast/result downlink (ADR-0009). Off keeps runs comparable with pre-downlink campaigns"}
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
@@ -220,6 +222,11 @@ deployment:
   local_services: [postgres, logging, zenoh-router, lidar-client, netem, edge]
   images: {ros: mec-cast-ros, ran: mec-cast-ran}
   compose_local: "-f deploy/compose/logging.yml -f deploy/compose/local.yml"
+  # Compose names the project after the directory holding the compose file, so
+  # container names differ between the two topologies: `compose-postgres-1`
+  # locally, `lab-postgres-1` on a lab host. Every `docker exec` in the docs
+  # depends on which one the reader is standing on.
+  compose_project: {local: compose, lab: lab}
 
 # --- clock model (the claim that makes cross-host numbers valid) ------------
 clock:
