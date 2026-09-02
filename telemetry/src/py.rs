@@ -211,6 +211,20 @@ impl Recorder {
             .ok_or_else(|| PyRuntimeError::new_err("recorder already shut down"))
     }
 
+    /// Derived delays that came out negative -- unsynchronised clocks.
+    ///
+    /// Non-zero means the sender's clock is ahead of the receiver's, so every
+    /// cross-host figure from this recorder is wrong by the skew. Reported to
+    /// the admin, which raises WF_CLOCK_SKEW on it.
+    fn negative_delays(&self) -> PyResult<u64> {
+        let inner = self.inner.lock().expect("recorder mutex poisoned");
+        inner
+            .sender
+            .as_ref()
+            .map(|s| s.negative_delays())
+            .ok_or_else(|| PyRuntimeError::new_err("recorder already shut down"))
+    }
+
     /// Stop, drain, flush, and return the final accounting.
     fn shutdown(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let handle = {

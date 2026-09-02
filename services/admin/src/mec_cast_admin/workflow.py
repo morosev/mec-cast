@@ -242,6 +242,36 @@ def diagnose(
                 )
             )
 
+    # Unsynchronised clocks. A one-way delay cannot be negative, so a node
+    # reporting any is telling us the sending host's clock is AHEAD of its
+    # own -- and the whole skew lands in every cross-host figure it records.
+    #
+    # This is an error rather than a warning because the run keeps looking
+    # healthy: frames flow, CSVs grow, the page shows green. Only the numbers
+    # are wrong, and they are the reason the run exists. `ptp.reliable` says
+    # whether PTP THINKS it is disciplined; this says the arithmetic came out
+    # impossible, which is the stronger statement.
+    for record in online:
+        skewed = int((record.counters or {}).get("negative_delays") or 0)
+        if skewed:
+            findings.append(
+                Finding(
+                    "WF_CLOCK_SKEW",
+                    "error",
+                    record.node_id,
+                    f"{record.node_id} recorded {skewed} impossible (negative) "
+                    "delay(s): the sending host's clock is ahead of this one's. "
+                    "Every cross-host figure from this node is wrong by the skew.",
+                    "Clocks are not synchronised. Run "
+                    "`bash deploy/lab/ptp/verify-ptp.sh` on both hosts and check "
+                    "ptp4l and phc2sys are running; seconds of skew mean PTP is "
+                    "not running at all rather than drifting. Discard this run's "
+                    "cross-host numbers. The renderer's own e2e_ns survives, "
+                    "since both its stamps come off one host (ADR-0009).",
+                    cell=cell_of(record),
+                )
+            )
+
     # A renderer on a host with no lidar client loses ADR-0009's property:
     # its e2e_ns subtracts a capture stamp taken on ANOTHER host's clock, so
     # the "PTP-free round trip" quietly becomes PTP-dependent like every

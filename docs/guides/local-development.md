@@ -394,9 +394,11 @@ frame received, so at that rate it appears to hang and then emit a burst. It
 logs a heartbeat every 5 s, so a starved renderer says so in words:
 
 ```
-[WARN] render alive but received NOTHING in 5s (total=1). The process is fine.
-       Either the edge is not sending — it needs publish_result:=true, off by
-       default — or the uplink is dropping frames before they reach it.
+[WARN] render alive but received NOTHING in 5s (total=1). The process is fine,
+       and this is almost always the edge not sending: the downlink is off by
+       default. Check the edge's log for '(result -> mec_cast/result)' — without
+       it, set PUBLISH_RESULT=1 on the EDGE role and RECREATE the container; the
+       flag is read once at startup, so restarting the run cannot turn it on.
 ```
 
 Check `RestartCount` before believing a node died:

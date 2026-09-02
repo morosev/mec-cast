@@ -274,9 +274,13 @@ class RenderNode(MecCastNode):
         else:
             self.get_logger().warning(
                 f"render alive but received NOTHING in {PROGRESS_PERIOD_S:.0f}s "
-                f"(total={self.frames}). The process is fine. Either the edge is not "
-                f"sending — it needs publish_result:=true, off by default — or the "
-                f"uplink is dropping frames before they reach it. Compare row counts: "
+                f"(total={self.frames}). The process is fine, and this is almost "
+                f"always the edge not sending: the downlink is off by default. "
+                f"Check the edge's log for '(result -> mec_cast/result)' — without "
+                f"it, set PUBLISH_RESULT=1 on the EDGE role and RECREATE the "
+                f"container; the flag is read once at startup, so restarting the "
+                f"run cannot turn it on. If the edge IS sending, the uplink is "
+                f"dropping frames — compare row counts: "
                 f"wc -l runs/{self.run_id}/pub-*/samples.csv runs/{self.run_id}/edge-*/samples.csv"
             )
 

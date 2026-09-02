@@ -223,3 +223,54 @@ fn reusing_a_run_id_appends_instead_of_destroying_earlier_frames() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Unsynchronised clocks: the sender's stamp is AHEAD of the receiver's, so
+/// `recv_ns - send_ns` is negative. That is physically impossible for a
+/// one-way delay and is the signature of hosts whose clocks disagree -- the
+/// case that produced `network_ns=-11231127381` in the lab.
+///
+/// Two things must hold. The count must rise, because it is what the admin
+/// raises WF_CLOCK_SKEW on. And the value must stay OUT of the statistics: a
+/// single -11 s sample would otherwise become the window's min and drag its
+/// mean, making a broken run look merely slow.
+#[test]
+fn negative_delays_are_counted_and_kept_out_of_the_stats() {
+    let dir = std::env::temp_dir().join(format!("mec-cast-skew-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let cfg = RecorderConfig::new("run-skew", "mec-cast-test", &dir);
+    let (mut sender, handle) = spawn_recorder(cfg, PtpMonitor::disabled()).expect("spawn recorder");
+
+    let trace = [7u8; 16];
+    // Ten healthy frames, then ten from a sender whose clock is 11 s ahead.
+    for seq in 0..10 {
+        assert!(sender.try_record(make_sample(seq, trace)));
+    }
+    for seq in 10..20 {
+        let mut s = make_sample(seq, trace);
+        s.envelope.recv_ns = s.envelope.send_ns - 11_000_000_000;
+        s.envelope.process_done_ns = s.envelope.recv_ns + 3_000_000;
+        assert!(sender.try_record(s));
+    }
+
+    // Give the writer thread time to drain before reading the counter.
+    thread::sleep(Duration::from_millis(300));
+    let negative = sender.negative_delays();
+    let report = handle.shutdown();
+
+    assert!(
+        negative >= 10,
+        "expected at least the 10 skewed frames counted, got {negative}"
+    );
+    assert_eq!(
+        report.samples_dropped, 0,
+        "nothing should have been dropped"
+    );
+
+    // The raw values stay in the CSV -- it records what was measured.
+    let csv = std::fs::read_to_string(dir.join("samples.csv")).expect("csv");
+    assert!(
+        csv.contains("-11"),
+        "the negative delay must still appear in the CSV"
+    );
+}

@@ -20,6 +20,12 @@ Ubuntu 25.x and ROS2 Jazzy targets 24.04.
 it republishes its voxel-downsampled result on `mec_cast/result`, and
 `mec_cast_render` draws it on the UE.
 
+Both compose topologies set it through the **`PUBLISH_RESULT` environment
+variable** rather than this parameter, because a ROS parameter is typed:
+`-p publish_result:=1` is an INTEGER against a BOOL default and the node exits
+at `declare_parameter`. The environment variable accepts `1` or `true`, in any
+case. The parameter form above is for driving the node by hand.
+
 That is worth more than a picture. The returned envelope carries the original
 `capture_ns` forward, and the renderer stamps `process_done_ns` on the **same
 host that captured the frame** — so its `e2e_ns` is a round trip measured on

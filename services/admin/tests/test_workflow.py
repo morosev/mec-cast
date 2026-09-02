@@ -351,3 +351,50 @@ class TestRenderer:
         join(registry, NodeType.EDGE, "mec01", subscribed=True)
         join(registry, NodeType.RENDER, "ue02", subscribed=True)
         assert "WF_RENDER_CROSS_HOST" not in codes(registry, make_run())
+
+
+class TestClockSkew:
+    """Unsynchronised clocks, caught by arithmetic rather than by PTP.
+
+    A one-way delay cannot be negative. When one is, the sending host's clock
+    is ahead of the receiver's and the whole skew lands in every cross-host
+    figure -- while frames keep flowing and the page stays green. That gap
+    between "healthy" and "correct" is what this finding closes.
+    """
+
+    def test_a_node_reporting_negative_delays_is_an_error(self):
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(
+            registry,
+            NodeType.EDGE,
+            "mec01",
+            counters={"frames": 800, "negative_delays": 412},
+        )
+
+        found = [f for f in diagnose(registry, make_run()) if f.code == "WF_CLOCK_SKEW"]
+        assert found, "negative delays must raise the finding"
+        assert found[0].severity == "error"
+        assert "412" in found[0].message
+        # The remedy has to name the tool, or it costs attention without
+        # saving any.
+        assert "verify-ptp.sh" in found[0].remedy
+
+    def test_synchronised_clocks_say_nothing(self):
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(registry, NodeType.EDGE, "mec01", counters={"frames": 800})
+        assert "WF_CLOCK_SKEW" not in codes(registry, make_run())
+
+    def test_zero_is_not_skew(self):
+        # The counter is always present once a recorder exists; only a
+        # non-zero value means anything.
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(
+            registry,
+            NodeType.EDGE,
+            "mec01",
+            counters={"frames": 800, "negative_delays": 0},
+        )
+        assert "WF_CLOCK_SKEW" not in codes(registry, make_run())

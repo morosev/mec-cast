@@ -109,6 +109,8 @@ impl RecorderConfig {
 pub struct SampleSender {
     producer: rtrb::Producer<Sample>,
     dropped: Arc<AtomicU64>,
+    /// Derived delays that came out negative -- see `negative_delays`.
+    negative: Arc<AtomicU64>,
 }
 
 impl SampleSender {
@@ -127,6 +129,21 @@ impl SampleSender {
 
     pub fn dropped_total(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Cross-host delays that computed to a negative value.
+    ///
+    /// A one-way delay cannot be negative: `recv_ns - send_ns` below zero
+    /// means the sender's clock is AHEAD of the receiver's, which is
+    /// unambiguous evidence that the two hosts are not synchronised. It is
+    /// not a small error either -- the skew is the whole magnitude, so a
+    /// single such sample can dominate a window's mean and standard
+    /// deviation and make min meaningless.
+    ///
+    /// Non-zero here means every cross-host figure from this recorder is
+    /// suspect, whatever `ptp.reliable` says.
+    pub fn negative_delays(&self) -> u64 {
+        self.negative.load(Ordering::Relaxed)
     }
 }
 
@@ -216,6 +233,7 @@ pub fn spawn(
 
     let (producer, mut consumer) = rtrb::RingBuffer::<Sample>::new(cfg.queue_capacity.max(1));
     let dropped = Arc::new(AtomicU64::new(0));
+    let negative = Arc::new(AtomicU64::new(0));
     let stop = Arc::new(AtomicBool::new(false));
 
     #[cfg(feature = "http")]
@@ -231,8 +249,9 @@ pub fn spawn(
     let writer = {
         let stop = Arc::clone(&stop);
         let dropped = Arc::clone(&dropped);
+        let negative = Arc::clone(&negative);
         thread::spawn(move || {
-            let mut state = WriterState::new(&cfg, ptp, dropped);
+            let mut state = WriterState::new(&cfg, ptp, dropped, negative);
             loop {
                 let mut drained = 0usize;
                 while let Ok(sample) = consumer.pop() {
@@ -268,6 +287,7 @@ pub fn spawn(
         SampleSender {
             producer,
             dropped: Arc::clone(&dropped),
+            negative: Arc::clone(&negative),
         },
         RecorderHandle {
             stop,
@@ -288,6 +308,7 @@ struct WriterState {
     service: String,
     ptp: PtpMonitor,
     dropped: Arc<AtomicU64>,
+    negative: Arc<AtomicU64>,
     stats_network: DelayStats,
     stats_e2e: DelayStats,
     stats_processing: DelayStats,
@@ -303,12 +324,18 @@ struct WriterState {
 }
 
 impl WriterState {
-    fn new(cfg: &RecorderConfig, ptp: PtpMonitor, dropped: Arc<AtomicU64>) -> Self {
+    fn new(
+        cfg: &RecorderConfig,
+        ptp: PtpMonitor,
+        dropped: Arc<AtomicU64>,
+        negative: Arc<AtomicU64>,
+    ) -> Self {
         Self {
             run_id: cfg.run_id.clone(),
             service: cfg.service.clone(),
             ptp,
             dropped,
+            negative,
             stats_network: DelayStats::with_window(cfg.stats_window),
             stats_e2e: DelayStats::with_window(cfg.stats_window),
             stats_processing: DelayStats::with_window(cfg.stats_window),
@@ -343,16 +370,31 @@ impl WriterState {
         let processing = derived(e.recv_ns, e.process_done_ns);
         let sender = derived(e.capture_ns, e.send_ns);
 
-        if let Some(v) = network {
+        // A negative one-way delay is physically impossible: it means the
+        // sender's clock is ahead of the receiver's. Count it, and keep it out
+        // of the statistics -- the CSV still carries the raw value, because
+        // that is the record of what was actually measured, but a single
+        // -11 s sample would otherwise set the window's min and drag its mean
+        // and stddev with it.
+        // All four, not only the cross-host ones: a same-host delay going
+        // negative means the clock stepped mid-frame, which is equally
+        // impossible and equally worth knowing.
+        for d in [network, e2e, processing, sender] {
+            if matches!(d, Some(v) if v < 0) {
+                self.negative.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        if let Some(v) = network.filter(|v| *v >= 0) {
             self.stats_network.record(v);
         }
-        if let Some(v) = e2e {
+        if let Some(v) = e2e.filter(|v| *v >= 0) {
             self.stats_e2e.record(v);
         }
-        if let Some(v) = processing {
+        if let Some(v) = processing.filter(|v| *v >= 0) {
             self.stats_processing.record(v);
         }
-        if let Some(v) = sender {
+        if let Some(v) = sender.filter(|v| *v >= 0) {
             self.stats_sender.record(v);
         }
         self.seq_first.get_or_insert(e.seq);

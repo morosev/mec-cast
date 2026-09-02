@@ -249,6 +249,24 @@ class MecCastNode(Node):
     def _status_extra(self) -> dict:  # override for streaming/subscribed
         return {}
 
+    def _clock_counters(self) -> dict:
+        """Negative derived delays seen by this node's recorder.
+
+        A one-way delay below zero means the sending host's clock is AHEAD of
+        this one's, so every cross-host figure is wrong by the skew. Reported
+        for every node type rather than added to each `counters()`, because a
+        node that forgot to include it would look healthy while its numbers
+        were nonsense -- and this is the one signal that says they are.
+        """
+        if self.recorder is None:
+            return {}
+        try:
+            return {"negative_delays": int(self.recorder.negative_delays())}
+        except AttributeError:
+            # An older telemetry wheel without the counter: report nothing
+            # rather than crash a measuring node over a diagnostic.
+            return {}
+
     def _report_status(self, force: bool = False, report: dict | None = None) -> None:
         if not self.admin.enabled:
             return
@@ -258,7 +276,7 @@ class MecCastNode(Node):
             run_id=self.run_id,
             peers=self.peers(),
             params=self._params_full(),
-            counters=self.counters(),
+            counters={**self.counters(), **self._clock_counters()},
             autostart=self.autostart,
             report=report or {},
             **self._status_extra(),
