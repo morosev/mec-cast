@@ -342,19 +342,29 @@ To run one in the foreground for debugging, drop `-d` and name the service.
 
 ### Watching a run in the lab
 
-The renderer runs on the UE, so the stream is served there. Turn it on for the
-role:
+Watching a run needs **two roles configured**, because the picture is drawn on
+the UE from data the edge has to be told to send.
+
+The edge sends the processed cloud back only when asked. `PUBLISH_RESULT` is
+read by the edge node and by nothing else — setting it on the UE deploy does
+nothing at all, since `compose.ue.yml` never reads it:
 
 ```bash
-RENDER_SINK=rerun RENDER_INSTANCES=1 PUBLISH_RESULT=1 \
+PUBLISH_RESULT=1 INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@edge-host
+```
+
+Then the UE, which runs the renderer and serves the stream:
+
+```bash
+RENDER_SINK=rerun RENDER_INSTANCES=1 \
   EDGE_HOST=10.0.0.20 INFRA_HOST=10.0.0.10 \
   bash deploy/lab/deploy.sh ue ops@ue-host
 ```
 
-`PUBLISH_RESULT=1` belongs on the **edge** role, not the UE — the renderer
-draws what the edge sends back, and the edge does not send it by default. A
-renderer without it sits healthy and empty, which the admin page reports as
-`WF_RENDER_STARVED`.
+Get the order wrong and nothing complains: a renderer with no return path sits
+healthy, subscribed and empty, which the admin page reports as
+`WF_RENDER_STARVED`. It is the commonest way to end up with a working renderer
+showing nothing.
 
 Then watch, with the viewer installed on the UE:
 
