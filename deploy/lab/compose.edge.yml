@@ -29,9 +29,16 @@ services:
     # PUBLISH_RESULT sends the processed cloud back down for the UE's
     # renderer. Off unless asked for: it changes what the edge does with
     # every frame, and campaigns recorded without it must stay comparable.
+    # publish_result is passed as an ENV VAR, not as `-p publish_result:=`.
+    # A ROS parameter is typed: `-p publish_result:=1` makes rclpy read an
+    # INTEGER against a BOOL default and the node dies at declare_parameter
+    # with InvalidParameterTypeException -- while `PUBLISH_RESULT=1` is what
+    # every doc, and deploy/compose/render.yml, tells an operator to set. The
+    # node's own default parses the variable leniently (`1`, `true`, any
+    # case), so handing it the variable accepts all of those and the typed
+    # parameter accepts only two of them.
     command: >
       ros2 run mec_cast_edge edge --ros-args
-      -p publish_result:=${PUBLISH_RESULT:-false}
       -p result_reliability:=${RESULT_RELIABILITY:-best_effort}
       -p result_qos_depth:=${RESULT_QOS_DEPTH:-1}
     environment:
@@ -49,6 +56,7 @@ services:
       # and gNB do the same thing pointing at EDGE_HOST.
       ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/127.0.0.1:7447?rel=1"]'
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      PUBLISH_RESULT: ${PUBLISH_RESULT:-}
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
