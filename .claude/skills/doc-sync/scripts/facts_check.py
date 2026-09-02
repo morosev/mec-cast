@@ -3,7 +3,8 @@
 
 Two directions:
 
-1. Does the CODE still match the facts file? (ports, env vars, service names)
+1. Does the CODE still match the facts file? (ports, env vars, service
+   names, the clock model)
 2. Do the DOCS contradict it? (a doc naming a different port for a service)
 
 Direction 1 matters most — the facts file is only useful while it is true.
@@ -125,6 +126,82 @@ def check_envelope(facts: dict) -> None:
             )
 
 
+def check_clock_in_code(facts: dict) -> None:
+    """The clock block, which was unchecked while every claim in it went stale.
+
+    It is the block that decides whether a cross-host number means anything,
+    and nothing validated it. Seven documents drifted to naming `phc2sys` as
+    the mechanism -- with every gate green -- while the lab ran two hosts on
+    chrony and a third on ptp_kvm, and `ptp.reliable` was hardcoded off in
+    both bindings. A fact nobody checks is a comment.
+
+    Only mechanically verifiable claims are asserted here. The prose fields
+    (`same_root_required`, `alternatives`) carry the reasoning and cannot be
+    checked; what CAN be checked is that the device default, the diagnostic
+    command and the snapshot field still exist as described.
+    """
+    clock = facts.get("clock") or {}
+    if not clock:
+        problems.append("_facts.yml has no clock block")
+        return
+
+    # 1. The documented default must be the default the deployment actually
+    #    uses. A compose file changed without the fact following it is exactly
+    #    how /dev/ptp0 came to be stated as universal truth.
+    default = str(clock.get("device_default", ""))
+    if default:
+        composes = tracked("deploy/**/compose*.yml")
+        mapping = [
+            f for f in composes
+            if f.is_file() and "PTP_DEVICE" in f.read_text(encoding="utf-8", errors="replace")
+        ]
+        if not mapping:
+            problems.append(
+                "clock.device_default is declared but no compose file honours "
+                "PTP_DEVICE — the device is hardcoded again"
+            )
+        for f in mapping:
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if f"${{PTP_DEVICE:-{default}}}" not in text:
+                problems.append(
+                    f"{f.relative_to(REPO)}: PTP_DEVICE default does not match "
+                    f"clock.device_default={default}"
+                )
+
+    # 2. The cross-host check is the only thing that catches two-roots skew.
+    #    If the script or its flag goes away, the fact is a dead pointer to
+    #    the one diagnostic that matters.
+    cmd = str(clock.get("cross_host_check", ""))
+    if cmd:
+        script = REPO / cmd.split()[0]
+        if not script.exists():
+            problems.append(
+                f"clock.cross_host_check names {cmd.split()[0]}, which does not exist"
+            )
+        else:
+            body = script.read_text(encoding="utf-8", errors="replace")
+            for flag in (w for w in cmd.split() if w.startswith("--")):
+                if flag not in body:
+                    problems.append(
+                        f"clock.cross_host_check uses {flag} but "
+                        f"{script.relative_to(REPO)} does not support it"
+                    )
+
+    # 3. The per-snapshot field must still be emitted under that name.
+    #    `context.ptp.reliable` -> the recorder writes "reliable" inside a
+    #    "ptp" object; renaming either half silently invalidates every doc
+    #    that tells an operator to look for it.
+    field = str(clock.get("per_snapshot_field", ""))
+    if field:
+        leaf = field.split(".")[-1]
+        rec = REPO / "telemetry" / "src" / "recorder.rs"
+        if rec.exists() and f'"{leaf}"' not in rec.read_text(encoding="utf-8"):
+            problems.append(
+                f"clock.per_snapshot_field={field} but recorder.rs emits no "
+                f'"{leaf}" key'
+            )
+
+
 def check_docs_contradictions(facts: dict) -> None:
     """A doc naming a different port for a known service is a contradiction.
 
@@ -191,6 +268,7 @@ def main() -> int:
     check_env_in_code(facts)
     check_ports_in_code(facts)
     check_services_in_code(facts)
+    check_clock_in_code(facts)
     check_docs_contradictions(facts)
     check_output_paths(facts)
 

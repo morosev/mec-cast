@@ -465,7 +465,7 @@ instead. Docs describe the current state.
 | Stage | Gate | Catches |
 |---|---|---|
 | 1 | `python .claude/skills/doc-sync/scripts/qa_docs.py` | broken links, dead paths, missing make targets |
-| 1 | `python .claude/skills/doc-sync/scripts/facts_check.py` | `.md` **and `.mmd`** contradicting `_facts.yml`, including the per-frame CSV layout |
+| 1 | `python .claude/skills/doc-sync/scripts/facts_check.py` | `.md` **and `.mmd`** contradicting `_facts.yml`, including the per-frame CSV layout and the clock model |
 | 2 | `python .claude/skills/doc-sync/scripts/qa_pptx.py <deck>` | overflow, off-slide, content and exclusion rules |
 | 3 | `python .claude/skills/doc-sync/scripts/fence_check.py` | fences that are not diagrams, or whose graph or labels drift from their `.mmd` |
 | 3 | `bash docs/diagrams/render.sh` + view each changed image | broken edges, wrong fills, unreadable text |
