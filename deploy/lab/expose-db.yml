@@ -9,7 +9,8 @@
 # every measurement record to anything that can route to the infra host. Bind
 # it to the management LAN only — never to a UE-reachable interface — and
 # prefer the SSH tunnel described in
-# docs/guides/manual-operation.md#option-b-ssh-tunnel-preferred-for-the-lab.
+# docs/operations/admin-manual.md#option-c--ssh-tunnel-the-lab
+# (manual-operation.md was split into the three operator documents).
 #
 # PGBIND defaults to loopback so the port is NOT world-reachable by accident;
 # set PGBIND=0.0.0.0 deliberately if you really want it on the LAN.
