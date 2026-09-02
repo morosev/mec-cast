@@ -51,6 +51,46 @@ the check accepts any of them because what matters is the outcome:
   want when it disagrees with PTP by seconds. It is worth chasing anyway,
   because the *other* hosts taking their time from it are then seconds out.
 
+## The check that actually matters
+
+Every check above is **local**: does this host track its own PHC? Two hosts can
+each pass perfectly and still be seconds apart, because passing says nothing
+about *which clock* they are tracking. Compare the two ends directly:
+
+```bash
+bash deploy/lab/ptp/verify-ptp.sh --peer <other-measuring-host>
+```
+
+It reads the peer's clock over ssh and reports the gap with its own error bar.
+The round trip is milliseconds, so this cannot validate PTP-grade sync — it is
+aimed at the failure that actually occurs, where two endpoints are seconds
+apart and every local indicator is green.
+
+## Measuring hosts that are VMs
+
+A guest with `ptp_kvm` has a real `/dev/ptp0` fed by its hypervisor, and chrony
+can discipline from it to tens of nanoseconds. There is no `ptp4l`, correctly:
+nothing here speaks PTP on the wire, the guest simply reads the host's clock.
+
+**That clock is only as good as the hypervisor's.** The guest inherits the
+hypervisor's error in full and cannot detect it — `chronyc tracking` will
+report stratum 1, single-digit-nanosecond offsets and an RMS in the tens of ns
+no matter how wrong the hypervisor is, because the guest is measuring itself
+against the thing that is wrong.
+
+So a `ptp4l` host locked to the lab grandmaster and a Proxmox guest whose host
+runs plain NTP are two islands of internally perfect time, offset by whatever
+their roots disagree by, with `ptp.reliable: true` on both. One-way delays
+between them measure that offset rather than the network, and produce negative
+values when the receiver's root is behind the sender's.
+
+**Fix it at the hypervisor.** Sync the Proxmox host to the same grandmaster as
+the bare-metal measuring hosts; the guest then inherits correct time through
+`ptp_kvm` with no NIC passthrough. Passing a PTP-capable NIC into the guest and
+running `ptp4l` there works too, and is more effort for the same result. Either
+way, confirm with `--peer` afterwards rather than trusting the local numbers,
+which looked flawless the whole time.
+
 ## When the check disagrees with reality
 
 Trust `ptp4l`'s own output over any wrapper. This is a healthy host:

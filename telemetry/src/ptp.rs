@@ -11,6 +11,22 @@
 //! kernel.) Without the `linux-ptp` feature or without PTP hardware, a
 //! monitor is `disabled()` and reports `reliable: false` honestly — exactly
 //! what same-host container runs should record.
+//!
+//! # What `reliable` does not mean
+//!
+//! It is **local**: this host's `CLOCK_REALTIME` against this host's PHC. It
+//! cannot see whether that PHC agrees with the PHC at the other end of the
+//! measurement, and so it cannot detect the one failure that invalidates
+//! every cross-host figure — two endpoints each disciplined perfectly to a
+//! *different* root. A `ptp4l` host locked to a grandmaster and a VM taking
+//! `ptp_kvm` time from a hypervisor on NTP will both report `reliable: true`
+//! with tens of ns of local offset while being seconds apart.
+//!
+//! Negative derived delays are the symptom that does catch it (the recorder
+//! counts them, and the admin raises `WF_CLOCK_SKEW`), but only once a run is
+//! already contaminated. Beforehand, the check is
+//! `deploy/lab/ptp/verify-ptp.sh --peer <host>`, which compares the two ends
+//! rather than each end against itself.
 
 #[cfg(all(target_os = "linux", feature = "linux-ptp"))]
 use crate::clock::PhcClock;
