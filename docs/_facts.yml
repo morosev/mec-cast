@@ -230,7 +230,7 @@ deployment:
 
 # --- clock model (the claim that makes cross-host numbers valid) ------------
 clock:
-  transport: "ptp4l + phc2sys over the management/backhaul LAN"
+  transport: "PTP over the management/backhaul LAN, one grandmaster for every measuring host"
   # Mechanism is not the invariant. A host may discipline CLOCK_REALTIME with
   # chrony from a PHC refclock instead of phc2sys, and a VM guest may take its
   # PHC from ptp_kvm with no ptp4l at all. All three are valid.

@@ -22,7 +22,7 @@ lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role
   topology.example.yml  copy to topology.yml to declare the fleet (optional)
-  ptp/             ptp4l/phc2sys units, config, and verification
+  ptp/             PTP units, config, and cross-host verification
 ```
 
 To run the components one per terminal instead of all at once — and for

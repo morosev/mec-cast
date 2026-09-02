@@ -73,7 +73,10 @@ impl Clock for MonotonicClock {
 }
 
 /// `CLOCK_REALTIME`: wall-clock ns since the Unix epoch. Comparable across
-/// machines when both are disciplined by PTP (`phc2sys`) or, degraded, NTP.
+/// machines only when both are disciplined from the SAME PTP grandmaster
+/// (by `phc2sys`, or by chrony from a PHC refclock -- the daemon does not
+/// matter, the shared root does) or, degraded, NTP. Two hosts each locked
+/// perfectly to a different root compare as confidently as they do wrongly.
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RealtimeClock;

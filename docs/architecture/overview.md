@@ -34,8 +34,8 @@ Two workload profiles share one telemetry spine:
 └─────────┬───────────┘             ▼                           └────────────┬─────────────┘
           │                  ran-collector ──────────────────────────────────┤
           │                                                                  ▼
-          │        PTP (ptp4l+phc2sys, management/backhaul LAN,        logging service
-          └──────  NOT the 5G user plane) — shared CLOCK_REALTIME      (FastAPI+Postgres)
+          │        PTP, management/backhaul LAN — NOT the 5G user      logging service
+          └──────  plane. Every host on the SAME grandmaster           (FastAPI+Postgres)
 ```
 
 ## Repository layout
@@ -146,9 +146,15 @@ before. The admin is additive.
 
 Cross-machine one-way metrics are only meaningful with synchronized clocks:
 
-- **Lab testbed:** `ptp4l` + `phc2sys` on UE-compute, edge, and the O-DU host
-  against a grandmaster on the **management/backhaul LAN**. The 5G user
-  plane cannot carry sync — srsRAN/Open5GS implement no 5G-TSN (DS-TT/NW-TT).
+- **Lab testbed:** every measuring host — UE-compute, edge, and the O-DU
+  host — disciplined against **one grandmaster** on the
+  **management/backhaul LAN**. `ptp4l` feeds the NIC clock; `phc2sys` or
+  chrony with a PHC refclock feeds `CLOCK_REALTIME` from it, and a VM guest
+  may take its PHC from `ptp_kvm` instead. The mechanism is per host and does
+  not matter; **the shared grandmaster is the invariant**, and it is the one
+  thing no per-host check can confirm — see
+  [timing-model.md](timing-model.md). The 5G user plane cannot carry sync —
+  srsRAN/Open5GS implement no 5G-TSN (DS-TT/NW-TT).
 - **Local dev (containers on one host):** all containers share the kernel
   clock, so deltas are valid; `ptp.reliable=false` is recorded honestly.
 - Analysis must gate on the recorded `ptp` field, not assume.

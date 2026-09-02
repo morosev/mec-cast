@@ -25,7 +25,7 @@ buffer-then-drop while it is unreachable.
       │              gNB host: ran-collector ──────────┼────────────────┘
       │                                                │
       └────── PTP grandmaster, management LAN ─────────┘
-              (ptp4l + phc2sys on every measuring host)
+              (every measuring host on the SAME grandmaster)
 ```
 
 ## Why the Zenoh router lives on the edge

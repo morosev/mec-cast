@@ -123,7 +123,7 @@ flowchart LR
   ADMIN <-.-> RANC
   ADMIN <-.-> RENDER
 
-  PTP["PTP grandmaster — management / backhaul LAN<br/>ptp4l + phc2sys on every measuring host, never the 5G user plane"]
+  PTP["PTP grandmaster — management / backhaul LAN<br/>every measuring host on the SAME grandmaster, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
@@ -183,9 +183,9 @@ flowchart LR
   RC -.-> ADM
 
   GM["PTP grandmaster — management / backhaul LAN"]
-  GM -->|"ptp4l + phc2sys"| UEH
-  GM -->|"ptp4l + phc2sys"| GNBH
-  GM -->|"ptp4l + phc2sys"| EDGEH
+  GM -->|"PTP → PHC → clock"| UEH
+  GM -->|"PTP → PHC → clock"| GNBH
+  GM -->|"PTP → PHC → clock"| EDGEH
 
   RUNS["runs/&lt;RUN_ID&gt;/ on each host<br/>per-frame CSV stays local"]
   LC -.-> RUNS

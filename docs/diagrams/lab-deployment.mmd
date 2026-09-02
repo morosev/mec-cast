@@ -49,9 +49,9 @@ flowchart LR
   RC -.-> ADM
 
   GM["PTP grandmaster — management / backhaul LAN"]
-  GM -->|"ptp4l + phc2sys"| UEH
-  GM -->|"ptp4l + phc2sys"| GNBH
-  GM -->|"ptp4l + phc2sys"| EDGEH
+  GM -->|"PTP → PHC → clock"| UEH
+  GM -->|"PTP → PHC → clock"| GNBH
+  GM -->|"PTP → PHC → clock"| EDGEH
 
   RUNS["runs/&lt;RUN_ID&gt;/ on each host<br/>per-frame CSV stays local"]
   LC -.-> RUNS
