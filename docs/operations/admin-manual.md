@@ -828,6 +828,37 @@ Never do that in the lab without a dump.
 make down-hard && make build-ros2 && make up-local
 ```
 
+### A run stuck in `stopping`
+
+A run leaves `stopping` when every participant has sent its final report, or
+when they all go offline. A node that is **online but will never report**
+satisfies neither — which is the normal state after the admin restarts, since
+the nodes reconnect holding no such run.
+
+Two things now resolve it, and neither needs the nodes to cooperate:
+
+- **It times out.** After `MECADM_STOP_TIMEOUT_S` (default 120 s) the admin
+  stops waiting and marks the run `stopped`, naming the nodes that never
+  reported in the log and the run's journal. The timer restarts when the admin
+  does, so a run stranded by an earlier crash resolves on its own.
+- **Stop it again.** `stopping` offers a Stop button, which forces the run to
+  `stopped` immediately.
+
+The result is `stopped`, not `failed`. The run really did stop and its CSVs
+are complete on disk; what is missing is a report, which makes the manifest
+thinner rather than the run bad.
+
+Raise the timeout if your nodes legitimately take longer to flush:
+
+```bash
+MECADM_STOP_TIMEOUT_S=600 docker compose -f deploy/lab/compose.infra.yml up -d admin
+```
+
+The symptom worth recognising is the second-order one: a `stopping` run holds
+its cell's active-run slot, so **no new run can start in that cell** and the
+Start button on every draft returns 409. If starting is refused and the reason
+names a run that is `stopping`, this is why.
+
 ## Troubleshooting
 
 > `compose` is the shell function defined under [Cheat sheet](#cheat-sheet).

@@ -35,6 +35,7 @@ class Event(StrEnum):
     ALL_OFFLINE = "all_offline"
     REPORTS_COMPLETE = "reports_complete"
     START_TIMEOUT = "start_timeout"
+    STOP_TIMEOUT = "stop_timeout"
 
 
 class Action(StrEnum):
@@ -70,6 +71,18 @@ _TRANSITIONS: dict[tuple[RunState, Event], RunState] = {
     (RunState.STOPPING, Event.REPORTS_COMPLETE): RunState.STOPPED,
     # A node that dies while draining must not strand the run in `stopping`.
     (RunState.STOPPING, Event.ALL_OFFLINE): RunState.STOPPED,
+    # Neither of the two above covers the case that actually stranded a run:
+    # a participant ONLINE that will never report. After an admin restart the
+    # nodes reconnect but hold no such run, so no report is coming and they
+    # are not offline either. The run sat in `stopping` across restarts,
+    # holding its cell's slot, with every button disabled -- no timeout, and
+    # no operator action, because STOPPING allowed none.
+    (RunState.STOPPING, Event.STOP_TIMEOUT): RunState.STOPPED,
+    # A second STOP is the operator's escape hatch, and lands in the same
+    # place the timeout does. STOPPED rather than FAILED on purpose: the run
+    # did stop, its CSVs are on disk and complete. What is missing is some
+    # node's report, which makes the manifest thinner, not the run failed.
+    (RunState.STOPPING, Event.STOP): RunState.STOPPED,
     (RunState.STOPPED, Event.REMOVE): RunState.REMOVED,
     (RunState.FAILED, Event.REMOVE): RunState.REMOVED,
 }
@@ -79,7 +92,10 @@ _ALLOWED: dict[RunState, tuple[Action, ...]] = {
     RunState.STARTING: (Action.STOP,),
     RunState.RUNNING: (Action.STOP,),
     RunState.DEGRADED: (Action.STOP,),
-    RunState.STOPPING: (),
+    # Deliberately not empty. A stuck run with no legal action is
+    # unrecoverable through the UI, which is exactly how one ended up blocking
+    # its cell indefinitely.
+    RunState.STOPPING: (Action.STOP,),
     RunState.STOPPED: (Action.REMOVE,),
     RunState.FAILED: (Action.REMOVE,),
     RunState.REMOVED: (),

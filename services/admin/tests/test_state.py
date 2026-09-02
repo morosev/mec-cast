@@ -87,7 +87,7 @@ class TestAllowedActions:
             (RunState.STARTING, ["stop"]),
             (RunState.RUNNING, ["stop"]),
             (RunState.DEGRADED, ["stop"]),
-            (RunState.STOPPING, []),
+            (RunState.STOPPING, ["stop"]),  # escape hatch, see below
             (RunState.STOPPED, ["remove"]),
             (RunState.FAILED, ["remove"]),
             (RunState.REMOVED, []),
@@ -134,3 +134,41 @@ def test_action_values_are_events():
     # `advance(state, Event(action))` is only safe while this holds.
     for action in Action:
         assert Event(str(action))
+
+
+class TestStoppingCannotStrand:
+    """A run in `stopping` must always have a way out.
+
+    It held its cell's slot across admin restarts with every button disabled,
+    because the only exits needed the nodes: all participants offline, or all
+    reports in. A participant that is ONLINE and will never report -- the
+    normal state after an admin restart, when nodes reconnect holding no such
+    run -- satisfies neither.
+    """
+
+    def test_stop_is_offered_so_the_operator_is_never_stuck(self):
+        assert "stop" in allowed_actions(RunState.STOPPING)
+
+    def test_a_second_stop_forces_the_run_stopped(self):
+        assert advance(RunState.STOPPING, Event.STOP) is RunState.STOPPED
+
+    def test_the_timeout_lands_in_the_same_place(self):
+        assert advance(RunState.STOPPING, Event.STOP_TIMEOUT) is RunState.STOPPED
+
+    def test_stopped_not_failed(self):
+        """The run did stop and its CSVs are complete; only a report is
+        missing. Calling it FAILED would libel a good run."""
+        for event in (Event.STOP, Event.STOP_TIMEOUT, Event.ALL_OFFLINE):
+            assert advance(RunState.STOPPING, event) is RunState.STOPPED
+
+    def test_stopping_no_longer_occupies_the_slot_once_resolved(self):
+        assert occupies_slot(RunState.STOPPING)
+        assert not occupies_slot(advance(RunState.STOPPING, Event.STOP_TIMEOUT))
+
+    def test_every_non_terminal_state_has_an_action(self):
+        """The general rule this bug violated: if an operator can reach a
+        state, they must be able to leave it."""
+        for state in RunState:
+            if state is RunState.REMOVED or is_terminal(state):
+                continue
+            assert allowed_actions(state), f"{state} offers no way out"

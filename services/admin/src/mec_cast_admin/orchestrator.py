@@ -52,6 +52,7 @@ class Orchestrator:
         #: per-cell: one scalar would let cell A's start reset cell B's
         #: timeout clock, so a slow cell could hold a fast one open forever.
         self._starting_since: dict[str, float] = {}
+        self._stopping_since: dict[str, float] = {}
         #: Findings are computed once per supervise pass, not per snapshot.
         #: The "is this counter rising?" checks compare against the previous
         #: pass, so evaluating them at an arbitrary moment would read a counter
@@ -269,6 +270,7 @@ class Orchestrator:
                 p.CommandType.RUN_START, run_id=run.run_id, args=run.params, run=run
             )
         elif action is Action.STOP:
+            self._stopping_since.setdefault(run.run_id, time.monotonic())
             # Stop goes only to the nodes actually recording this run.
             await self._broadcast_command(
                 p.CommandType.RUN_STOP, run_id=run.run_id, run=run, by_membership=True
@@ -599,12 +601,32 @@ class Orchestrator:
             run.state = advance(run.state, Event.PARTICIPANT_RECOVERED)
         elif run.state is RunState.STOPPING and not online:
             run.state = advance(run.state, Event.REPORTS_COMPLETE)
+        elif run.state is RunState.STOPPING:
+            # setdefault, not assignment: a run found in `stopping` at startup
+            # has no entry because the clock is monotonic and does not survive
+            # the process. Seeding it here is what lets a run stranded by an
+            # earlier crash resolve itself, instead of needing the very
+            # operator action the state also denied.
+            since = self._stopping_since.setdefault(run.run_id, time.monotonic())
+            if time.monotonic() - since > self._settings.stop_timeout_s:
+                missing = [r.node_id for r in participants if r.node_id not in run.reports]
+                logger.warning(
+                    "run %s stuck in stopping for %.0fs; no report from %s — calling it stopped",
+                    run.run_id,
+                    time.monotonic() - since,
+                    ", ".join(missing) or "(none)",
+                )
+                self._store.journal(run.run_id, "stop-timeout", {"missing_reports": missing})
+                run.state = advance(run.state, Event.STOP_TIMEOUT)
 
         if run.state in {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED} and not online:
             run.state = advance(run.state, Event.ALL_OFFLINE)
 
         if run.state is RunState.STOPPING and all(r.node_id in run.reports for r in participants):
             run.state = advance(run.state, Event.REPORTS_COMPLETE)
+
+        if run.state is not RunState.STOPPING:
+            self._stopping_since.pop(run.run_id, None)
 
         if run.state is not before:
             if run.state in {RunState.STOPPED, RunState.FAILED}:

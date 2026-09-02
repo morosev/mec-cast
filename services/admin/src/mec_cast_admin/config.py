@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     # How long a run may sit in `starting` before it is declared failed.
     start_timeout_s: float = Field(default=30.0, gt=0)
 
+    # How long a run may sit in `stopping` before the admin gives up waiting
+    # for reports and calls it stopped. Generous next to start_timeout_s
+    # because a node flushing a large recorder is doing real work and must not
+    # be cut off; the run is already over either way, so the only cost of
+    # waiting is the cell's slot. Without this a run whose participants are
+    # online but will never report waits forever.
+    stop_timeout_s: float = Field(default=120.0, gt=0)
+
     # How long a run may RECORD before the admin stops it. A forgotten run
     # writes until the disk is full: measured at the 5,000-point default a
     # renderer's session.rrd alone grows 4.6 GB/day, 24x faster than the CSVs
