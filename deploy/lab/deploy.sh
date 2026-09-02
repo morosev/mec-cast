@@ -129,8 +129,15 @@ for v in $REQUIRED $OPTIONAL; do
 done
 
 echo "==> Syncing repo to $TARGET (excluding third_party, runs, target)"
+# .run-env is excluded because it is the operator's own config for THIS host
+# -- the shell function and this machine's EDGE_HOST/INFRA_HOST. It is
+# gitignored, so it is not in the source tree, and --delete would remove it on
+# every deploy. Silently: the next `compose ps` on that host then fails with an
+# interpolation error naming a variable, rather than naming the deploy that
+# deleted the file which set it.
 rsync -az --delete \
   --exclude '.git/' \
+  --exclude '.run-env' \
   --exclude 'third_party/' \
   --exclude 'target/' \
   --exclude 'runs/' \

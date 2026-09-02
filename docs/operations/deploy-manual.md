@@ -400,6 +400,32 @@ setup is [deploy/lab/ptp/](../../deploy/lab/ptp/README.md).
 
 ## Starting and stopping a role
 
+**Set the role's variables on the host first.** Compose interpolates the whole
+file before it does anything, so `${INFRA_HOST:?}` stops even a read-only
+command:
+
+```
+error while interpolating services.ue-agent.environment.ADMIN_URL:
+required variable INFRA_HOST is missing a value: set INFRA_HOST
+```
+
+That is `docker compose ps` failing, not a broken deployment. Put the values
+and a shorthand in `~/mec-cast/.run-env` on that host, once:
+
+```bash
+cat > .run-env <<'EOF'
+export INFRA_HOST=10.0.0.10
+export EDGE_HOST=10.0.0.20
+compose() { docker compose -f deploy/lab/compose.ue.yml "$@"; }
+EOF
+source .run-env
+```
+
+Use the role's own file, and `source` it in each terminal — a function defined
+in a subshell dies with it. `.run-env` is gitignored and is excluded from the
+deploy rsync, so it survives `deploy.sh`; nothing else you leave in
+`~/mec-cast` will.
+
 On the host, per role:
 
 ```bash
