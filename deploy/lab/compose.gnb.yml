@@ -38,10 +38,20 @@ services:
       # Which radio cell this node reports. Empty unless the deployment
       # declares a topology; see docs/operations/admin-service.md.
       CELL: ${CELL:-}
+      # Always the in-container path: the bind mount above maps whatever the
+      # host calls its PHC onto /dev/ptp0 here. Empty would disable the
+      # monitor, which is what shipped for the platform's whole life.
+      PTP_DEVICE: /dev/ptp0
       GNB_METRICS_ADDR: 0.0.0.0:${METRICS_PORT:-55555}
     volumes:
       - ../../runs:/runs
-      - /dev/ptp0:/dev/ptp0
     devices:
-      - /dev/ptp0
+      # The host PHC, always presented as /dev/ptp0 INSIDE the container, so
+      # only this line is host-specific and the node's config is uniform.
+      # Default index 0 is whichever NIC the driver registered first, which on
+      # a multi-NIC host is routinely not the one ptp4l disciplines -- set
+      # PTP_DEVICE per host to the right clock (`ethtool -T <iface>` names the
+      # index). An explicit target is required: the single-path form maps
+      # host:host, leaving the container without the path it was told to open.
+      - ${PTP_DEVICE:-/dev/ptp0}:/dev/ptp0
     restart: unless-stopped

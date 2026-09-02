@@ -91,10 +91,17 @@ class MecCastNode(Node):
         self.declare_parameter("logging_url", os.environ.get("LOGGING_URL", ""))
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
         self.declare_parameter("cell", os.environ.get("CELL", ""))
+        # Which PHC to judge clock health against. NOT hardcoded to /dev/ptp0:
+        # index 0 is whichever NIC the driver registered first, which on a
+        # multi-NIC host is routinely not the one ptp4l disciplines. Empty
+        # disables the monitor honestly rather than reporting on an unrelated
+        # free-running crystal.
+        self.declare_parameter("ptp_device", os.environ.get("PTP_DEVICE", ""))
         self.declare_parameter("admin_autostart", autostart_default)
         self.declare_parameter("admin_instance", 0)
 
         self.runs_dir = str(self.get_parameter("runs_dir").value)
+        self.ptp_device = str(self.get_parameter("ptp_device").value)
         self.logging_url = str(self.get_parameter("logging_url").value) or None
         self.instance = int(self.get_parameter("admin_instance").value)
         self.autostart = bool(self.get_parameter("admin_autostart").value)
@@ -153,8 +160,22 @@ class MecCastNode(Node):
         self.run_id = run_id
         out_dir = os.path.join(self.runs_dir, run_id, self.out_leaf)
         self.recorder = tel.Recorder(
-            run_id, self.service_tag, out_dir, logging_url=self.logging_url
+            run_id,
+            self.service_tag,
+            out_dir,
+            logging_url=self.logging_url,
+            ptp_device=self.ptp_device or None,
         )
+        # A configured device that did not open leaves `ptp.reliable` false
+        # for a reason the snapshot cannot express, and an unannotated false
+        # reads as "no PTP here" rather than "misconfigured". Say which.
+        if self.ptp_device and not self.recorder.ptp_enabled:
+            self.get_logger().warn(
+                f"PTP device {self.ptp_device!r} could not be opened — clock "
+                "quality will be reported as unavailable. Check the device "
+                "exists, is the one ptp4l disciplines (ethtool -T <iface>), "
+                "and is readable in this container."
+            )
         return out_dir
 
     def _close_recorder(self) -> dict:

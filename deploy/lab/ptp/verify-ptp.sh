@@ -5,6 +5,9 @@
 #   bash deploy/lab/ptp/verify-ptp.sh [max_offset_ns]
 #   bash deploy/lab/ptp/verify-ptp.sh --peer <host> [max_offset_ns]
 #
+# PTP_IFACE=<iface>   resolve the PHC from the NIC ptp4l disciplines
+# PTP_DEVICE=/dev/ptpN  name it directly (wins over PTP_IFACE)
+#
 # --peer is the check that actually matters and the only one that can fail
 # for the right reason. Everything else here is local: it asks whether this
 # host tracks its own PHC, which says nothing about whether that PHC agrees
@@ -45,11 +48,29 @@ FAIL=0
 
 note() { printf '  %s\n' "$1"; }
 
+# Which PHC to check. /dev/ptp0 is a guess, not an answer: index 0 is
+# whichever NIC the driver registered first. On a four-PHC host, ptp4l
+# disciplined ptp2 (ens3f0), chrony followed ptp3 (ens3f1, free-running) and
+# the containers were handed ptp0 -- three different clocks, every one of them
+# reporting healthily about itself.
+PTP_IFACE=${PTP_IFACE:-}
+if [ -z "${PTP_DEVICE:-}" ] && [ -n "$PTP_IFACE" ] && command -v ethtool >/dev/null 2>&1; then
+  IDX=$(ethtool -T "$PTP_IFACE" 2>/dev/null | awk '/PTP Hardware Clock:/ {print $4}')
+  [ -n "${IDX:-}" ] && PTP_DEVICE=/dev/ptp$IDX
+fi
+PTP_DEVICE=${PTP_DEVICE:-/dev/ptp0}
+
 echo "==> PTP hardware clock"
-if [ -e /dev/ptp0 ]; then
-  note "/dev/ptp0 present"
+if [ -e "$PTP_DEVICE" ]; then
+  NAME=$(cat "/sys/class/ptp/${PTP_DEVICE#/dev/}/clock_name" 2>/dev/null || true)
+  note "$PTP_DEVICE present${NAME:+ ($NAME)}"
+  if [ -z "${PTP_IFACE:-}" ] && [ "$PTP_DEVICE" = /dev/ptp0 ]; then
+    note "Checking /dev/ptp0 by default. If ptp4l runs on a specific NIC,"
+    note "set PTP_IFACE=<iface> (or PTP_DEVICE) so this checks the clock it"
+    note "disciplines rather than whichever one enumerated first."
+  fi
 else
-  note "MISSING /dev/ptp0 — no PTP hardware clock on this host."
+  note "MISSING $PTP_DEVICE — no PTP hardware clock at that path."
   note "Metrics will fall back to CLOCK_REALTIME (NTP-grade, ~1-5 ms)."
   FAIL=1
 fi
@@ -70,7 +91,7 @@ unit_active() {
 # ptp4l, because nothing here speaks PTP on the wire -- the guest reads the
 # host's clock directly. Demanding ptp4l would fail a correctly configured
 # guest. Accepting it silently is worse: see the warning.
-PHC_NAME=$(cat /sys/class/ptp/ptp0/clock_name 2>/dev/null || true)
+PHC_NAME=$(cat "/sys/class/ptp/${PTP_DEVICE#/dev/}/clock_name" 2>/dev/null || true)
 KVM_PHC=0
 if [ -e /dev/ptp_kvm ] || [ "$PHC_NAME" = "KVM virtual PTP" ]; then
   KVM_PHC=1
@@ -153,8 +174,31 @@ else
 fi
 
 echo "==> Measured offset"
-if command -v phc_ctl >/dev/null 2>&1 && [ -e /dev/ptp0 ]; then
-  phc_ctl /dev/ptp0 cmp 2>&1 | sed 's/^/  /' || true
+# Reading this number and not judging it is how an 11.15 s gap sat in plain
+# view. chrony reports nanoseconds against the refclock it was pointed at, so
+# it cannot notice that the refclock is the wrong device -- it is measuring
+# itself against the thing that is wrong. Comparing the DISCIPLINED PHC to
+# CLOCK_REALTIME is the one check that catches it.
+if command -v phc_ctl >/dev/null 2>&1 && [ -e "$PTP_DEVICE" ]; then
+  CMP=$(phc_ctl "$PTP_DEVICE" cmp 2>&1 || true)
+  echo "$CMP" | sed 's/^/  /'
+  SYS_OFF=$(echo "$CMP" | sed -n 's/.*offset from CLOCK_REALTIME is \(-\?[0-9]\+\)ns.*/\1/p')
+  if [ -n "${SYS_OFF:-}" ]; then
+    ABS_SYS=${SYS_OFF#-}
+    # 1 ms: far above any real PTP discipline, far below the seconds that a
+    # wrong-device or free-running clock produces. Anything here is structural,
+    # not drift.
+    if [ "$ABS_SYS" -gt 1000000 ]; then
+      note ""
+      note "CLOCK_REALTIME IS NOT FOLLOWING $PTP_DEVICE (${SYS_OFF} ns apart)."
+      note "Something disciplines the system clock from a DIFFERENT source."
+      note "Check what chrony is actually pointed at — its refid is a free"
+      note "text label and may read PHC0 while naming another device:"
+      note "  grep refclock /etc/chrony/chrony.conf"
+      note "  ethtool -T <iface> | grep 'PTP Hardware Clock'"
+      FAIL=1
+    fi
+  fi
 fi
 if command -v pmc >/dev/null 2>&1; then
   OFFSET=$(pmc -u -b 0 'GET CURRENT_DATA_SET' 2>/dev/null \

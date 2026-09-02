@@ -51,19 +51,66 @@ maximum that was never observed
 
 `Clock` implementations, selected per deployment:
 
-- **`PhcClock`** — reads `/dev/ptp0` directly. The NIC hardware clock,
-  disciplined by `ptp4l` to a grandmaster.
-- **`RealtimeClock`** — `CLOCK_REALTIME`, disciplined by `phc2sys` from the
-  PHC. This is the default on lab hosts; it is what makes cross-host
-  subtraction valid.
+- **`PhcClock`** — reads a `/dev/ptpN` device directly. The NIC hardware
+  clock, disciplined by `ptp4l` to a grandmaster. **Which N is not
+  knowable in advance**: index 0 is whichever NIC the driver registered
+  first, so the device is configured (`PTP_DEVICE`, or derived from
+  `PTP_IFACE`) rather than assumed.
+- **`RealtimeClock`** — `CLOCK_REALTIME`, disciplined from the PHC by
+  `phc2sys` or by chrony with a PHC refclock. This is the default on lab
+  hosts.
 - **`MonotonicClock`** — never jumps, but not comparable across machines.
   Use for intervals within one process.
 - **`MockClock`** — deterministic, for tests.
 
-Mixing sources across the two ends of a subtraction is the subtle failure
-mode: a PHC stamp minus a `CLOCK_REALTIME` stamp silently includes the
-phc2sys offset, which is the same magnitude as the effect being measured.
-Keep both ends of every metric on the same source.
+### What makes cross-host subtraction valid
+
+Not that each end is disciplined — that both ends trace to the **same
+grandmaster**. Being disciplined is necessary and nowhere near sufficient,
+and the difference is not academic: it is the failure the lab actually hit.
+
+There are three ways to get this wrong, in increasing order of how well they
+hide.
+
+**Mixed sources.** A PHC stamp minus a `CLOCK_REALTIME` stamp silently
+includes the offset between them, which is the same magnitude as the effect
+being measured. Keep both ends of every metric on the same source.
+
+**Two roots.** Each host disciplined perfectly to a *different* grandmaster,
+or to the same one in a different PTP domain. Every local indicator is green
+on both, `ptp.reliable` is true on both, and every cross-host delay is wrong
+by whatever the roots disagree by. Compare `grandmasterIdentity` — it is the
+only value that settles it:
+
+```bash
+sudo pmc -u -b 0 'GET PARENT_DATA_SET' | grep grandmasterIdentity
+```
+
+**The wrong device.** The worst of the three, because it survives every check
+above. A host may run `ptp4l` on one NIC while chrony takes `CLOCK_REALTIME`
+from a *different*, undisciplined NIC's PHC — and chrony will report
+nanosecond accuracy the whole time, because it is measuring the system clock
+against the very clock it is slaving it to. A free-running crystal reaches
+seconds of error in weeks. Observed in this lab: `ptp4l` on `ens3f0`
+(`/dev/ptp2`, locked to −11 ns), chrony following `/dev/ptp3` (`ens3f1`,
+disciplined by nothing), containers handed `/dev/ptp0` (a third NIC) —
+**11.15 s** of skew with every indicator healthy. Chrony's `refid` is a free
+text label and read `PHC0` throughout.
+
+The check that catches it is comparing the *disciplined* PHC against
+`CLOCK_REALTIME`, which `deploy/lab/ptp/verify-ptp.sh` now does.
+
+### `ptp.reliable` is a local statement
+
+`PtpQuality` is `|PHC − CLOCK_REALTIME|` **on one host**. It cannot see any
+of the three failures above, because all of them concern the relationship
+between two hosts, or between the system clock and a device it was never
+pointed at. It is a necessary condition, not a verdict.
+
+The diagnostic that does catch skew is arithmetic on the data itself: a
+negative one-way delay is impossible, so the recorder counts them and the
+admin raises `WF_CLOCK_SKEW`. That fires after a run is already
+contaminated. `verify-ptp.sh --peer <host>` is the pre-flight equivalent.
 
 ## Precision budget
 
@@ -73,7 +120,13 @@ Keep both ends of every metric on the same source.
 | PTP + hardware timestamping, multiple hops | 100–500 ns |
 | PTP with software timestamping | 1–10 µs |
 | No PTP (NTP-style signalling fallback) | 1–5 ms |
+| Two roots, or CLOCK_REALTIME on an undisciplined device | **unbounded** |
 
 The effects under study are milliseconds. The first three rows are
 comfortably sufficient; the fourth is the same order as the signal and is
 therefore only acceptable for functional testing.
+
+The last row is not a precision figure at all — it is a correctness failure
+wearing one. Each host reports tens of nanoseconds while the pair is seconds
+apart, so it appears nowhere in this table's terms and is bounded only by how
+long the wrong clock has been drifting.

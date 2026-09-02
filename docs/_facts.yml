@@ -240,7 +240,10 @@ clock:
     SAME grandmaster — two endpoints each perfectly disciplined to different
     roots report ptp.reliable: true on both while being seconds apart"
   never: "the 5G user plane — srsRAN and Open5GS implement no 5G-TSN"
-  device: /dev/ptp0
+  # NOT a constant. Index 0 is whichever NIC the driver registered first;
+  # PTP_DEVICE (or PTP_IFACE) names the clock ptp4l actually disciplines.
+  device: "PTP_DEVICE, default /dev/ptp0, resolved per host"
+  device_default: /dev/ptp0
   per_snapshot_field: "context.ptp.reliable"
   # Scope of that field, which is narrower than its name suggests.
   per_snapshot_field_is_local: "|PHC − CLOCK_REALTIME| on ONE host; blind to

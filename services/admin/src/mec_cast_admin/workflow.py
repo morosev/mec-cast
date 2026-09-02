@@ -262,10 +262,14 @@ def diagnose(
                     f"{record.node_id} recorded {skewed} impossible (negative) "
                     "delay(s): the sending host's clock is ahead of this one's. "
                     "Every cross-host figure from this node is wrong by the skew.",
-                    "Clocks are not synchronised. Run "
-                    "`bash deploy/lab/ptp/verify-ptp.sh` on both hosts and check "
-                    "ptp4l and phc2sys are running; seconds of skew mean PTP is "
-                    "not running at all rather than drifting. Discard this run's "
+                    "Clocks disagree. Run `bash deploy/lab/ptp/verify-ptp.sh "
+                    "--peer <other-host>` on one endpoint naming the other: "
+                    "per-host checks pass while the pair is seconds apart, so "
+                    "the comparison is the one that finds it. Seconds of skew "
+                    "are structural, not drift — usually two grandmasters, or "
+                    "CLOCK_REALTIME disciplined from a different PHC than the "
+                    "one ptp4l feeds (check `grep refclock /etc/chrony/` "
+                    "against `ethtool -T <iface>`). Discard this run's "
                     "cross-host numbers. The renderer's own e2e_ns survives, "
                     "since both its stamps come off one host (ADR-0009).",
                     cell=cell_of(record),

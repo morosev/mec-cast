@@ -12,4 +12,8 @@ dynamic = ["version"]
 [tool.maturin]
 manifest-path = "../Cargo.toml"
 module-name = "mec_cast_telemetry"
-features = ["extension-module", "http"]
+# linux-ptp compiles the PHC reader. Without it `PtpMonitor::with_phc` does
+# not exist and every run reports a disabled clock source no matter how the
+# host is configured -- which is exactly what happened. The feature is inert
+# on non-Linux targets, so it stays safe to enable unconditionally.
+features = ["extension-module", "http", "linux-ptp"]

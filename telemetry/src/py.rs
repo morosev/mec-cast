@@ -101,6 +101,11 @@ fn decode_envelope(py: Python<'_>, data: &[u8]) -> PyResult<Py<PyDict>> {
 #[pyclass]
 struct Recorder {
     inner: std::sync::Mutex<RecorderInner>,
+    /// Whether a PHC was actually opened. False when no device was
+    /// configured, when the device could not be opened, and on builds
+    /// without the `linux-ptp` feature — three different reasons for the
+    /// same `reliable: false`, which is why the node logs which one applies.
+    ptp_enabled: bool,
 }
 
 struct RecorderInner {
@@ -109,10 +114,48 @@ struct RecorderInner {
     trace_id: [u8; 16],
 }
 
+/// Build the clock-quality monitor for a configured PHC device.
+///
+/// A device that is set but cannot be opened degrades to `disabled()` rather
+/// than failing the recorder: `ptp.reliable` annotates the measurement, and a
+/// health flag must never take down the thing it annotates. The degrade is
+/// reported through `ptp_enabled` so it cannot pass unnoticed — silence is
+/// how this stayed broken, with every node reporting `reliable: false` and
+/// nothing saying the monitor had never been built at all.
+fn make_monitor(device: Option<&str>) -> (PtpMonitor, bool) {
+    match device {
+        Some(dev) if !dev.is_empty() => open_phc(dev),
+        _ => (PtpMonitor::disabled(), false),
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "linux-ptp"))]
+fn open_phc(device: &str) -> (PtpMonitor, bool) {
+    match crate::clock::PhcClock::open(device) {
+        Ok(clock) => (
+            PtpMonitor::with_phc(clock, crate::ptp::DEFAULT_THRESHOLD_NS),
+            true,
+        ),
+        Err(_) => (PtpMonitor::disabled(), false),
+    }
+}
+
+/// Without the `linux-ptp` feature there is no PHC to open. Configuring a
+/// device on such a build is a no-op, and `ptp_enabled` says so.
+#[cfg(not(all(target_os = "linux", feature = "linux-ptp")))]
+fn open_phc(_device: &str) -> (PtpMonitor, bool) {
+    (PtpMonitor::disabled(), false)
+}
+
 #[pymethods]
 impl Recorder {
     #[new]
-    #[pyo3(signature = (run_id, service, out_dir, logging_url=None, snapshot_interval_s=2.0, queue_capacity=8192, stats_window=8192))]
+    // These parameters ARE the Python keyword API -- callers pass them by
+    // name, with defaults for all but the first three. Folding them into a
+    // config struct to satisfy the lint would mean constructing that struct
+    // from Python, which is strictly worse at the call site.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (run_id, service, out_dir, logging_url=None, snapshot_interval_s=2.0, queue_capacity=8192, stats_window=8192, ptp_device=None))]
     fn new(
         run_id: &str,
         service: &str,
@@ -121,6 +164,7 @@ impl Recorder {
         snapshot_interval_s: f64,
         queue_capacity: usize,
         stats_window: usize,
+        ptp_device: Option<String>,
     ) -> PyResult<Self> {
         let mut cfg = RecorderConfig::new(run_id, service, out_dir);
         cfg.logging_url = logging_url;
@@ -135,9 +179,11 @@ impl Recorder {
         let n = src.len().min(16);
         trace_id[..n].copy_from_slice(&src[..n]);
 
-        let (sender, handle) = recorder::spawn(cfg, PtpMonitor::disabled())
+        let (ptp, ptp_enabled) = make_monitor(ptp_device.as_deref());
+        let (sender, handle) = recorder::spawn(cfg, ptp)
             .map_err(|e| PyRuntimeError::new_err(format!("failed to start recorder: {e}")))?;
         Ok(Self {
+            ptp_enabled,
             inner: std::sync::Mutex::new(RecorderInner {
                 sender: Some(sender),
                 handle: Some(handle),
@@ -216,6 +262,13 @@ impl Recorder {
     /// Non-zero means the sender's clock is ahead of the receiver's, so every
     /// cross-host figure from this recorder is wrong by the skew. Reported to
     /// the admin, which raises WF_CLOCK_SKEW on it.
+    /// True when a PHC is open and `ptp.reliable` therefore carries
+    /// information. False means the field is a constant, not a verdict.
+    #[getter]
+    fn ptp_enabled(&self) -> bool {
+        self.ptp_enabled
+    }
+
     fn negative_delays(&self) -> PyResult<u64> {
         let inner = self.inner.lock().expect("recorder mutex poisoned");
         inner

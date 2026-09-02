@@ -51,6 +51,46 @@ the check accepts any of them because what matters is the outcome:
   want when it disagrees with PTP by seconds. It is worth chasing anyway,
   because the *other* hosts taking their time from it are then seconds out.
 
+## Which /dev/ptpN — this is not a formality
+
+`/dev/ptp0` is whichever NIC the driver registered first. On a multi-NIC host
+it is routinely **not** the clock `ptp4l` disciplines, and nothing warns you.
+Find the right one:
+
+```bash
+ethtool -T <iface> | grep 'PTP Hardware Clock'    # the index for that NIC
+for d in /sys/class/ptp/ptp*; do echo "$d -> $(cat $d/clock_name)"; done
+```
+
+Then set it per host in that host's `.run-env`, which the containers read:
+
+```bash
+PTP_DEVICE=/dev/ptp2
+```
+
+The compose files map it to `/dev/ptp0` *inside* the container, so only this
+one line is host-specific. `verify-ptp.sh` honours `PTP_DEVICE`, and also
+resolves it from `PTP_IFACE` via `ethtool` when only that is set.
+
+Three things must name the **same** device, and each one is set separately:
+
+| What | Where |
+|---|---|
+| `ptp4l` disciplines it | `PTP_IFACE` in the ptp4l unit |
+| chrony takes system time from it | `refclock PHC /dev/ptpN` in `chrony.conf` |
+| the recorder judges clock health by it | `PTP_DEVICE` in `.run-env` |
+
+A real example of getting this wrong, which cost a day: `ptp4l` on `ens3f0`
+(`/dev/ptp2`, locked to −11 ns), chrony pointed at `/dev/ptp3` (`ens3f1`,
+disciplined by nothing), containers handed `/dev/ptp0` (a third NIC). Result:
+**11.15 s** of skew, and every indicator green — chrony reported nanoseconds
+because it was measuring the system clock against the clock it was slaving it
+to. Note also that chrony's `refid` is a free text label: that config read
+`refid PHC0` while naming `/dev/ptp3`.
+
+`verify-ptp.sh` now compares the disciplined PHC against `CLOCK_REALTIME` and
+fails on a gap over 1 ms, which catches exactly this.
+
 ## The check that actually matters
 
 Every check above is **local**: does this host track its own PHC? Two hosts can
