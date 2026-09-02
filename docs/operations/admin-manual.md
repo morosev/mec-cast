@@ -840,7 +840,7 @@ make down-hard && make build-ros2 && make up-local
 | Snapshots missing, CSV fine | Logging service unreachable | `curl -s localhost:8000/health/ready` |
 | `422` from the logging service | Extra top-level field; schema is `extra="forbid"` | [logging-submodule.md](logging-submodule.md) |
 | Nonzero drop counters | Consumer slower than producer | `docker stats`; lower `RATE_HZ` or `NUM_POINTS` |
-| `ptp.reliable: false` on a lab run | phc2sys not disciplining | `bash deploy/lab/ptp/verify-ptp.sh` |
+| `ptp.reliable: false` on a lab run | nothing is disciplining `CLOCK_REALTIME` from the PHC | `bash deploy/lab/ptp/verify-ptp.sh` |
 | Port 8000 already allocated | Previous stack still up | `make down`; `docker ps -a` |
 | Code change has no effect | Image not rebuilt | `make build-ros2 && compose up -d --build` |
 | Admin page shows no nodes | Nodes created without `ADMIN_URL` | `docker exec compose-edge-1 printenv \| grep ADMIN`, then `--force-recreate` |

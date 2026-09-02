@@ -30,6 +30,40 @@ Run it on **both** endpoints. It exits non-zero when the offset exceeds
 snapshot, so a run made without sync is identifiable after the fact — but
 catching it beforehand saves the campaign.
 
+### If your host is set up differently
+
+The units above are one way to get a disciplined clock, not the only way, and
+the check accepts any of them because what matters is the outcome:
+
+- **`ptp4l@<iface>.service`** — a templated unit, one instance per interface,
+  which is how a host with more than one candidate NIC will normally run it.
+- **chrony with a PHC refclock** instead of `phc2sys`. A host already running
+  chrony for its other time sources will usually take this route. The check
+  requires the PHC to be the *selected* source, which is the distinction that
+  matters: chrony happily lists a refclock it has rejected.
+
+  ```bash
+  chronyc sources -v | grep PHC     # want a leading `#*`, not `#?` or `#-`
+  ```
+
+  `#*` means selected. A `^x` line against your NTP server alongside it is not
+  a fault — it is chrony marking that server a falseticker, which is what you
+  want when it disagrees with PTP by seconds. It is worth chasing anyway,
+  because the *other* hosts taking their time from it are then seconds out.
+
+## When the check disagrees with reality
+
+Trust `ptp4l`'s own output over any wrapper. This is a healthy host:
+
+```
+ptp4l[...]: master offset        -73 s2 freq  -21947 path delay       368
+```
+
+`s2` is the locked servo state and the offset is in nanoseconds; tens of ns
+with a stable path delay is a correctly synchronised client. If the script
+disagrees with that, the script is wrong — report it rather than
+reconfiguring a working host.
+
 ## Checking NIC capability
 
 ```bash
