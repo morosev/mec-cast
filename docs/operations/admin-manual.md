@@ -845,6 +845,7 @@ make down-hard && make build-ros2 && make up-local
 | Code change has no effect | Image not rebuilt | `make build-ros2 && compose up -d --build` |
 | Admin page shows no nodes | Nodes created without `ADMIN_URL` | `docker exec compose-edge-1 printenv \| grep ADMIN`, then `--force-recreate` |
 | Renderer logs in bursts with big `seq` gaps | Uplink in congestion collapse — not a renderer fault | Compare `pub-0` to `edge-0` row counts. See [local-development.md](../guides/local-development.md#when-the-renderer-looks-broken-but-is-not) |
+| `Temporary failure in name resolution` at zenoh session open, node exits 1 | A ROS node on `network_mode: host` still dialling the router by compose service name — there is no compose DNS there | The role needs `ZENOH_CONFIG_OVERRIDE` with a reachable address: `127.0.0.1` where the router is local, `${EDGE_HOST}` from the UE |
 | Router floods `Route data with unknown scope N!` | rmw_zenoh discovery declarations lost on the impaired link | Check delivery, not the log — data is unaffected. Lower `NETEM_LOSS` |
 
 ## See also

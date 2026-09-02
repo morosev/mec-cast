@@ -37,6 +37,17 @@ services:
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
       ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      # The session config dials `zenoh-router` by SERVICE NAME, which only
+      # resolves on a compose bridge network. This role is network_mode: host,
+      # where there is no compose DNS, so the node died at rclpy.init() with
+      # "failed to lookup address information: Temporary failure in name
+      # resolution" -- a DNS error for a router running on the same machine.
+      #
+      # The router is local to this host, so dial the loopback. Override
+      # rather than editing the session file: ZENOH_CONFIG_OVERRIDE MERGES,
+      # while the file replaces rmw_zenoh's packaged defaults outright. The UE
+      # and gNB do the same thing pointing at EDGE_HOST.
+      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/127.0.0.1:7447?rel=1"]'
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
