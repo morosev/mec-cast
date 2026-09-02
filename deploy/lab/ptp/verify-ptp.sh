@@ -22,6 +22,24 @@ if [ "${1:-}" = "--peer" ]; then
   shift 2
   [ -n "$PEER" ] || { echo "--peer needs a host" >&2; exit 2; }
 fi
+# An argument this script does not understand must be an error, never a
+# shrug. An older copy given --peer parsed it as the offset threshold, never
+# compared anything, and printed "cross-host one-way metrics are valid" --
+# a stale checkout answering a question it cannot even ask. Unknown input
+# now exits 2 instead of silently narrowing the check.
+if [ $# -gt 1 ]; then
+  echo "unexpected arguments: $*" >&2
+  echo "usage: verify-ptp.sh [--peer <host>] [max_offset_ns]" >&2
+  exit 2
+fi
+if [ -n "${1:-}" ] && ! [ "$1" -eq "$1" ] 2>/dev/null; then
+  echo "max_offset_ns must be an integer, got: $1" >&2
+  echo "usage: verify-ptp.sh [--peer <host>] [max_offset_ns]" >&2
+  echo "(a --peer flag this copy does not support means it is out of date:" >&2
+  echo " git pull, then re-run)" >&2
+  exit 2
+fi
+
 MAX_OFFSET_NS=${1:-1000}
 FAIL=0
 
@@ -96,6 +114,44 @@ else
   FAIL=1
 fi
 
+# The identity of the clock this host ultimately follows. This is the thing
+# that has to match between two endpoints, and the only way to check it
+# without inferring it from an offset. Two hosts can both be locked, both
+# report tens of ns, and follow DIFFERENT grandmasters -- which is invisible
+# in every local indicator and shows up only as a constant skew in the data.
+gm_identity() {
+  command -v pmc >/dev/null 2>&1 || return 1
+  pmc -u -b 0 'GET PARENT_DATA_SET' 2>/dev/null \
+    | awk '/grandmasterIdentity/ {print $2; exit}'
+}
+gm_domain() {
+  command -v pmc >/dev/null 2>&1 || return 1
+  pmc -u -b 0 'GET DEFAULT_DATA_SET' 2>/dev/null \
+    | awk '/domainNumber/ {print $2; exit}'
+}
+
+echo "==> Time root (must MATCH on both endpoints)"
+if [ "$KVM_PHC" -eq 1 ]; then
+  note "This guest's root is its HYPERVISOR — it cannot be read from here."
+  note "Run this section on the hypervisor and compare with the other"
+  note "measuring hosts:  sudo pmc -u -b 0 'GET PARENT_DATA_SET'"
+else
+  GM=$(gm_identity || true)
+  DOMAIN=$(gm_domain || true)
+  if [ -n "${GM:-}" ]; then
+    note "grandmasterIdentity: $GM"
+    [ -n "${DOMAIN:-}" ] && note "domainNumber:        $DOMAIN"
+    note "This must be IDENTICAL on every measuring host. Two grandmasters,"
+    note "or one grandmaster in two domains, gives two islands of perfect"
+    note "time offset by whatever they disagree by."
+  elif [ "$(id -u)" -ne 0 ]; then
+    note "pmc needs root to read ptp4l's socket — re-run with sudo to see"
+    note "which grandmaster this host follows."
+  else
+    note "Could not read the grandmaster identity."
+  fi
+fi
+
 echo "==> Measured offset"
 if command -v phc_ctl >/dev/null 2>&1 && [ -e /dev/ptp0 ]; then
   phc_ctl /dev/ptp0 cmp 2>&1 | sed 's/^/  /' || true
@@ -113,7 +169,13 @@ if command -v pmc >/dev/null 2>&1; then
       FAIL=1
     fi
   else
-    note "Could not read offsetFromMaster (is this host a PTP slave?)"
+    if [ "$(id -u)" -ne 0 ]; then
+      note "Could not read offsetFromMaster — pmc needs root for ptp4l's"
+      note "socket. Re-run with sudo for this figure; ptp4l's own journal"
+      note "carries it either way: journalctl -u 'ptp4l*' -n1"
+    else
+      note "Could not read offsetFromMaster (is this host a PTP slave?)"
+    fi
   fi
 fi
 
@@ -124,6 +186,30 @@ fi
 # with every gauge on the page green. Only comparing the two ends finds it.
 if [ -n "$PEER" ]; then
   echo "==> Agreement with $PEER"
+  # Comparing a host to itself always says "agrees" (or, without a loopback
+  # key, fails on ssh and looks like a sync problem). Either way it answers
+  # nothing: the question is whether the TWO ENDS of a measurement share a
+  # grandmaster, and one host cannot disagree with itself. Caught rather than
+  # allowed, because `--peer <the host I am typing on>` is the natural mistake.
+  PEER_HOST=${PEER#*@}
+  SELF=0
+  case "$PEER_HOST" in
+    localhost | 127.0.0.1 | ::1) SELF=1 ;;
+  esac
+  for n in "$(hostname 2>/dev/null)" "$(hostname -s 2>/dev/null)" \
+           "$(hostname -f 2>/dev/null)" $(hostname -I 2>/dev/null); do
+    [ -n "$n" ] && [ "$PEER_HOST" = "$n" ] && SELF=1
+  done
+  if [ "$SELF" -eq 1 ]; then
+    note "$PEER is THIS host — a host cannot disagree with itself."
+    note "Run this from one endpoint naming the OTHER, e.g. on the UE host:"
+    note "  bash deploy/lab/ptp/verify-ptp.sh --peer <edge-host>"
+    FAIL=1
+    PEER=""
+  fi
+fi
+
+if [ -n "$PEER" ]; then
   T0=$(date +%s%N)
   REMOTE=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$PEER" 'date +%s%N' 2>/dev/null || true)
   T1=$(date +%s%N)

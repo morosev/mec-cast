@@ -57,9 +57,17 @@ Every check above is **local**: does this host track its own PHC? Two hosts can
 each pass perfectly and still be seconds apart, because passing says nothing
 about *which clock* they are tracking. Compare the two ends directly:
 
+Run it **on one endpoint, naming the other**. It needs key-based ssh from the
+host you are typing on to the peer:
+
 ```bash
-bash deploy/lab/ptp/verify-ptp.sh --peer <other-measuring-host>
+# on the UE host, about the edge
+bash deploy/lab/ptp/verify-ptp.sh --peer streaming-server
 ```
+
+Naming the host you are standing on is rejected — a host cannot disagree with
+itself, so that comparison passes vacuously or fails on a missing loopback key
+and looks like a sync fault either way.
 
 It reads the peer's clock over ssh and reports the gap with its own error bar.
 The round trip is milliseconds, so this cannot validate PTP-grade sync — it is

@@ -231,9 +231,21 @@ deployment:
 # --- clock model (the claim that makes cross-host numbers valid) ------------
 clock:
   transport: "ptp4l + phc2sys over the management/backhaul LAN"
+  # Mechanism is not the invariant. A host may discipline CLOCK_REALTIME with
+  # chrony from a PHC refclock instead of phc2sys, and a VM guest may take its
+  # PHC from ptp_kvm with no ptp4l at all. All three are valid.
+  alternatives: "chrony with a PHC refclock; ptp_kvm on a VM guest (no ptp4l)"
+  # THE actual invariant, and the one nothing in the platform can verify.
+  same_root_required: "both ends of a cross-host subtraction must trace to the
+    SAME grandmaster — two endpoints each perfectly disciplined to different
+    roots report ptp.reliable: true on both while being seconds apart"
   never: "the 5G user plane — srsRAN and Open5GS implement no 5G-TSN"
   device: /dev/ptp0
   per_snapshot_field: "context.ptp.reliable"
+  # Scope of that field, which is narrower than its name suggests.
+  per_snapshot_field_is_local: "|PHC − CLOCK_REALTIME| on ONE host; blind to
+    grandmaster disagreement between hosts"
+  cross_host_check: "deploy/lab/ptp/verify-ptp.sh --peer <host>"
   local_dev_truth: "containers share the host kernel clock; ptp.reliable is honestly false"
 
 # --- build entry points -----------------------------------------------------
