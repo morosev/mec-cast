@@ -94,6 +94,10 @@ services:
     environment:
       MECADM_RUNS_DIR: /runs
       MECADM_LOGGING_URL: http://logging:8000
+      # The admin's own commit, compared against each node's to raise
+      # WF_VERSION_SKEW. The check is guarded on BOTH shas being non-empty, so
+      # leaving this unset disables it silently rather than loudly.
+      VCS_REF: ${VCS_REF:-}
     ports:
       - "8099:8099"
     volumes:

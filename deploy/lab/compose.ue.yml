@@ -24,6 +24,12 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/ros.Dockerfile
+      # Stamped into the image's OCI labels and its runtime environment, so a
+      # host can say what it is running and the admin can compare. deploy.sh
+      # forwards these; a hand-run build without them gets `unknown`.
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
     network_mode: host
     command: >
       ros2 run mec_cast_ue ue_agent --ros-args

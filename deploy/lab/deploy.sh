@@ -107,13 +107,25 @@ for c in $NEEDS_CONTEXT; do
   fi
 done
 
+# Provenance, computed HERE and forwarded, because the remote cannot work it
+# out: .git is excluded from the rsync, so there is no repository on the far
+# side to ask. Without these the images build with the Dockerfile's `unknown`
+# default, `make version` reports "provenance unknown", and WF_VERSION_SKEW is
+# guarded on both shas being non-empty -- so it silently never fires and a host
+# running a month-old image looks identical to a current one.
+VCS_REF="${VCS_REF:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)}"
+VERSION="${VERSION:-$(git -C "$ROOT_DIR" describe --tags --match 'platform-v*' \
+                        --always --dirty 2>/dev/null || echo unknown)}"
+export VCS_REF VERSION
+
 # Optional knobs: forwarded when set, left to the compose file's default when
 # not. Keep in step with the ${...} references in deploy/lab/compose.*.yml.
 OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           RENDER_SINK PUBLISH_RESULT RESULT_RELIABILITY RESULT_QOS_DEPTH \
           PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL \
           LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST CELL \
-          BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY"
+          BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY \
+          VCS_REF VERSION"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,
