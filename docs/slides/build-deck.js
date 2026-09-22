@@ -148,7 +148,7 @@ function bullets(s, x, y, w, h, items, size) {
     fs: 11 });
 
   note(s, M, 6.42, CW, 0.5,
-    ["PTP (ptp4l + phc2sys) disciplines every measuring host over the management LAN — never the 5G user plane, which carries no time sync."], 10.5);
+    ["PTP disciplines every measuring host over the management LAN — never the 5G user plane, which carries no time sync. What makes a cross-host delay valid is that both ends trace to the SAME grandmaster, not which daemon gets them there."], 10.5);
 }
 
 // ================================================== 2. DEPLOYMENT — LOCAL
@@ -212,7 +212,7 @@ function bullets(s, x, y, w, h, items, size) {
 
   box(s, { x: M, y: 3.28, w: CW, h: 0.85, dark: true,
     title: "PTP grandmaster — management / backhaul LAN",
-    lines: ["ptp4l + phc2sys on every measuring host. srsRAN and Open5GS implement no 5G-TSN, so the user plane cannot carry time sync."],
+    lines: ["One grandmaster for every measuring host; the daemon varies. srsRAN and Open5GS implement no 5G-TSN, so the user plane carries no time sync."],
     fs: 11 });
 
   const h3 = cols(2, 0.43);

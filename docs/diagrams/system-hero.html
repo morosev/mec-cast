@@ -366,7 +366,7 @@
 <div class="plane">
   <div class="lab">mec-cast-telemetry<span>SHARED MEASUREMENT PLANE</span></div>
   <div class="items">
-    <div class="it"><b>PTP · ptp4l + phc2sys</b>management LAN, never the user plane — srsRAN and Open5GS carry no 5G-TSN</div>
+    <div class="it"><b>PTP · one grandmaster</b>every measuring host on the SAME root, management LAN — srsRAN and Open5GS carry no 5G-TSN</div>
     <div class="it"><b>TimingEnvelope · 64 B</b>capture_ns · send_ns · recv_ns · process_done_ns · seq · trace_id</div>
     <div class="it"><b>network = recv − send</b>e2e = done − capture · Welford + exact windowed percentiles</div>
     <div class="it"><b>one RUN_ID</b>joins UE samples, O-DU KPIs and edge samples in a single query</div>

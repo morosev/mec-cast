@@ -19,8 +19,8 @@ flowchart TB
   subgraph H1["HOST — role: ue &nbsp;&nbsp; compose.ue.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
     UEC["container: lidar-client<br/>image mec-cast-ros<br/>ros2 run mec_cast_ue ue_agent<br/>LIDAR_INSTANCES=N"]:::ctr
-    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[udp/EDGE_HOST:7447?rel=1]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL<br/>ADMIN_URL · CELL · LIDAR_INSTANCES · RENDER_INSTANCES"]:::ext
-    UEPTP["device /dev/ptp0"]:::vol
+    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[udp/EDGE_HOST:7447?rel=1]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL<br/>ADMIN_URL · CELL · PTP_DEVICE<br/>LIDAR_INSTANCES · RENDER_INSTANCES"]:::ext
+    UEPTP["device PTP_DEVICE → /dev/ptp0<br/>(host index varies; default ptp0)"]:::vol
     UEVOL["volume ../../runs → /runs"]:::vol
     RENC["container: render<br/>ros2 run mec_cast_ue ue_agent<br/>RENDER_INSTANCES=M · RENDER_SINK=null | rerun | ros<br/>published :9876+2j page · :9877+2j stream"]:::ctr
     UEC --- UEENV
@@ -33,7 +33,7 @@ flowchart TB
     direction TB
     SRSRAN["srsRAN Project — O-CU / O-DU<br/>runs natively, not containerised<br/>gnb.yml: metrics.addr / metrics.port"]:::ext
     RANC["container: ran-collector<br/>image mec-cast-ran<br/>GNB_METRICS_ADDR=0.0.0.0:55555"]:::ctr
-    RANVOL["volume ../../runs → /runs<br/>device /dev/ptp0"]:::vol
+    RANVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
     SRSRAN -->|"UDP :55555 · JSON KPI datagrams"| RANC
     RANC --- RANVOL
   end
@@ -43,7 +43,7 @@ flowchart TB
     ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens udp/0.0.0.0:7447?rel=1<br/>restart: unless-stopped"]:::ctr
     EDGEC["container: edge<br/>ros2 run mec_cast_edge edge<br/>subscribes over rmw_zenoh_cpp"]:::ctr
     ADMC["container: admin<br/>mec-cast-admin serve<br/>published :8099 · HTTP + WebSocket<br/>MECADM_RUNS_DIR=/runs"]:::ctr
-    EDGEVOL["volume ../../runs → /runs<br/>device /dev/ptp0"]:::vol
+    EDGEVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
     ZR -->|"in-process Zenoh session"| EDGEC
     EDGEC --- EDGEVOL
     ADMC --- EDGEVOL
@@ -81,12 +81,12 @@ flowchart TB
   subgraph MGMT["MANAGEMENT / BACKHAUL LAN — separate from the 5G user plane"]
     direction TB
     GM["PTP grandmaster (IEEE 1588)<br/>GPS-disciplined or lab reference"]:::sync
-    VERIFY["deploy/lab/ptp/verify-ptp.sh<br/>run on every measuring host"]:::vol
+    VERIFY["deploy/lab/ptp/verify-ptp.sh --peer &lt;host&gt;<br/>compares the TWO ENDS, not each against itself"]:::vol
   end
 
-  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H1
-  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H2
-  GM -.->|"ptp4l → PHC · phc2sys → CLOCK_REALTIME"| H3
+  GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H1
+  GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H2
+  GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H3
 
   OPS["Operator workstation<br/>bash deploy/lab/deploy.sh ROLE user@host<br/>rsync + docker compose up -d --build"]:::ext
   OPS -.->|"ssh"| H1

@@ -93,9 +93,9 @@ flowchart TB
     direction LR
     GMC["PTP grandmaster<br/>IEEE 1588"]:::stamp
     P4L["ptp4l → NIC hardware clock (PHC)"]:::work
-    P2S["phc2sys → CLOCK_REALTIME"]:::work
-    MON["PtpMonitor samples the PHC offset;<br/>every snapshot carries ptp.reliable"]:::derived
-    WARN["Cross-host metrics are meaningful only while ptp.reliable is true.<br/>srsRAN and Open5GS implement no 5G-TSN, so the user plane<br/>carries no time sync — discipline arrives over the management LAN."]:::derived
+    P2S["phc2sys or chrony → CLOCK_REALTIME"]:::work
+    MON["PtpMonitor samples the PHC offset;<br/>every snapshot carries ptp.reliable<br/>(local to ONE host)"]:::derived
+    WARN["ptp.reliable true is NECESSARY, not sufficient: both ends must also<br/>trace to the SAME grandmaster — verify-ptp.sh --peer &lt;host&gt;.<br/>srsRAN and Open5GS implement no 5G-TSN, so the user plane<br/>carries no time sync — discipline arrives over the management LAN."]:::derived
     GMC --> P4L --> P2S --> MON --> WARN
   end
 

@@ -1,0 +1,11 @@
+{
+  "name": "mec-cast-slides",
+  "private": true,
+  "description": "Builds docs/slides/mec-cast-architecture.pptx from build-deck.js. The dependency was undeclared until it went missing and the deck could not be rebuilt at all; qa_pptx checks the artifact, nothing checked that the artifact was still buildable.",
+  "scripts": {
+    "build": "node build-deck.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
