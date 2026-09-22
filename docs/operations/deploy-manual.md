@@ -247,13 +247,14 @@ the far side.
 Optional variables it forwards when set: `RUN_ID`, `PATTERN`, `NUM_POINTS`,
 `RATE_HZ`, `SEED`, `RENDER_SINK`, `PUBLISH_RESULT`, `RESULT_RELIABILITY`,
 `RESULT_QOS_DEPTH`, `ADMIN_URL`, `LIDAR_INSTANCES`, `RENDER_INSTANCES`,
-`VIEWER_HOST`, `CELL`, `POSTGRES_PASSWORD`, `METRICS_PORT`,
+`VIEWER_HOST`, `CELL`, `PTP_DEVICE`, `POSTGRES_PASSWORD`, `METRICS_PORT`,
 `MECLOG_BUILD_CONTEXT`.
 
 ### Two roles on one machine
 
-Supported. Service names do not collide, ports do not overlap, `/dev/ptp0` is
-shared read-only, and `deploy.sh` passes no `--remove-orphans`, so deploying a
+Supported. Service names do not collide, ports do not overlap, the PHC is
+shared read-only by every role on the host (they all take the same
+`PTP_DEVICE`), and `deploy.sh` passes no `--remove-orphans`, so deploying a
 second role does not evict the first. Deploy them one after the other:
 
 ```bash

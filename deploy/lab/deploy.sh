@@ -125,7 +125,7 @@ OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL \
           LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST CELL \
           BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY \
-          VCS_REF VERSION"
+          VCS_REF VERSION PTP_DEVICE"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,

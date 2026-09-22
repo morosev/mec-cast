@@ -14,7 +14,7 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "eb0be06e69d56329a9d9d6307c182230d46f2acc"
+  last_synced_sha: "1dc0fc96f6d874e41bbcb6e1947e9462e0e7c5af"
   last_synced_date: "2026-09-02"
 
 # --- identity ---------------------------------------------------------------
@@ -107,6 +107,7 @@ env:
   VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. localhost is wrong the moment the UE is a different machine, as it is in the lab"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
   CELL:            {default: "", note: "which radio cell a node reports in `hello`. Empty = undeclared; the admin treats it as the single default cell"}
+  PTP_DEVICE:      {default: "/dev/ptp0", note: "host PHC, mapped to /dev/ptp0 INSIDE the container so only this line is host-specific. Index 0 is whichever NIC the driver registered first, NOT necessarily the one ptp4l disciplines -- `ethtool -T <iface>` names the right index. Empty disables the clock monitor honestly"}
   LIDAR_INSTANCES: {default: "1", note: "ue agent; N lidar instances in one process, dirs pub-0..pub-(N-1)"}
   RENDER_INSTANCES: {default: "0", note: "ue agent; M render instances. Instance j serves web_port+2j / grpc_port+2j when sink=rerun"}
 
