@@ -513,6 +513,7 @@ class Orchestrator:
                 run,
                 admin_sha=self._admin_sha,
                 topology=self.topology,
+                clock_offset_warn_ns=self._settings.clock_offset_warn_ns,
             ):
                 # Fleet-wide findings (version skew, logging reachability)
                 # are produced by every pass; keep one.

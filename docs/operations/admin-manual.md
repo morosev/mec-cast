@@ -570,8 +570,37 @@ remote fragments stay where they are, and one host's files are never removed
 because another host did not have them. Merging is safe precisely because each
 host owns different subdirectories of the same run.
 
-Run it manually, when a campaign ends. Runs are finite — unlike the database,
+Run it manually when a campaign ends. Runs are finite — unlike the database,
 which grows continuously and is why *that* one is on a timer.
+
+#### Scheduling it anyway
+
+Manual is right for *analysis*, and wrong for *durability*. The CSVs are the
+source of truth; the database holds 2-second summaries from which per-frame
+detail cannot be recovered. So the lossy copy is the one on a schedule and the
+authoritative one is not, which is backwards the moment a host's disk fails —
+whatever that host had recorded and nobody had collected is simply gone.
+
+There is no service for this, deliberately: a run is a different fragment on
+every host, so collecting one is inherently cross-machine and belongs to a
+machine with ssh access to all of them — the operator workstation, or infra if
+it has keys. A per-host container could only ever back up its own fragment.
+
+A weekly timer bounds the loss to a week. On whichever machine holds the keys:
+
+```bash
+(crontab -l 2>/dev/null; echo "17 4 * * 1 cd ~/mec-cast && bash scripts/collect-runs.sh -a -b /srv/mec-cast-archive ops@ue ops@edge ops@gnb") | crontab -
+```
+
+`-a` applies rather than dry-running, `-b` writes the `.tar.gz`. It exits
+non-zero if any host failed or the archive could not be written, so cron will
+mail you — which is the only reason to prefer it to a silent `systemd` timer
+here.
+
+Two things it does NOT do, both on purpose: it never deletes, so a growing
+archive directory is yours to prune (`BACKUP_KEEP` governs the database dumps
+only), and it does not skip runs it has already collected — rsync moves no
+bytes for files that match, but the archive is written whole each time.
 
 It also solves a problem that has nothing to do with backup: until the
 fragments are merged, **a lab run cannot be analysed without visiting three

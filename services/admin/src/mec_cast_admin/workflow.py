@@ -96,6 +96,7 @@ def diagnose(
     *,
     admin_sha: str = "",
     topology: TopologySpec | None = None,
+    clock_offset_warn_ns: int = 0,
 ) -> list[Finding]:
     """Everything currently wrong, worst first."""
     findings: list[Finding] = []
@@ -239,6 +240,54 @@ def diagnose(
                     "confirm the renderer's `reliability` matches the edge's "
                     "`result_reliability`: a best_effort publisher with a reliable "
                     "subscriber is an incompatible pair and delivers nothing.",
+                )
+            )
+
+    # Clocks, checked BEFORE a run rather than after it is spoiled.
+    #
+    # Every envelope carries the node's CLOCK_REALTIME in `ts_ns` -- the same
+    # clock its recorder stamps samples with -- so the admin has been holding
+    # the evidence all along and discarding it. A node a second adrift here
+    # will record cross-host delays wrong by a second.
+    #
+    # This is the only clock check that needs nobody to remember anything.
+    # Per-host checks pass while a pair is seconds apart, because each host is
+    # perfect against its own reference; `verify-ptp.sh --peer` compares two
+    # ends but only when a human runs it. This runs on every frame.
+    if clock_offset_warn_ns:
+        adrift = [
+            r
+            for r in online
+            if r.clock_offset_ns is not None and abs(r.clock_offset_ns) > clock_offset_warn_ns
+        ]
+        # If EVERY node looks adrift, the odd one out is the admin. Saying so
+        # matters: the alternative is an operator "fixing" a healthy fleet.
+        everyone = len(adrift) == len(online) and len(online) > 1
+        for record in adrift:
+            seconds = record.clock_offset_ns / 1e9
+            direction = "behind" if seconds > 0 else "ahead of"
+            findings.append(
+                Finding(
+                    "WF_CLOCK_OFFSET",
+                    "error",
+                    record.node_id,
+                    f"{record.node_id} reports a clock {abs(seconds):.3f} s "
+                    f"{direction} the admin's. Every cross-host delay it "
+                    "records will be wrong by that much."
+                    + (
+                        " EVERY node shows this, so suspect the ADMIN host's"
+                        " clock before touching the nodes."
+                        if everyone
+                        else ""
+                    ),
+                    "Both ends of a cross-host subtraction must trace to the "
+                    "SAME grandmaster; being disciplined is not enough. On "
+                    "each host: `sudo pmc -u -b 0 'GET PARENT_DATA_SET'` must "
+                    "show one grandmasterIdentity, and "
+                    "`bash deploy/lab/ptp/verify-ptp.sh --peer <other-host>` "
+                    "must agree. A host can report nanosecond accuracy while "
+                    "following the wrong clock entirely.",
+                    cell=cell_of(record),
                 )
             )
 

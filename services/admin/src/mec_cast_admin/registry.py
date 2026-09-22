@@ -64,6 +64,20 @@ class NodeRecord:
     #: tell "frames rising" from "frames flat" without keeping its own history.
     previous_counters: dict[str, int] = field(default_factory=dict)
 
+    #: admin CLOCK_REALTIME minus this node's, nanoseconds, from the `ts_ns`
+    #: every envelope already carries. Positive means the node is behind.
+    #:
+    #: This is the cheapest clock check in the platform and it was being
+    #: thrown away: `ts_ns` is the same CLOCK_REALTIME the recorder stamps
+    #: samples with, so a node seconds adrift here produces samples wrong by
+    #: exactly that much. The per-host checks cannot see it (each host is
+    #: perfect against its own reference) and `verify-ptp.sh --peer` can, but
+    #: only when a human remembers to run it. This runs on every frame.
+    #:
+    #: It carries one-way network delay as a positive bias — sub-millisecond
+    #: on the management LAN, against a threshold in seconds.
+    clock_offset_ns: int | None = None
+
     def is_online(self, timeout_s: float, now: float | None = None) -> bool:
         now = _now() if now is None else now
         return self.connected and (now - self.last_seen) <= timeout_s
@@ -94,6 +108,7 @@ class NodeRecord:
             "departed": self.departed,
             "age_s": round(_now() - self.first_seen, 1),
             "silent_for_s": round(_now() - self.last_seen, 1),
+            "clock_offset_ns": self.clock_offset_ns,
         }
 
 
@@ -150,6 +165,16 @@ class Registry:
         record.last_error = status.last_error
         record.last_seen = _now()
         return record
+
+    def note_clock(self, node_id: str, node_ts_ns: int, admin_ns: int) -> None:
+        """Record how far this node's clock is from the admin's.
+
+        Called for every node-originated frame, because every one of them
+        carries `ts_ns` and the comparison costs a subtraction.
+        """
+        record = self._nodes.get(node_id)
+        if record is not None and node_ts_ns:
+            record.clock_offset_ns = admin_ns - int(node_ts_ns)
 
     def touch(self, node_id: str) -> None:
         """Any inbound frame proves the node is alive."""

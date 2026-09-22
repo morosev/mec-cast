@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # How long a run may sit in `starting` before it is declared failed.
     start_timeout_s: float = Field(default=30.0, gt=0)
 
+    # How far a node's clock may sit from the admin's before it is reported.
+    # One second is enormous next to PTP (tens of ns) and next to the one-way
+    # LAN delay this measurement includes (sub-ms), and small next to the
+    # failure it exists to catch: hosts seconds apart with every local
+    # indicator green. Set 0 to disable.
+    clock_offset_warn_ns: int = Field(default=1_000_000_000, ge=0)
+
     # How long a run may sit in `stopping` before the admin gives up waiting
     # for reports and calls it stopped. Generous next to start_timeout_s
     # because a node flushing a large recorder is doing real work and must not

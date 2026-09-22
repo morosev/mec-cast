@@ -136,6 +136,10 @@ async def node_socket(websocket: WebSocket) -> None:
             if envelope.type is p.MessageType.HELLO:
                 node_id = payload.node_id
                 welcome = await orchestrator.on_hello(payload, websocket)
+                # After on_hello, not before: the record does not exist until
+                # hello creates it, and note_clock on a missing node is a
+                # silent no-op -- which is exactly how it failed first.
+                orchestrator.registry.note_clock(node_id, envelope.ts_ns, p.now_ns())
                 await websocket.send_text(json.dumps(welcome))
                 continue
 
@@ -151,6 +155,10 @@ async def node_socket(websocket: WebSocket) -> None:
                 continue
 
             orchestrator.registry.touch(node_id)
+            # Every frame carries the node's CLOCK_REALTIME; comparing it here
+            # catches a skewed host before a run starts rather than after its
+            # numbers are already wrong.
+            orchestrator.registry.note_clock(node_id, envelope.ts_ns, p.now_ns())
 
             if envelope.type is p.MessageType.STATUS:
                 await orchestrator.on_status(node_id, payload)
