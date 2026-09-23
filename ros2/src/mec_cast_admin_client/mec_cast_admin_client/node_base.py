@@ -170,11 +170,12 @@ class MecCastNode(Node):
         # for a reason the snapshot cannot express, and an unannotated false
         # reads as "no PTP here" rather than "misconfigured". Say which.
         if self.ptp_device and not self.recorder.ptp_enabled:
+            why = getattr(self.recorder, "ptp_error", "") or "reason unavailable"
             self.get_logger().warn(
-                f"PTP device {self.ptp_device!r} could not be opened — clock "
-                "quality will be reported as unavailable. Check the device "
-                "exists, is the one ptp4l disciplines (ethtool -T <iface>), "
-                "and is readable in this container."
+                f"PTP unavailable — {why}. Clock quality will be reported as "
+                "unavailable. If this names the device, check it is the one "
+                "ptp4l disciplines (ethtool -T <iface>) and is mapped into "
+                "this container."
             )
         return out_dir
 

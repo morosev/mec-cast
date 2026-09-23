@@ -106,6 +106,9 @@ struct Recorder {
     /// without the `linux-ptp` feature — three different reasons for the
     /// same `reliable: false`, which is why the node logs which one applies.
     ptp_enabled: bool,
+    /// Why the PHC is not in use, empty when it is. Exposed so the node can
+    /// name the actual cause instead of guessing at it.
+    ptp_error: String,
 }
 
 struct RecorderInner {
@@ -122,29 +125,44 @@ struct RecorderInner {
 /// reported through `ptp_enabled` so it cannot pass unnoticed — silence is
 /// how this stayed broken, with every node reporting `reliable: false` and
 /// nothing saying the monitor had never been built at all.
-fn make_monitor(device: Option<&str>) -> (PtpMonitor, bool) {
+fn make_monitor(device: Option<&str>) -> (PtpMonitor, bool, String) {
     match device {
         Some(dev) if !dev.is_empty() => open_phc(dev),
-        _ => (PtpMonitor::disabled(), false),
+        _ => (
+            PtpMonitor::disabled(),
+            false,
+            "no device configured".to_string(),
+        ),
     }
 }
 
 #[cfg(all(target_os = "linux", feature = "linux-ptp"))]
-fn open_phc(device: &str) -> (PtpMonitor, bool) {
+fn open_phc(device: &str) -> (PtpMonitor, bool, String) {
     match crate::clock::PhcClock::open(device) {
         Ok(clock) => (
             PtpMonitor::with_phc(clock, crate::ptp::DEFAULT_THRESHOLD_NS),
             true,
+            String::new(),
         ),
-        Err(_) => (PtpMonitor::disabled(), false),
+        // The OS error, verbatim. A bare "could not be opened" covers a
+        // missing device, a permission failure, a non-PHC device and a build
+        // with no PHC support at all -- four causes with four different
+        // fixes, and distinguishing them cost five rounds of remote probing
+        // once. ENOENT, EACCES and EINVAL each name themselves here.
+        Err(e) => (PtpMonitor::disabled(), false, format!("{device}: {e}")),
     }
 }
 
 /// Without the `linux-ptp` feature there is no PHC to open. Configuring a
-/// device on such a build is a no-op, and `ptp_enabled` says so.
+/// device on such a build is a no-op, and this says so rather than blaming
+/// the device -- a distinction no amount of checking the host can reveal.
 #[cfg(not(all(target_os = "linux", feature = "linux-ptp")))]
-fn open_phc(_device: &str) -> (PtpMonitor, bool) {
-    (PtpMonitor::disabled(), false)
+fn open_phc(_device: &str) -> (PtpMonitor, bool, String) {
+    (
+        PtpMonitor::disabled(),
+        false,
+        "this build has no PHC support (linux-ptp feature off)".to_string(),
+    )
 }
 
 #[pymethods]
@@ -179,11 +197,12 @@ impl Recorder {
         let n = src.len().min(16);
         trace_id[..n].copy_from_slice(&src[..n]);
 
-        let (ptp, ptp_enabled) = make_monitor(ptp_device.as_deref());
+        let (ptp, ptp_enabled, ptp_error) = make_monitor(ptp_device.as_deref());
         let (sender, handle) = recorder::spawn(cfg, ptp)
             .map_err(|e| PyRuntimeError::new_err(format!("failed to start recorder: {e}")))?;
         Ok(Self {
             ptp_enabled,
+            ptp_error,
             inner: std::sync::Mutex::new(RecorderInner {
                 sender: Some(sender),
                 handle: Some(handle),
@@ -267,6 +286,13 @@ impl Recorder {
     #[getter]
     fn ptp_enabled(&self) -> bool {
         self.ptp_enabled
+    }
+
+    /// Why the PHC is not in use: the OS error, or the reason no attempt was
+    /// made. Empty string when the clock is open and working.
+    #[getter]
+    fn ptp_error(&self) -> String {
+        self.ptp_error.clone()
     }
 
     fn negative_delays(&self) -> PyResult<u64> {

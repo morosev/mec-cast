@@ -139,6 +139,25 @@ running `ptp4l` there works too, and is more effort for the same result. Either
 way, confirm with `--peer` afterwards rather than trusting the local numbers,
 which looked flawless the whole time.
 
+## If a node reports PTP unavailable
+
+The warning now names the cause rather than blaming the device. Read it before
+touching the host:
+
+| What it says | What it means |
+|---|---|
+| `no device configured` | `PTP_DEVICE` is empty. Set it, or accept no clock monitor. |
+| `No such file or directory (os error 2)` | The path does not exist **inside the container**. Check the `devices:` mapping reached the container: `docker inspect <ctr> --format '{{json .HostConfig.Devices}}'`. |
+| `Permission denied (os error 13)` | The device is there but not writable. It is opened read-write. |
+| `Invalid argument (os error 22)` | The file opened but is not a usable PHC — either genuinely not a PTP clock, or the process is on a build predating the `CLOCKFD` fix, where **every** device failed this way. |
+| `this build has no PHC support` | The wheel was built without the `linux-ptp` feature. |
+
+Naming a stable device is better than naming an index. PHC numbering follows
+driver probe order and can move across reboots, so `/dev/ptp2` is not a stable
+identity while `/dev/ptp_ens3f0` — the udev symlink named after `clock_name` —
+is. Docker's `devices:` resolves the symlink when the container is created, so
+either form works; the symlink survives a reboot.
+
 ## When the check disagrees with reality
 
 Trust `ptp4l`'s own output over any wrapper. This is a healthy host:
