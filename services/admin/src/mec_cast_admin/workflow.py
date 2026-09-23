@@ -243,6 +243,38 @@ def diagnose(
                 )
             )
 
+    # A run that DECLARES a transport must match what the nodes are on.
+    #
+    # The transport is fixed when a node process starts: one Zenoh session,
+    # one link, established at rclpy.init(). The admin cannot change it for a
+    # run and does not pretend to. The run records which transport produced
+    # its data, and this check makes a wrong record loud rather than silent --
+    # a campaign labelled "quic" that actually ran on tcp is worse than no
+    # label at all, because nothing downstream can tell.
+    declared = str(((run.params if run is not None else None) or {}).get("transport") or "")
+    if declared:
+        for record in online:
+            actual = str((record.params or {}).get("transport") or "")
+            if actual and actual != declared:
+                findings.append(
+                    Finding(
+                        "WF_TRANSPORT_MISMATCH",
+                        "error",
+                        record.node_id,
+                        f"Run declares transport {declared!r} but "
+                        f"{record.node_id} is connected over {actual!r}. This "
+                        "run's data would be labelled with a transport it did "
+                        "not use.",
+                        "The transport is fixed at deployment, not per run: a "
+                        "Zenoh session opens one link at process start. Either "
+                        "correct the run's transport field, or redeploy that "
+                        "role with the intended ZENOH_CONFIG_OVERRIDE and "
+                        "RECREATE the container -- restarting the run cannot "
+                        "change it.",
+                        cell=cell_of(record),
+                    )
+                )
+
     # Clocks, checked BEFORE a run rather than after it is spoiled.
     #
     # Every envelope carries the node's CLOCK_REALTIME in `ts_ns` -- the same

@@ -461,6 +461,10 @@ $('addForm').addEventListener('submit', async (event) => {
     reliability: $('f_reliability').value,
     qos_depth: Number($('f_depth').value),
   };
+  // Only send it when chosen: an empty transport means "not recorded", and
+  // storing "" would make WF_TRANSPORT_MISMATCH fire against every node.
+  const transport = $('f_transport').value;
+  if (transport) params.transport = transport;
   try {
     const cell = $('f_cell').value || 'default';
     await call('POST', '/runs', { label: $('f_label').value.trim(), cell, params });

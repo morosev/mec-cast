@@ -79,6 +79,57 @@ in [ADR-0006](../architecture/adr/0006-reliable-udp-transport.md). The router
 still listens on `udp/[::]:7447?rel=1` alongside `tcp/[::]:7448` so that
 transport remains available to experiments.
 
+## Choosing a transport
+
+The router listens on three endpoints at once, so a role's transport is
+whichever one it dials:
+
+| Endpoint | State |
+|---|---|
+| `tcp/[::]:7448` | **what the platform runs on** — correct and fast |
+| `quic/[::]:7449` | works, needs TLS, ~60x slower under jitter at 10k points |
+| `udp/[::]:7447?rel=1` | **cannot relay on this build** — declarations are lost |
+
+Change a role by changing one line, then **recreate the container** — the
+link is opened once at process start:
+
+```
+ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["quic/${EDGE_HOST}:7449"];transport/link/tls/root_ca_certificate="/zenoh/tls/ca.crt"'
+```
+
+QUIC additionally needs TLS material, since there is no unencrypted `quic/`:
+
+```bash
+bash scripts/gen-dev-tls.sh
+```
+
+That writes a development CA into `deploy/docker/zenoh/tls/`, which is
+gitignored and mounted read-only at runtime rather than baked into an image —
+a private key must never enter a layer. For the lab, generate certificates
+whose SAN covers the address each role dials, not the dev ones.
+
+Measurements and the reasoning behind the default are in
+[ADR-0006](../architecture/adr/0006-reliable-udp-transport.md), including a
+warning worth reading before any transport comparison: `netem delay X jitter Y`
+reorders packets, which penalises QUIC far more than TCP and is not how a real
+link behaves.
+
+## Recording which transport a run used
+
+A run can declare its transport in **New Run**, and the admin verifies it.
+
+**It is recorded, not applied.** A Zenoh session opens one link at
+`rclpy.init()`, so nothing can move a running node from TCP to QUIC — the
+field labels the run's data for provenance. Each node reports the transport it
+is really on, and a disagreement raises `WF_TRANSPORT_MISMATCH` as an error:
+
+```text
+Run declares transport 'quic' but client-ran-4-0 is connected over 'tcp'.
+```
+
+Leave it as *(not recorded)* if you are not comparing transports. `udp-rel1`
+and `udp-rel0` are kept distinct because they are different experiments.
+
 ## How publish/subscribe reaches the edge
 
 ROS 2 topics become Zenoh **key expressions**; `rmw_zenoh` rewrites every `/`

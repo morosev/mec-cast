@@ -84,5 +84,6 @@ services:
       - "${RENDER_PORT:-9876}-${RENDER_PORT_LAST:-9883}:${RENDER_PORT:-9876}-${RENDER_PORT_LAST:-9883}"
     volumes:
       - ../../runs:/runs
+      - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
       - zenoh-router

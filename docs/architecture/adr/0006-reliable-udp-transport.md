@@ -4,7 +4,57 @@
 - **Date:** 2026-08-18
 - **Amended:** 2026-08-20 (the link is not QUIC), 2026-08-30 (the tail cost of
   ordered retransmission — measured, and it does not reverse the decision),
-  2026-09-23 (**the deployed data path is now TCP**)
+  2026-09-23 (**the deployed data path is now TCP**), 2026-09-24 (QUIC
+  measured; this ADR's own quic arm withdrawn as a netem artifact)
+
+## Amendment, 2026-09-24 — QUIC measured, and a methodology warning
+
+`quic/` is available in this build and **works**: the router binds
+`quic/[::]:7449` with a dev CA, declarations resolve, and the e2e data path
+is clean (0 `unknown scope`). It is not the transport for this platform, but
+the reason is narrower than "QUIC is slow", and the earlier arm's verdict
+does not survive scrutiny.
+
+Measured on one link, one workload, one variable at a time:
+
+| Transport | Points | Impairment | p50 |
+|---|---|---|---|
+| TCP | 5,000 | none | 1.7 ms |
+| QUIC | 5,000 | none | **2.3 ms** |
+| QUIC | 5,000 | 20 ms, **no jitter** | 36.8 ms |
+| QUIC | 5,000 | 20 ms + 2 ms jitter | 113.6 ms |
+| QUIC | 10,000 | 20 ms + 2 ms jitter | **1,365 ms** |
+| TCP | 10,000 | 20 ms + 2 ms jitter | **23.4 ms** |
+
+**Unimpaired, QUIC costs 0.6 ms more than TCP.** The collapse is entirely an
+interaction with impairment, and it compounds: delay alone 16x, jitter 3x
+more, doubling the payload 12x more. TCP under the identical worst case is
+23.4 ms. The shape is a standing queue — min 208 ms, p50 1,365 ms, max
+2,028 ms — so the publisher outruns what the link drains and the backlog
+never clears. A 118 kB frame does not take 1.3 s to encrypt.
+
+The likely mechanism is QUIC's loss detection reading reordering as loss and
+collapsing its congestion window, with larger frames worse because each spans
+~85 datagrams rather than ~42. On zenoh 1.8 every priority shares one QUIC
+stream, so one stalled frame blocks the queue behind it; `multistream`, which
+maps priorities to separate streams, is a 1.9 feature.
+
+### The methodology warning
+
+**`netem delay X jitter Y` reorders packets**, because it releases them at
+randomised times. Real links do not reorder that way, and QUIC is far more
+sensitive to it than TCP. So an unknown part of the 1,365 ms is an artifact of
+*how this platform impairs*, not of QUIC over a real radio.
+
+That applies to **this ADR's own sweep**. The original conclusion that
+"`quic/` also measured worse than `rel=1` at every size" was produced under
+the same jitter and is therefore suspect for the same reason. Treat it as
+withdrawn rather than confirmed: the only QUIC figures that stand are the ones
+above, and the unimpaired ones say QUIC is competitive.
+
+Impairing with `netem ... rate` or a `slot` model would delay without
+synthetic reordering, and is the fairer instrument for any future transport
+comparison.
 
 ## Amendment, 2026-09-23 — the deployed transport is TCP
 

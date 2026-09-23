@@ -82,6 +82,19 @@
         <label for="f_depth">QoS depth</label>
         <input id="f_depth" type="number" min="1" value="10">
       </div>
+      <div class="field">
+        <label for="f_transport">Transport</label>
+        <select id="f_transport">
+          <option value="" selected>(not recorded)</option>
+          <option value="tcp">tcp</option>
+          <option value="quic">quic</option>
+          <option value="udp-rel1">udp ?rel=1</option>
+          <option value="udp-rel0">udp ?rel=0</option>
+        </select>
+        <small class="hint">Recorded, not applied. The link is fixed when a
+        node starts, so this labels the run and the admin verifies it against
+        what each node is really connected over.</small>
+      </div>
       <div class="field hidden" id="f_cell_field">
         <label for="f_cell">Cell</label>
         <select id="f_cell"></select>

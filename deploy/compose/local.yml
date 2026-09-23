@@ -28,6 +28,10 @@ services:
     command: ros2 run rmw_zenoh_cpp rmw_zenohd
     environment:
       ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+    volumes:
+      # TLS material for the quic/ listener, mounted rather than baked: the
+      # image must never carry a private key. scripts/gen-dev-tls.sh writes it.
+      - ../docker/zenoh/tls:/zenoh/tls:ro
 
   lidar-client:
     image: mec-cast-ros
@@ -65,6 +69,7 @@ services:
       CELL: ${CELL:-}
     volumes:
       - ../../runs:/runs
+      - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
       - zenoh-router
 
@@ -108,5 +113,6 @@ services:
       CELL: ${CELL:-}
     volumes:
       - ../../runs:/runs
+      - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
       - zenoh-router

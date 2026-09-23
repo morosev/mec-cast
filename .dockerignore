@@ -14,3 +14,6 @@ runs/
 **/.venv/
 **/__pycache__/
 **/node_modules/
+
+# Development TLS material: mounted at runtime, never baked into an image.
+deploy/docker/zenoh/tls/

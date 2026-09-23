@@ -857,6 +857,17 @@ Never do that in the lab without a dump.
 make down-hard && make build-ros2 && make up-local
 ```
 
+### `WF_TRANSPORT_MISMATCH`
+
+A run declared a transport that some node is not on. The transport is fixed
+when a node process starts — one Zenoh session, one link — so the admin
+records it rather than applying it, and this finding stops a campaign being
+labelled with a transport it did not use.
+
+Either correct the run's transport field, or redeploy that role with the
+intended `ZENOH_CONFIG_OVERRIDE` and **recreate** the container. Restarting
+the run cannot change it.
+
 ### A run stuck in `stopping`
 
 A run leaves `stopping` when every participant has sent its final report, or
