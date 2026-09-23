@@ -49,18 +49,25 @@ services:
       -p result_qos_depth:=${RESULT_QOS_DEPTH:-1}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
-      # The session config dials `zenoh-router` by SERVICE NAME, which only
-      # resolves on a compose bridge network. This role is network_mode: host,
-      # where there is no compose DNS, so the node died at rclpy.init() with
-      # "failed to lookup address information: Temporary failure in name
-      # resolution" -- a DNS error for a router running on the same machine.
+      # Star topology: every node is a CLIENT of the router, which relays.
+      # No peer mesh -- clients neither listen nor gossip, so nothing tries
+      # to dial a node that cannot be dialled (the UE is behind the UPF's
+      # NAT). Merged into rmw_zenoh's packaged config via _OVERRIDE rather
+      # than replacing it with a file, which silently dropped its listen,
+      # gossip and interest settings.
       #
-      # The router is local to this host, so dial the loopback. Override
-      # rather than editing the session file: ZENOH_CONFIG_OVERRIDE MERGES,
-      # while the file replaces rmw_zenoh's packaged defaults outright. The UE
-      # and gNB do the same thing pointing at EDGE_HOST.
-      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/127.0.0.1:7447?rel=1"]'
+      # TCP, not udp/?rel=1: relayed declarations are lost over the UDP
+      # link on this build (ros2/rmw_zenoh#765), and the router then drops
+      # every sample naming a key expression it never registered.
+      # Measured: TCP relay 8/8 e2e with zero errors; the same star over
+      # UDP failed 4-8 of 8 with dozens of 'unknown scope'.
+      #
+      # Loopback, because the router runs beside this node under
+      # network_mode: host. Dialling it by service name resolves only on a
+      # compose bridge network, and this role has no compose DNS -- the node
+      # died at rclpy.init() with "failed to lookup address information" for a
+      # router on the same machine.
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/127.0.0.1:7448"]'
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
       PUBLISH_RESULT: ${PUBLISH_RESULT:-}
       RUN_ID: ${RUN_ID:-}

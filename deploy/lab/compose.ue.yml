@@ -47,7 +47,19 @@ services:
       # Dial the router on the edge host across the 5G user plane. The
       # scheme must match what the router listens on — udp/...?rel=1 per
       # ADR-0006. It said tcp/ here, which no router in this repo accepts.
-      ZENOH_CONFIG_OVERRIDE: 'connect/endpoints=["udp/${EDGE_HOST}:7447?rel=1"]'
+      # Star topology: every node is a CLIENT of the router, which relays.
+      # No peer mesh -- clients neither listen nor gossip, so nothing tries
+      # to dial a node that cannot be dialled (the UE is behind the UPF's
+      # NAT). Merged into rmw_zenoh's packaged config via _OVERRIDE rather
+      # than replacing it with a file, which silently dropped its listen,
+      # gossip and interest settings.
+      #
+      # TCP, not udp/?rel=1: relayed declarations are lost over the UDP
+      # link on this build (ros2/rmw_zenoh#765), and the router then drops
+      # every sample naming a key expression it never registered.
+      # Measured: TCP relay 8/8 e2e with zero errors; the same star over
+      # UDP failed 4-8 of 8 with dozens of 'unknown scope'.
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${EDGE_HOST}:7448"]'
       RUN_ID: ${RUN_ID:-}
       # The admin runs on the infra host; without it the node needs RUN_ID.
       # `-` not `:-`: an explicitly empty ADMIN_URL means "no control

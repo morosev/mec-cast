@@ -29,7 +29,7 @@
   // with identical loss, and because TCP's congestion collapse under random
   // loss is the failure this platform kept hitting. See ADR-0006.
   listen: {
-    endpoints: ["udp/[::]:7447?rel=1"],
+    endpoints: ["udp/[::]:7447?rel=1", "tcp/[::]:7448"],
   },
   // Shared memory is deliberately OFF.
   //

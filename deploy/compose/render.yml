@@ -53,7 +53,9 @@ services:
       -p grpc_port:=${RENDER_GRPC_PORT:-9877}
     environment:
       RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ZENOH_SESSION_CONFIG_URI: /zenoh/session-config.json5
+      # Client mode: pure star, every sample relayed by the router.
+      # batch_size fits one IP datagram so a UDP batch never IP-fragments.
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh-router:7448"]'
       ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs

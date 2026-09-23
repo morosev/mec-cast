@@ -35,6 +35,105 @@ this works at all without port forwarding or a public UE address — see
 [ADR-0001](../architecture/adr/0001-zenoh-over-dds.md). Set `EDGE_HOST` in
 the UE role's environment to the router's reachable address.
 
+## The Zenoh topology is a star
+
+Every node is a Zenoh **client** of the router; the router relays between
+them. There is no peer mesh, and there cannot be one: the UE sits behind the
+UPF's NAT and the edge's node reaches its router over loopback, so neither
+can be dialled by the other.
+
+```text
+UE host                                  Edge host
+  lidar  ──┐                              ┌──► edge node
+  render ──┼──tcp/EDGE_HOST:7448─────────►│
+           │                        zenoh-router
+```
+
+Set per compose file, merged into `rmw_zenoh`'s packaged config:
+
+```
+ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${EDGE_HOST}:7448"]'
+```
+
+Two properties of that line are load-bearing.
+
+**`mode="client"`.** Clients neither listen nor gossip, so nothing attempts a
+direct link to a node that cannot accept one. In `peer` mode each session
+also opens a localhost-only listener and gossips it, and every other host
+then tries and fails to reach it — harmless noise, but it masks real faults.
+
+**Merged, not replaced.** `ZENOH_CONFIG_OVERRIDE` merges; pointing
+`ZENOH_SESSION_CONFIG_URI` at a file calls `Config::from_file()`, which
+**replaces** rmw_zenoh's packaged config outright. Everything not restated is
+silently lost — including the `listen`, `gossip` and interest settings that
+relaying depends on. Only the endpoint and the mode differ from upstream, so
+only those are set.
+
+**TCP, not `udp/…?rel=1`.** Relayed key-expression declarations are lost over
+the UDP link on this build, and the router then drops every sample naming a
+scope it never registered
+([ros2/rmw_zenoh#765](https://github.com/ros2/rmw_zenoh/issues/765)). Measured
+on the e2e suite: TCP relay 8/8 with zero errors; the same star over UDP
+failed 4–8 of 8 with dozens of `unknown scope`. See the 2026-09-23 amendment
+in [ADR-0006](../architecture/adr/0006-reliable-udp-transport.md). The router
+still listens on `udp/[::]:7447?rel=1` alongside `tcp/[::]:7448` so that
+transport remains available to experiments.
+
+## How publish/subscribe reaches the edge
+
+ROS 2 topics become Zenoh **key expressions**; `rmw_zenoh` rewrites every `/`
+to `%`, so `/mec_cast/cloud` is one chunk carrying topic, type and type hash.
+Publisher and subscriber match only when topic, type **and** QoS all agree.
+
+The router is not a packet forwarder — it is declaration-driven:
+
+1. A subscriber declares an **interest**: "I want `mec_cast/cloud`".
+2. The router forwards a publication **only** where a matching subscription
+   exists. No subscriber means nothing crosses, by design.
+3. Key expressions are interned: a session declares one and gets a numeric
+   **scope id**, and later samples carry that integer instead of the string.
+4. The router confirms with **`DeclareFinal`**.
+
+When steps 3–4 fail the signature is distinctive, and it is a handshake that
+never finished rather than a network fault:
+
+```text
+Didn't receive DeclareFinal for interest ...: Timeout(10s)!
+Route data with unknown scope 42!
+```
+
+The render path is the same mechanism in reverse — the edge publishes
+`mec_cast/result` (needs `PUBLISH_RESULT=1`) and the renderer subscribes,
+relayed by the same router.
+
+## Diagnosing "no traffic"
+
+Three signals mean nothing on their own, and all three read as healthy while
+nothing moves:
+
+- **A matching ROS graph.** `ros2 topic info -v` is built from liveliness
+  tokens the router serves directly. It will show a matching publisher and
+  subscription, identical QoS and type hash, while not one sample crosses.
+- **A climbing `frames_published`.** A publisher whose session has no
+  transport increments it identically, with `samples_dropped: 0`.
+- **`running` in the admin.** That is the node's claim about its own state
+  machine, not evidence a session exists.
+
+What does answer it, in order:
+
+```bash
+docker exec lab-ue-agent-1 bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && ros2 node list'
+```
+
+Seeing only local nodes means the session never reached the router. Then
+watch the handshake, restarting the node so it retries —
+`ZENOH_ROUTER_CHECK_ATTEMPTS=-1` retries forever in silence rather than
+failing loudly:
+
+```bash
+sudo timeout 45 tcpdump -ni any port 7448 -c 10 & sleep 1 && docker restart lab-ue-agent-1 && wait
+```
+
 ## Required environment per role
 
 ```bash

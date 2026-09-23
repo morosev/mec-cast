@@ -1,9 +1,48 @@
 # ADR-0006: Reliable UDP for the Zenoh transport
 
-- **Status:** Accepted
+- **Status:** Superseded in practice — see the 2026-09-23 amendment
 - **Date:** 2026-08-18
 - **Amended:** 2026-08-20 (the link is not QUIC), 2026-08-30 (the tail cost of
-  ordered retransmission — measured, and it does not reverse the decision)
+  ordered retransmission — measured, and it does not reverse the decision),
+  2026-09-23 (**the deployed data path is now TCP**)
+
+## Amendment, 2026-09-23 — the deployed transport is TCP
+
+`udp/…?rel=1` **cannot carry relayed traffic on this build.** Key-expression
+declarations are lost on the UDP link, the router then drops every sample
+naming a scope it never registered, and the run looks healthy throughout:
+
+```text
+Didn't receive DeclareFinal for interest ...: Timeout(10s)!
+Route data with unknown scope 42!
+```
+
+Measured on the e2e suite, same topology, only the scheme changed:
+
+| Link | Result |
+|---|---|
+| `tcp/` relay | **8/8 pass, 0 errors** |
+| `udp/…?rel=1` relay | 0–6 of 8 pass, 38–70 `unknown scope` errors |
+
+This matches [ros2/rmw_zenoh#765](https://github.com/ros2/rmw_zenoh/issues/765)
+— *"works without problems on a single host but fails when using UDP across
+multiple hosts"*. Capping `batch_size` to one IP datagram (1400) did not help
+and made it worse, so IP fragmentation is not the mechanism.
+
+**This does not retract the original measurements, but it does qualify
+them.** They were taken with sessions in `peer` mode, where a direct
+peer-to-peer link exists alongside the router link. On 2026-09-23 the router
+was stopped mid-run and the edge kept receiving at full rate — proving data
+*can* travel a direct link that is **TCP**, since Zenoh's peer default listen
+is `tcp/[::]:0`. Whether the sweep below measured the UDP router link or that
+direct TCP link is **unresolved**: the arms did produce different results,
+which argues the scheme mattered, but that has not been reconciled with the
+router-stop observation. Treat the absolute numbers as provisional until a
+packet capture settles which link carried the clouds.
+
+The `quic/` scheme remains available (verified: the router reaches "Missing
+TLS private key", not "unsupported scheme") and is the untested option that
+would put UDP back on the wire with reliable streams.
 
 ## Context
 
@@ -304,8 +343,9 @@ Unimpaired, TCP, to locate the pipeline ceiling:
 # on the wire, run the router with RUST_LOG=zenoh=debug and read the module
 # name in the "Accepted ... connection" line: zenoh_link_udp, not
 # zenoh_link_quic.
-#   router-config.json5:  listen.endpoints  ["udp/[::]:7447?rel=1"]
-#   session-config.json5: connect.endpoints ["udp/zenoh-router:7447?rel=1"]
+#   router-config.json5: listen.endpoints ["udp/[::]:7447?rel=1", "tcp/[::]:7448"]
+#   sessions: ZENOH_CONFIG_OVERRIDE connect/endpoints, per compose file.
+#   There is no session config FILE -- see the amendment at the top.
 bash scripts/run-experiment.sh -n 3000 -r 10.0 -d 120 -l 25ms -j 5ms -L 0.4%
 ```
 
@@ -321,9 +361,9 @@ NETEM=0 make up-local
 
 # rel=0 arm: copy both configs, patch the scheme, mount the copies. Editing
 # the tracked files in place is how an arm ends up committed by accident.
-sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/router-config.json5  > /tmp/z/router-config.json5
-sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/session-config.json5 > /tmp/z/session-config.json5
-# then mount /tmp/z at /zenoh in zenoh-router, lidar-client and edge.
+sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/router-config.json5 > /tmp/z/router-config.json5
+# mount /tmp/z at /zenoh in zenoh-router, and point the nodes at it with
+#   ZENOH_CONFIG_OVERRIDE='connect/endpoints=["udp/zenoh-router:7447?rel=0"]'
 ```
 
 Clustering is what separates head-of-line blocking from independent loss:
