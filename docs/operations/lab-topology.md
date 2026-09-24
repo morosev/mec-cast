@@ -87,8 +87,8 @@ whichever one it dials:
 | Endpoint | State |
 |---|---|
 | `tcp/[::]:7448` | **what the platform runs on** — correct and fast |
-| `quic/[::]:7449` | works, needs TLS, ~60x slower under jitter at 10k points |
-| `udp/[::]:7447?rel=1` | **cannot relay on this build** — declarations are lost |
+| `udp/[::]:7447?rel=1` | listening, but **cannot relay on this build** — declarations are lost |
+| `quic/[::]:7449` | **not listening by default** — opt-in, see below |
 
 Change a role by changing one line, then **recreate the container** — the
 link is opened once at process start:
@@ -97,10 +97,26 @@ link is opened once at process start:
 ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["quic/${EDGE_HOST}:7449"];transport/link/tls/root_ca_certificate="/zenoh/tls/ca.crt"'
 ```
 
-QUIC additionally needs TLS material, since there is no unencrypted `quic/`:
+### Enabling QUIC
+
+The router does **not** listen on `quic/` by default. It needs TLS material
+that is gitignored, and **zenoh treats a failed listener as fatal** -- listing
+an endpoint whose certificates are absent kills the whole router, taking the
+working TCP and UDP listeners with it. Every node then fails to resolve a
+container that has just exited, which looks like a DNS fault rather than a
+missing file.
+
+So generate the material first:
 
 ```bash
 bash scripts/gen-dev-tls.sh
+```
+
+then add the listener to that deployment's router, which merges rather than
+replacing:
+
+```
+ZENOH_CONFIG_OVERRIDE: 'listen/endpoints=[udp/[::]:7447?rel=1,tcp/[::]:7448,quic/[::]:7449]'
 ```
 
 That writes a development CA into `deploy/docker/zenoh/tls/`, which is
