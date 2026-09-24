@@ -124,6 +124,10 @@ class RerunSink:
         # is as useful for that as the whole thing. Nothing measured is
         # affected when the cap is hit -- samples.csv and the telemetry
         # snapshots carry on untouched.
+        #
+        # The cap applies ONLY when not serving a viewer. Removing the file
+        # sink means calling set_sinks again, and that restarts the gRPC
+        # server onto a port it still holds -- see draw().
         self.rrd_max_bytes = int(rrd_max_mb * 1e6) if rrd_max_mb else 0
         self._rrd_capped = False
         self._frames_since_size_check = 0
@@ -278,8 +282,35 @@ class RerunSink:
             if self.rrd_path:
                 self.rrd_path = None
                 if self.serving:
-                    rr.set_sinks(rr.GrpcServerSink(
-                        port=self.grpc_port, server_memory_limit="512MiB"))
+                    # NOTHING. While serving, the sink set must never be
+                    # touched again.
+                    #
+                    # set_sinks restarts the gRPC server whatever it is
+                    # handed -- measured: passing the identical, still-running
+                    # GrpcServerSink object kills it just as surely as
+                    # constructing a new one. rerun logs "message proxy server
+                    # crashed: Address already in use" on its Rust side,
+                    # raises nothing to Python, and the port is then dead for
+                    # the rest of the run while the page on web_port keeps
+                    # serving happily.
+                    #
+                    # In a browser that reads as a CORS failure -- a preflight
+                    # to a dead port returns no headers, so Chrome reports
+                    # "No 'Access-Control-Allow-Origin' header is present".
+                    # The renderer's own logs stay clean throughout.
+                    #
+                    # So the file keeps growing when a viewer is being served.
+                    # The run-duration limit and the admin's free-space floor
+                    # are what bound it; this cap only applies when nothing is
+                    # being served. Say so once, rather than pretend.
+                    print(
+                        "rerun: the .rrd cap cannot be applied while serving a "
+                        "viewer -- dropping the file sink would take the live "
+                        "stream with it. session.rrd will keep growing; use "
+                        "record_rrd:=false, or MECADM_MAX_RUN_DURATION_S and "
+                        "the free-space floor, to bound it.",
+                        flush=True,
+                    )
                 else:
                     rr.set_sinks()
         self._set_frame(seq)

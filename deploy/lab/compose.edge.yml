@@ -23,6 +23,12 @@ services:
       args:
         VCS_REF: ${VCS_REF:-unknown}
         VERSION: ${VERSION:-unknown}
+        # No rerun on this role. Only mec_cast_render imports it and the edge
+        # never runs a renderer, but the image defaults to WITH_RERUN=1 and
+        # nothing had ever set it otherwise -- so every edge host carried
+        # 447 MB (rerun_sdk 253 MB + rerun_bindings 193 MB) it cannot use.
+        # deploy.sh builds per host, so the UE keeps its copy.
+        WITH_RERUN: "0"
     network_mode: host
     command: ros2 run rmw_zenoh_cpp rmw_zenohd
     environment:

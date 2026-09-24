@@ -387,6 +387,12 @@ class Orchestrator:
 
     async def on_hello(self, hello: p.HelloPayload, socket: Any) -> dict[str, Any]:
         record = self.registry.on_hello(hello)
+        # Where the node dialled us FROM. The node cannot know which of its
+        # addresses an operator's browser can reach -- viewer_host defaults to
+        # localhost for exactly that reason -- but the admin saw the packet.
+        client = getattr(socket, "client", None)
+        if client is not None and getattr(client, "host", None):
+            record.address = str(client.host)
         await self.attach_node(record.node_id, socket)
 
         # The run for THIS node's cell, not simply the first active one — a

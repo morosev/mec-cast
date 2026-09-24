@@ -857,6 +857,59 @@ Never do that in the lab without a dump.
 make down-hard && make build-ros2 && make up-local
 ```
 
+### The rerun viewer shows a CORS error
+
+```text
+Access to fetch at 'http://HOST:9877/...' from origin 'http://HOST:9876'
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
+```
+
+**This is almost never CORS.** rerun serves correct headers — verified: a
+preflight to the stream returns 200 with `access-control-allow-origin` echoing
+the requesting origin. Chrome reports an *unreachable* endpoint the same way,
+because no response means no header. The `net::ERR_FAILED` line beside it is
+the real signal.
+
+`sink=rerun` starts **two** servers in the render node, and both must be
+reachable from the operator's browser:
+
+| Port | Serves |
+|---|---|
+| `9876` | the viewer page (HTML/WASM) |
+| `9877` | the gRPC log stream the page connects back to |
+
+With `RENDER_INSTANCES>1`, instance *j* uses `9876+2j` / `9877+2j`.
+
+So the page loading while the viewer stays empty means **9877 specifically is
+dead or blocked**. Check on the render host:
+
+```bash
+ss -tlnp | grep -E '9876|9877'
+```
+
+A known cause, fixed 2026-09-24: the `.rrd` size cap used to rebuild the sink
+set mid-run, which restarts the gRPC server onto a port it still holds. rerun
+logged `message proxy server crashed: Address already in use` on its Rust side
+and raised nothing to Python, so 9877 died silently while 9876 kept serving.
+The cap is now skipped while a viewer is served — see `record_rrd:=false` and
+the run-duration limit to bound `session.rrd` instead.
+
+To bypass the browser entirely and test the stream on its own:
+
+```bash
+rerun --port auto rerun+http://HOST:9877/proxy
+```
+
+If the native viewer fills and the browser does not, the stream is healthy and
+the problem is between the browser and 9877.
+
+**The admin's `viewer ↗` link repairs itself.** The render node builds the URL
+from `VIEWER_HOST`, which defaults to `localhost` — a process cannot know
+which of its addresses your browser can reach. When that default is left in
+place the admin substitutes the address the node connected to it from, in both
+the page host and the stream address inside the query. Setting `VIEWER_HOST`
+explicitly still wins.
+
 ### `WF_TRANSPORT_MISMATCH`
 
 A run declared a transport that some node is not on. The transport is fixed

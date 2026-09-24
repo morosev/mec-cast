@@ -49,6 +49,13 @@ class NodeRecord:
     counters: dict[str, int] = field(default_factory=dict)
     last_error: str | None = None
 
+    #: The address this node's control socket connects FROM, as the admin
+    #: sees it. Used to repair a viewer link the node could only describe as
+    #: "localhost": a node knows which PORT it serves on, but not which
+    #: address an operator's browser can reach it at, and VIEWER_HOST is
+    #: routinely unset. The admin does know, because the node dialled it.
+    address: str = ""
+
     connected: bool = True
     last_seen: float = field(default_factory=_now)
     first_seen: float = field(default_factory=_now)
@@ -88,6 +95,33 @@ class NodeRecord:
             return False
         return (_now() - self.streaming_since) >= seconds
 
+    def _usable_params(self) -> dict[str, Any]:
+        """`params`, with a loopback viewer link repointed at this node.
+
+        The render node builds `viewer_url` from `viewer_host`, which defaults
+        to `localhost` because a process cannot know which of its addresses an
+        operator's browser can reach. Served unaltered, the admin's "viewer"
+        button sends the operator to their OWN machine.
+        """
+        params = dict(self.params)
+        url = params.get("viewer_url")
+        if url and self.address:
+            for loopback in ("localhost", "127.0.0.1", "[::1]"):
+                if f"//{loopback}:" in url:
+                    params["viewer_url"] = (
+                        url.replace(f"//{loopback}:", f"//{self.address}:")
+                        .replace(
+                            # The query carries the stream address too, and it is
+                            # fetched by the same browser -- repairing only the
+                            # page host gives a viewer that loads and never fills.
+                            f"%2F%2F{loopback}%3A",
+                            f"%2F%2F{self.address}%3A",
+                        )
+                        .replace(f"//{loopback}:", f"//{self.address}:")
+                    )
+                    break
+        return params
+
     def to_dict(self, timeout_s: float) -> dict[str, Any]:
         return {
             "node_id": self.node_id,
@@ -100,7 +134,7 @@ class NodeRecord:
             "streaming": self.streaming,
             "subscribed": self.subscribed,
             "peers": self.peers,
-            "params": self.params,
+            "params": self._usable_params(),
             "counters": self.counters,
             "autostart": self.autostart,
             "last_error": self.last_error,
@@ -109,6 +143,7 @@ class NodeRecord:
             "age_s": round(_now() - self.first_seen, 1),
             "silent_for_s": round(_now() - self.last_seen, 1),
             "clock_offset_ns": self.clock_offset_ns,
+            "address": self.address,
         }
 
 
