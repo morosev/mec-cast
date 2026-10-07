@@ -28,6 +28,15 @@ if TYPE_CHECKING:  # the runtime import is inside the functions that need it
 #: Selectable via the `sink` parameter. Keep in sync with the node docstring.
 SINKS = ("null", "rerun", "ros")
 
+#: Web ports whose viewer page this PROCESS has already served.
+#:
+#: `serve_web_viewer` binds a port and raises "Failed to create server:
+#: Address already in use" if called twice, which is what a second run in the
+#: same node did. The page is static -- it carries no per-run state, only a
+#: `?url=` pointing at the stream -- so serving it once per process is both
+#: correct and the only thing that works.
+_PAGE_SERVED: set[int] = set()
+
 
 def make_pointcloud2(points: np.ndarray, stamp, frame_id: str) -> PointCloud2:
     """Build a PointCloud2 from an (N, 3) float32 array. Lives here because
@@ -209,9 +218,12 @@ class RerunSink:
         """
         rr = self.rr
         self.grpc_uri = f"rerun+http://{self.viewer_host}:{grpc_port}/proxy"
-        # open_browser defaults to True and there is no browser in a container.
-        rr.serve_web_viewer(web_port=web_port, open_browser=False,
-                            connect_to=self.grpc_uri)
+        if web_port not in _PAGE_SERVED:
+            # open_browser defaults to True and there is no browser in a
+            # container.
+            rr.serve_web_viewer(web_port=web_port, open_browser=False,
+                                connect_to=self.grpc_uri)
+            _PAGE_SERVED.add(web_port)
 
         # `connect_to` does not put the source into the served page — verified
         # against 0.36.2: the bare page loads a viewer with no data source and
@@ -332,7 +344,29 @@ class RerunSink:
                 rr.log(f"metrics/{key}", self._scalar(meta[key] / 1e6))
 
     def close(self) -> None:
-        pass
+        """Release the gRPC stream so the next run can bind the same port.
+
+        This was a no-op, and that broke every run after the first. start_run
+        builds a fresh RerunSink, so a second run constructed a second
+        GrpcServerSink on a port the first still held. rerun logs "message
+        proxy server crashed: Address already in use" on its Rust side and
+        raises NOTHING to Python, and set_sinks had already dropped the
+        original -- so the stream was dead while the page, served by the first
+        run, kept loading. In a browser that is "Failed to fetch", or a CORS
+        complaint, pointing nowhere near the cause.
+
+        `set_sinks()` with no arguments drops the set and frees the port.
+        Verified: after it, 9877 is closed and the next run binds cleanly.
+        The viewer page is NOT released -- it has no per-run state and is
+        served once per process (see `_PAGE_SERVED`).
+        """
+        if self.serving:
+            try:
+                self.rr.set_sinks()
+            except Exception:  # pragma: no cover - teardown must not raise
+                # A failure here must not take down stop_run: the recorder
+                # still has to be drained and the report returned.
+                pass
 
 
 class RosSink:

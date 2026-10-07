@@ -267,3 +267,79 @@ class TestRrdCap:
             sink.close()
 
         assert rrd.stat().st_size > early, "uncapped file should keep growing"
+
+
+class TestRerunAcrossRuns:
+    """A render process serves many runs; nothing here ever drove two.
+
+    start_run builds a fresh RerunSink each time, so run 2 constructed a
+    second GrpcServerSink on a port run 1 still held. rerun crashed it on its
+    Rust side raising NOTHING to Python, set_sinks had already dropped the
+    original, and serve_web_viewer then raised on the page port. The stream
+    was dead while the page -- served by run 1 -- kept loading, which reads in
+    a browser as "Failed to fetch" and points nowhere near the cause.
+
+    These tests need no rerun: they pin the contract that made it possible.
+    """
+
+    def test_close_releases_the_stream(self):
+        """close() was a no-op, so no run ever gave its port back."""
+        import inspect
+
+        from mec_cast_render.sinks import RerunSink
+
+        src = inspect.getsource(RerunSink.close)
+        assert "set_sinks" in src, (
+            "close() must release the gRPC server, or the next run cannot "
+            "bind the same port"
+        )
+
+    def test_the_page_is_served_once_per_process(self):
+        """serve_web_viewer raises if called twice on one port, and the page
+        is static -- it has no per-run state to rebuild."""
+        from mec_cast_render import sinks
+
+        assert hasattr(sinks, "_PAGE_SERVED"), (
+            "the viewer page must be served once per process"
+        )
+        import inspect
+
+        src = inspect.getsource(sinks.RerunSink._serve_page)
+        assert "_PAGE_SERVED" in src, "_serve_page must honour the guard"
+
+    def test_the_cap_never_rebuilds_the_sink_set_while_serving(self):
+        """set_sinks restarts the gRPC server whatever it is handed -- even
+        the identical, still-running object. While serving, the set must never
+        be touched again."""
+        import ast
+        import inspect
+        import textwrap
+
+        from mec_cast_render.sinks import RerunSink
+
+        # Parsed, not grepped: the branch's own comment explains set_sinks,
+        # and a text search matched the explanation rather than a call.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(RerunSink.draw)))
+
+        def calls_set_sinks(node):
+            return any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "set_sinks"
+                for n in ast.walk(node)
+            )
+
+        serving_branches = [
+            n.body
+            for n in ast.walk(tree)
+            if isinstance(n, ast.If)
+            and isinstance(n.test, ast.Attribute)
+            and n.test.attr == "serving"
+        ]
+        assert serving_branches, "draw() no longer branches on self.serving"
+        for body in serving_branches:
+            for stmt in body:
+                assert not calls_set_sinks(stmt), (
+                    "rebuilding the sink set while serving kills the stream "
+                    "for the rest of the run"
+                )
