@@ -342,12 +342,44 @@ function renderFindings(snapshot) {
     </div>`).join('');
 }
 
+// The ports a renderer serves on, parsed from the URL it reported, so the
+// tunnel hint stays right when RENDER_INSTANCES>1 shifts them by 2 per
+// instance.
+function viewerPorts(url) {
+  const page = url.match(/:(\d+)\//);
+  const stream = url.match(/%3A(\d+)%2Fproxy|:(\d+)\/proxy/);
+  return {
+    page: page ? page[1] : '9876',
+    stream: stream ? (stream[1] || stream[2]) : '9877',
+  };
+}
+
+// The command that makes the link work.
+//
+// rerun's gRPC proxy sends access-control-allow-origin only for LOOPBACK
+// origins -- measured on 0.36.3: localhost and 127.0.0.1 are echoed, a
+// routable address gets no header at all. So a viewer served on the lab
+// network loads its page and is then refused its own stream. Forwarding both
+// ports makes the browser's origin localhost, which rerun accepts.
+function tunnelCommand(n) {
+  const url = (n.params || {}).viewer_url;
+  if (!url || !n.address) return '';
+  const { page, stream } = viewerPorts(url);
+  return `ssh -L ${page}:localhost:${page} -L ${stream}:localhost:${stream} ${n.address}`;
+}
+
 function viewerCell(n) {
   // Only a renderer that is online and actually serving reports a URL, so the
   // link appears exactly when there is something at the other end.
   const url = n.online ? (n.params || {}).viewer_url : null;
   if (!url) return '';
-  return ` <a class="svc" href="${esc(url)}" target="_blank" rel="noopener">viewer ↗</a>`;
+  const tunnel = tunnelCommand(n);
+  // The link points at localhost on purpose and needs the tunnel first; say
+  // so in the tooltip rather than let it look broken.
+  const hint = tunnel
+    ? ` title="Needs an SSH tunnel first:\n${esc(tunnel)}"`
+    : '';
+  return ` <a class="svc" href="${esc(url)}" target="_blank" rel="noopener"${hint}>viewer ↗</a>`;
 }
 
 function loggingBase(snapshot) {
@@ -383,11 +415,20 @@ function serviceLinks(snapshot) {
   const node = (snapshot.nodes || []).find(
     (n) => n.online && (n.params || {}).viewer_url);
   const vw = $('viewerLink');
+  const tun = $('viewerTunnel');
   if (node) {
     vw.href = node.params.viewer_url;
     vw.hidden = false;
+    // Shown beside the link because the link cannot work without it, and an
+    // operator who clicks first sees a page that loads and never fills.
+    const cmd = tunnelCommand(node);
+    if (tun) {
+      tun.textContent = cmd;
+      tun.hidden = !cmd;
+    }
   } else {
     vw.hidden = true;
+    if (tun) tun.hidden = true;
   }
 }
 

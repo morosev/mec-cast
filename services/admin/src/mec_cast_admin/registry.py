@@ -50,10 +50,15 @@ class NodeRecord:
     last_error: str | None = None
 
     #: The address this node's control socket connects FROM, as the admin
-    #: sees it. Used to repair a viewer link the node could only describe as
-    #: "localhost": a node knows which PORT it serves on, but not which
-    #: address an operator's browser can reach it at, and VIEWER_HOST is
-    #: routinely unset. The admin does know, because the node dialled it.
+    #: sees it. The node cannot know it; the admin saw the packet.
+    #:
+    #: NOT used to rewrite the viewer link, which was tried and was wrong.
+    #: rerun's gRPC proxy only sends access-control-allow-origin for LOOPBACK
+    #: origins -- measured on 0.36.3: 127.0.0.1 and localhost are echoed,
+    #: 172.16.13.1 and 10.1.2.3 get no header at all. Pointing the viewer at a
+    #: routable address therefore produces a page that loads and a stream the
+    #: browser refuses. The link stays on localhost and the operator tunnels;
+    #: this address is what the admin shows them to tunnel TO.
     address: str = ""
 
     connected: bool = True
@@ -95,33 +100,6 @@ class NodeRecord:
             return False
         return (_now() - self.streaming_since) >= seconds
 
-    def _usable_params(self) -> dict[str, Any]:
-        """`params`, with a loopback viewer link repointed at this node.
-
-        The render node builds `viewer_url` from `viewer_host`, which defaults
-        to `localhost` because a process cannot know which of its addresses an
-        operator's browser can reach. Served unaltered, the admin's "viewer"
-        button sends the operator to their OWN machine.
-        """
-        params = dict(self.params)
-        url = params.get("viewer_url")
-        if url and self.address:
-            for loopback in ("localhost", "127.0.0.1", "[::1]"):
-                if f"//{loopback}:" in url:
-                    params["viewer_url"] = (
-                        url.replace(f"//{loopback}:", f"//{self.address}:")
-                        .replace(
-                            # The query carries the stream address too, and it is
-                            # fetched by the same browser -- repairing only the
-                            # page host gives a viewer that loads and never fills.
-                            f"%2F%2F{loopback}%3A",
-                            f"%2F%2F{self.address}%3A",
-                        )
-                        .replace(f"//{loopback}:", f"//{self.address}:")
-                    )
-                    break
-        return params
-
     def to_dict(self, timeout_s: float) -> dict[str, Any]:
         return {
             "node_id": self.node_id,
@@ -134,7 +112,7 @@ class NodeRecord:
             "streaming": self.streaming,
             "subscribed": self.subscribed,
             "peers": self.peers,
-            "params": self._usable_params(),
+            "params": self.params,
             "counters": self.counters,
             "autostart": self.autostart,
             "last_error": self.last_error,

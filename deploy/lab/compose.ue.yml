@@ -8,8 +8,10 @@
 # Required env: EDGE_HOST, INFRA_HOST (RUN_ID only without the admin)
 # Optional: LIDAR_INSTANCES (default 1), RENDER_INSTANCES (default 0),
 # RENDER_SINK (null | rerun | ros), VIEWER_HOST (the address the operator's
-# BROWSER reaches this UE on — localhost is wrong the moment it is another
-# machine). A renderer needs PUBLISH_RESULT=1 on the edge role or it sits
+# BROWSER reaches this UE on — LEAVE IT UNSET. rerun's gRPC proxy sends
+# access-control-allow-origin only for loopback origins, so the viewer is
+# reached through an ssh tunnel and localhost is the correct value; a routable
+# address gives a page that loads and is then refused its own stream). A renderer needs PUBLISH_RESULT=1 on the edge role or it sits
 # starved — the admin page says so with WF_RENDER_STARVED. A renderer on a
 # UE with no lidar loses the PTP-free round trip: WF_RENDER_CROSS_HOST.
 services:

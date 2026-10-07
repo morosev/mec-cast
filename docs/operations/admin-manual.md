@@ -857,6 +857,45 @@ Never do that in the lab without a dump.
 make down-hard && make build-ros2 && make up-local
 ```
 
+### Opening the rerun viewer (needs a tunnel)
+
+**The web viewer only works over loopback.** rerun's gRPC proxy sends
+`access-control-allow-origin` only for loopback origins — measured on 0.36.3:
+
+| Browser origin | `access-control-allow-origin` |
+|---|---|
+| `http://localhost:9876` | echoed back |
+| `http://127.0.0.1:9876` | echoed back |
+| `http://172.16.13.1:9876` | **absent** |
+
+So a viewer reached at the renderer's lab address loads its page and is then
+refused its own stream. That is a rerun limitation, not a misconfiguration,
+and nothing in this platform can grant the header on its behalf.
+
+Forward **both** ports — the page and the stream — and browse to localhost:
+
+```bash
+ssh -L 9876:localhost:9876 -L 9877:localhost:9877 iconic@ran-4
+```
+
+```
+http://localhost:9876/?url=rerun%2Bhttp://localhost:9877/proxy
+```
+
+The admin page shows this command beside its `viewer ↗` link, built from the
+address the node connected from and the ports it actually serves — which
+matter when `RENDER_INSTANCES>1` shifts them by two per instance.
+
+**Leave `VIEWER_HOST` unset.** Its `localhost` default is correct *because*
+of the above: the link is meant to be followed through a tunnel. Setting it
+to the renderer's lab address produces a link that loads and never fills.
+
+**Or skip the browser.** The native viewer has no CORS and needs no tunnel:
+
+```bash
+rerun --port auto rerun+http://172.16.13.1:9877/proxy
+```
+
 ### The rerun viewer shows a CORS error
 
 ```text
@@ -864,11 +903,14 @@ Access to fetch at 'http://HOST:9877/...' from origin 'http://HOST:9876'
 has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
 ```
 
-**This is almost never CORS.** rerun serves correct headers — verified: a
-preflight to the stream returns 200 with `access-control-allow-origin` echoing
-the requesting origin. Chrome reports an *unreachable* endpoint the same way,
-because no response means no header. The `net::ERR_FAILED` line beside it is
-the real signal.
+**First check the origin.** If the browser's address bar shows anything other
+than `localhost` or `127.0.0.1`, this is the loopback limitation above and the
+fix is the tunnel — not a networking problem.
+
+If you ARE on loopback, the message is misleading: rerun does serve correct
+headers for loopback origins, and Chrome reports an *unreachable* endpoint the
+same way, because no response means no header. The `net::ERR_FAILED` line
+beside it is then the real signal.
 
 `sink=rerun` starts **two** servers in the render node, and both must be
 reachable from the operator's browser:

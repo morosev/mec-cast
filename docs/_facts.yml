@@ -104,7 +104,7 @@ env:
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}
   PUBLISH_RESULT:  {default: "false", note: "edge only; opt into the mec_cast/result downlink (ADR-0009). Off keeps runs comparable with pre-downlink campaigns"}
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
-  VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. localhost is wrong the moment the UE is a different machine, as it is in the lab"}
+  VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. LEAVE UNSET: rerun 0.36 sends access-control-allow-origin only for loopback origins, so the web viewer is reached through an ssh tunnel and localhost is correct. A routable address loads the page and is then refused the stream"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
   CELL:            {default: "", note: "which radio cell a node reports in `hello`. Empty = undeclared; the admin treats it as the single default cell"}
   PTP_DEVICE:      {default: "/dev/ptp0", note: "host PHC, mapped to /dev/ptp0 INSIDE the container so only this line is host-specific. Index 0 is whichever NIC the driver registered first, NOT necessarily the one ptp4l disciplines -- `ethtool -T <iface>` names the right index. Empty disables the clock monitor honestly"}
