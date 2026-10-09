@@ -1,11 +1,17 @@
 # Lab role: gNB — srsRAN MAC/scheduler metrics collector.
 #
-# Runs alongside the srsRAN gNB (not inside it). Point the gNB at this
-# collector in gnb.yml:
+# Runs alongside the srsRAN gNB (not inside it). srsRAN exports its JSON
+# metrics one of two ways depending on the release, and the collector reads
+# either — GNB_METRICS_SOURCE=udp|ws|auto (default auto: both, locking onto
+# whichever delivers first):
 #
-#   metrics:
-#     addr: <this host>
-#     port: 55555
+#   srsRAN <= 24.x, UDP push:        srsRAN 25.04+, WebSocket:
+#     metrics:                         metrics:
+#       enable_json_metrics: true        enable_json: true
+#       addr: <this host>              remote_control:
+#       port: 55555                      enabled: true
+#                                        bind_addr: 127.0.0.1
+#                                        port: 8001
 #
 # The collector stamps arrival with the same PTP-disciplined clock the UE
 # and edge use, so RAN KPIs and application latency land on one time base
@@ -42,7 +48,10 @@ services:
       # host calls its PHC onto /dev/ptp0 here. Empty would disable the
       # monitor, which is what shipped for the platform's whole life.
       PTP_DEVICE: /dev/ptp0
+      GNB_METRICS_SOURCE: ${GNB_METRICS_SOURCE:-auto}
       GNB_METRICS_ADDR: 0.0.0.0:${METRICS_PORT:-55555}
+      # network_mode: host, so the gNB's remote_control is on loopback.
+      GNB_METRICS_WS: ${GNB_METRICS_WS:-127.0.0.1:8001}
     volumes:
       - ../../runs:/runs
     devices:

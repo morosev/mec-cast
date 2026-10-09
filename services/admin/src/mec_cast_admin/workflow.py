@@ -466,9 +466,14 @@ def diagnose(
                     "WF_GNB_SILENT",
                     "warn",
                     gnb.node_id,
-                    f"{gnb.node_id} is bound but srsRAN is sending it nothing.",
-                    "Point srsRAN at this collector: set metrics.addr and metrics.port in "
-                    "gnb.yml to this host and port 55555.",
+                    f"{gnb.node_id} is listening but srsRAN is sending it nothing "
+                    f"(source: {(gnb.params or {}).get('source') or 'udp'}, "
+                    f"at {(gnb.params or {}).get('bind') or '?'}).",
+                    "srsRAN 25.04+ exports metrics over a WebSocket: set "
+                    "metrics.enable_json and remote_control (enabled, port 8001) in gnb.yml "
+                    "and GNB_METRICS_SOURCE=ws or auto here. Up to 24.x it pushes UDP: set "
+                    "metrics.addr/port in gnb.yml to this host and port 55555. A ws source "
+                    "that cannot connect says why in its status (ws_last_error).",
                 )
             )
 

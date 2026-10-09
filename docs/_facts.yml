@@ -84,7 +84,8 @@ ports:
   logging_api:    {port: 8000,  proto: http, note: "published on the host"}
   postgres:       {port: 5432,  proto: tcp,  note: "NOT published by default; internal to the compose network"}
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}
-  gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this; set in gnb.yml metrics.addr/port"}
+  gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this for srsRAN <= 24.x; set in gnb.yml metrics.addr/port"}
+  gnb_remote_control: {port: 8001, proto: ws, note: "srsRAN 25.04+ remote_control WebSocket on the gNB host; ran-collector connects and sends metrics_subscribe (GNB_METRICS_WS)"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
   render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer page on the UE; only with sink=rerun; management LAN only, no auth"}
@@ -208,8 +209,8 @@ ran:
     USRP driven by srsRAN over UHD. This is NOT a 7.2 fronthaul O-RU — do
     not describe an eCPRI/Open Fronthaul interface unless the lab actually
     deploys a separate radio unit.
-  metrics_source: "srsRAN JSON-over-UDP metrics export"
-  metrics_config: "gnb.yml → metrics.addr / metrics.port"
+  metrics_source: "srsRAN JSON metrics export, over UDP (<= 24.x) or the remote_control WebSocket (25.04+); ran-collector reads either, GNB_METRICS_SOURCE=udp|ws|auto"
+  metrics_config: "gnb.yml → metrics.addr / metrics.port (UDP) or metrics.enable_json + remote_control.{enabled,bind_addr,port} (WebSocket)"
   metrics_caveat: >-
     That config path is the gNB app's. If the lab splits O-CU and O-DU into
     separately deployed processes, the metrics section moves with the DU

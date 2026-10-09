@@ -35,7 +35,7 @@ pub use clock::{Clock, ClockId, MockClock};
 #[cfg(unix)]
 pub use clock::{MonotonicClock, RealtimeClock};
 pub use envelope::{EnvelopeError, Modality, TimingEnvelope, ENVELOPE_VERSION, ENVELOPE_WIRE_LEN};
-pub use ptp::{PtpMonitor, PtpQuality, DEFAULT_THRESHOLD_NS};
+pub use ptp::{monitor_from_device, PtpMonitor, PtpQuality, DEFAULT_THRESHOLD_NS};
 pub use recorder::{
     spawn as spawn_recorder, RecorderConfig, RecorderHandle, RecorderReport, Sample, SampleKind,
     SampleSender,

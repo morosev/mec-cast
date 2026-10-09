@@ -168,15 +168,19 @@ transmit — which is why its KPIs are the ones worth correlating against
 application latency. The radio is a USRP driven over UHD, not a 7.2
 fronthaul O-RU.
 
-- **Phase RAN-1 (implemented):** `ran/collector` binds the UDP socket that
-  srsRAN's `metrics: {addr, port}` (gnb.yml) points at, stamps arrivals,
-  forwards KPI objects leniently (schema drift-proof) to the logging
-  service. Replayable offline from `ran/collector/testdata/`. If the lab
-  ever splits O-CU and O-DU into separate processes, that config path moves
-  with the DU and the collector's target moves with it.
-- **Phase RAN-2 (deferred):** near-RT RIC (FlexRIC) + E2SM-KPM xApp via
-  srsRAN's E2 agent for standardized O-RAN KPI subscription; later E2SM-RC
-  for scheduling/slicing control experiments.
+- **Phase RAN-1 (implemented):** `ran/collector` reads srsRAN's JSON
+  metrics over either transport srsRAN has used — the UDP push of
+  `metrics: {addr, port}` (≤ 24.x) or the `remote_control` WebSocket
+  (25.04+) — chosen by `GNB_METRICS_SOURCE=udp|ws|auto`. It stamps arrivals,
+  keeps the gNB's own timestamp, and forwards KPI objects leniently (schema
+  drift-proof) to the logging service. Replayable offline from
+  `ran/collector/testdata/`, and runnable locally against `gnb-sim`
+  (`make up-ran`). If the lab ever splits O-CU and O-DU into separate
+  processes, that config moves with the DU and the collector's target with it.
+- **Phase RAN-2 (planned, [ADR-0010](adr/0010-two-ran-sources.md)):** an
+  E2 xApp on the O-RAN SC near-RT RIC, *beside* the tap rather than instead of
+  it — E2SM-KPM for standardized KPIs, then E2SM-RC for run-scoped PRB-quota
+  control. Both sources normalise into one RAN data model.
 
 ## Local development topology (no hardware)
 

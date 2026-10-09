@@ -117,52 +117,11 @@ struct RecorderInner {
     trace_id: [u8; 16],
 }
 
-/// Build the clock-quality monitor for a configured PHC device.
-///
-/// A device that is set but cannot be opened degrades to `disabled()` rather
-/// than failing the recorder: `ptp.reliable` annotates the measurement, and a
-/// health flag must never take down the thing it annotates. The degrade is
-/// reported through `ptp_enabled` so it cannot pass unnoticed — silence is
-/// how this stayed broken, with every node reporting `reliable: false` and
-/// nothing saying the monitor had never been built at all.
+/// The PHC-opening logic lives in `crate::ptp::monitor_from_device`, shared
+/// with the Rust nodes (ran-collector) so both report a device that would not
+/// open the same way.
 fn make_monitor(device: Option<&str>) -> (PtpMonitor, bool, String) {
-    match device {
-        Some(dev) if !dev.is_empty() => open_phc(dev),
-        _ => (
-            PtpMonitor::disabled(),
-            false,
-            "no device configured".to_string(),
-        ),
-    }
-}
-
-#[cfg(all(target_os = "linux", feature = "linux-ptp"))]
-fn open_phc(device: &str) -> (PtpMonitor, bool, String) {
-    match crate::clock::PhcClock::open(device) {
-        Ok(clock) => (
-            PtpMonitor::with_phc(clock, crate::ptp::DEFAULT_THRESHOLD_NS),
-            true,
-            String::new(),
-        ),
-        // The OS error, verbatim. A bare "could not be opened" covers a
-        // missing device, a permission failure, a non-PHC device and a build
-        // with no PHC support at all -- four causes with four different
-        // fixes, and distinguishing them cost five rounds of remote probing
-        // once. ENOENT, EACCES and EINVAL each name themselves here.
-        Err(e) => (PtpMonitor::disabled(), false, format!("{device}: {e}")),
-    }
-}
-
-/// Without the `linux-ptp` feature there is no PHC to open. Configuring a
-/// device on such a build is a no-op, and this says so rather than blaming
-/// the device -- a distinction no amount of checking the host can reveal.
-#[cfg(not(all(target_os = "linux", feature = "linux-ptp")))]
-fn open_phc(_device: &str) -> (PtpMonitor, bool, String) {
-    (
-        PtpMonitor::disabled(),
-        false,
-        "this build has no PHC support (linux-ptp feature off)".to_string(),
-    )
+    crate::ptp::monitor_from_device(device)
 }
 
 #[pymethods]

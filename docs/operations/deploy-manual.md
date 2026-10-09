@@ -376,8 +376,20 @@ docker compose -f deploy/lab/compose.infra.yml up -d --build
 INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.edge.yml up -d --build
 ```
 
-**gNB** — also point srsRAN at it in `gnb.yml` under `metrics:` with
-`addr: <gnb-host>` and `port: 55555`:
+**gNB** — also tell srsRAN to export its metrics, in whichever form its
+release has. The collector listens for both by default
+(`GNB_METRICS_SOURCE=auto`) and locks onto the one that delivers; set `udp`
+or `ws` to pin it. See [ran/collector](../../ran/collector/README.md).
+
+```yaml
+# srsRAN <= 24.x — UDP push          # srsRAN 25.04+ — WebSocket
+metrics:                             metrics:
+  enable_json_metrics: true            enable_json: true
+  addr: <gnb-host>                   remote_control:
+  port: 55555                          enabled: true
+                                       bind_addr: 127.0.0.1
+                                       port: 8001
+```
 
 ```bash
 INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.gnb.yml up -d --build
@@ -588,8 +600,10 @@ behind. Hosts you `git pull` keep their checkout and never consult it.
 
 1. `bash deploy/lab/ptp/verify-ptp.sh` on UE, edge and gNB — all must pass.
 2. `curl -sf http://$INFRA_HOST:8000/health/ready`
-3. Confirm the gNB's `gnb.yml` `metrics.addr/port` points at the gNB host's
-   collector (default port 55555).
+3. Confirm the gNB exports metrics where the collector reads them: up to
+   srsRAN 24.x, `gnb.yml` `metrics.addr/port` → the gNB host, port 55555; from
+   25.04, `metrics.enable_json` plus `remote_control` (port 8001). The admin's
+   gNB node shows `source`, `transport` and `ws_last_error` in its status.
 4. One short smoke run; confirm `runs/<id>/{pub-0,edge-0,ran}/samples.csv` all
    appear and `context.ptp.reliable` is `true` in the snapshots.
 

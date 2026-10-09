@@ -7,10 +7,17 @@ repository.workspace = true
 description = "srsRAN gNB metrics tap: UDP JSON in, per-datagram timing CSV + KPI entries to the mec-cast logging service"
 
 [features]
-# On by default so a normal build talks to the admin. CI also builds with
-# --no-default-features, which must stay free of the websocket dependency.
-default = ["admin"]
+# On by default so a normal build talks to the admin and can read srsRAN's
+# WebSocket metrics. CI also builds with --no-default-features, which must
+# stay free of the websocket dependency: that build reads UDP only.
+default = ["admin", "ws"]
 admin = ["dep:tungstenite"]
+# srsRAN's `remote_control` WebSocket metrics source (25.04+ removed the UDP
+# `metrics.addr/port` export). Same synchronous client as `admin`.
+ws = ["dep:tungstenite"]
+# Open the host's PTP Hardware Clock for `ptp.reliable`. Linux-only; a no-op
+# elsewhere. ran.Dockerfile builds with it.
+linux-ptp = ["mec-cast-telemetry/linux-ptp"]
 
 [dependencies]
 libc = "0.2"

@@ -333,7 +333,7 @@ fn interpret(text: &str, socket: &mut Socket, cfg: &AdminConfig) -> Option<Comma
 pub fn status_payload(
     state: &str,
     run_id: Option<&str>,
-    bind: &str,
+    params: Value,
     peers: Vec<Value>,
     counters: Value,
     report: Value,
@@ -345,7 +345,7 @@ pub fn status_payload(
         "streaming": false,
         "subscribed": false,
         "peers": peers,
-        "params": {"bind": bind},
+        "params": params,
         "counters": counters,
         "autostart": true,
         "last_error": Value::Null,

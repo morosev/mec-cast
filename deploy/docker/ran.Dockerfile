@@ -16,7 +16,10 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY telemetry ./telemetry
 COPY ran ./ran
-RUN cargo build --release -p ran-collector
+# linux-ptp: open the host PHC passed in as PTP_DEVICE, so every KPI entry
+# carries a real ptp.reliable. Without it the device is ignored, which is how
+# the collector shipped for its whole life.
+RUN cargo build --release -p ran-collector --features linux-ptp
 
 FROM debian:bookworm-slim
 

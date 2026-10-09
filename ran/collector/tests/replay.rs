@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use ran_collector::source::UdpSource;
 use ran_collector::{run, CollectorConfig};
 
 fn start_stub_http() -> (String, Arc<Mutex<Vec<String>>>) {
@@ -76,9 +77,10 @@ fn replay_fixture_end_to_end() {
     cfg.flush_interval = Duration::from_millis(100);
 
     let stop = Arc::new(AtomicBool::new(false));
+    let source = Box::new(UdpSource::from_socket(socket, Duration::from_millis(50)).unwrap());
     let collector = {
         let stop = Arc::clone(&stop);
-        thread::spawn(move || run(socket, cfg, &stop).expect("collector run"))
+        thread::spawn(move || run(source, cfg, &stop).expect("collector run"))
     };
 
     // Replay the fixture (one datagram per line) plus one malformed datagram.
@@ -133,8 +135,16 @@ fn replay_fixture_end_to_end() {
         17921
     );
 
-    // Arrival CSV exists with one row per datagram.
-    let csv = std::fs::read_to_string(dir.join("samples.csv")).expect("csv");
+    // The fixture's own timestamp rides along, and every entry says how
+    // healthy the clock was (disabled here, honestly).
+    assert_eq!(
+        all[0]["context"]["gnb_ts_ns"].as_i64(),
+        Some(1_754_500_000_123_000_000)
+    );
+    assert_eq!(all[0]["context"]["ptp"]["reliable"], false);
+
+    // Arrival CSV exists with one row per datagram, under <run_id>/ran/.
+    let csv = std::fs::read_to_string(dir.join("replay-run/ran/samples.csv")).expect("csv");
     assert_eq!(csv.lines().count() as u64, 1 + sent);
 
     let _ = std::fs::remove_dir_all(&dir);

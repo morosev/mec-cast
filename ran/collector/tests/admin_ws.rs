@@ -228,3 +228,117 @@ fn an_unreachable_admin_is_retried_not_fatal() {
     let report = handle.shutdown();
     assert_eq!(report.frames_sent, 0);
 }
+
+// --- runs driven end to end ------------------------------------------------
+
+/// An admin that issues commands on a schedule: `(delay before, frame)`.
+fn start_scripted_admin(script: Vec<(Duration, String)>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind scripted admin");
+    let addr = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let Ok((stream, _)) = listener.accept() else {
+            return;
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .ok();
+        let Ok(mut socket) = tungstenite::accept(stream) else {
+            return;
+        };
+        for (delay, frame) in script {
+            let until = Instant::now() + delay;
+            // Keep reading while waiting, so status frames never back up.
+            while Instant::now() < until {
+                let _ = socket.read();
+            }
+            let _ = socket.send(tungstenite::Message::Text(frame));
+        }
+        while socket.read().is_ok() {}
+    });
+    format!("ws://{addr}")
+}
+
+fn command(name: &str, run_id: Option<&str>) -> String {
+    serde_json::json!({
+        "v": admin::PROTOCOL_VERSION, "type": "command",
+        "msg_id": format!("{name}-{run_id:?}"), "ts_ns": 1, "node_id": Value::Null,
+        "payload": {"command": name, "run_id": run_id, "args": {}}
+    })
+    .to_string()
+}
+
+/// The admin names the runs, and one collector process records many of them.
+/// Each must land in its own `<runs>/<run_id>/ran/`. They used to share the
+/// directory fixed at startup from the environment's RUN_ID — empty in the lab
+/// compose — so every run appended to one `runs/ran/samples.csv`.
+#[test]
+fn two_admin_runs_land_in_two_directories() {
+    let dir = std::env::temp_dir().join(format!("ran-collector-two-runs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let admin_url = start_scripted_admin(vec![
+        (
+            Duration::from_millis(200),
+            command("run.start", Some("run-a")),
+        ),
+        (
+            Duration::from_millis(500),
+            command("run.stop", Some("run-a")),
+        ),
+        (
+            Duration::from_millis(100),
+            command("run.start", Some("run-b")),
+        ),
+        (
+            Duration::from_millis(500),
+            command("run.stop", Some("run-b")),
+        ),
+    ]);
+
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let target = socket.local_addr().unwrap();
+    let source = Box::new(
+        ran_collector::source::UdpSource::from_socket(socket, Duration::from_millis(20)).unwrap(),
+    );
+
+    // A gNB reporting every 20 ms for the whole test.
+    let feeding = Arc::new(AtomicBool::new(true));
+    {
+        let feeding = Arc::clone(&feeding);
+        thread::spawn(move || {
+            let tx = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            while feeding.load(Ordering::SeqCst) {
+                let _ = tx.send_to(br#"{"timestamp":1754500000.0,"ue_list":[]}"#, target);
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+    }
+
+    // RUN_ID empty, exactly as the lab compose passes it under the admin.
+    let cfg = ran_collector::CollectorConfig::new("", &dir);
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut admin_cfg = admin::AdminConfig::new(admin_url, "gnb01", 0);
+    admin_cfg.retry = Duration::from_millis(100);
+    let collector = {
+        let stop = Arc::clone(&stop);
+        thread::spawn(move || ran_collector::run_with_admin(source, cfg, stop, admin_cfg))
+    };
+
+    thread::sleep(Duration::from_millis(1700));
+    stop.store(true, Ordering::SeqCst);
+    feeding.store(false, Ordering::SeqCst);
+    collector.join().unwrap().expect("collector run");
+
+    let rows = |run: &str| {
+        std::fs::read_to_string(dir.join(run).join("ran/samples.csv"))
+            .map(|csv| csv.lines().count().saturating_sub(1))
+            .unwrap_or_else(|e| panic!("{run}: no CSV under {run}/ran/: {e}"))
+    };
+    assert!(rows("run-a") > 0, "run-a recorded nothing");
+    assert!(rows("run-b") > 0, "run-b recorded nothing");
+    assert!(
+        !dir.join("ran").exists(),
+        "a run wrote to the shared startup directory"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
