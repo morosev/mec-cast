@@ -93,7 +93,7 @@ next to their code. Start with
 [ADRs](docs/architecture/adr/README.md) before proposing to change a major
 design decision — they record why Zenoh beat DDS, why the telemetry core is
 Rust, why PTP stays off the 5G user plane, why percentiles are exact, and
-why there is no RIC yet.
+why the RAN is read through two sources (a JSON tap and an E2 xApp).
 
 ## Status
 

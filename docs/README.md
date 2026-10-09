@@ -22,7 +22,7 @@ code** — that is what keeps them from rotting:
 
 **know why something is the way it is** → [architecture/adr/](architecture/adr/README.md)
 — why Zenoh and not DDS, why Rust, why PTP off the user plane, why exact
-percentiles, why no RIC yet. Read these before proposing to change any of it.
+percentiles, why the RAN has two sources. Read these before proposing to change any of it.
 
 **trust a number** → [architecture/timing-model.md](architecture/timing-model.md)
 — what each metric measures, and precisely when it is valid.

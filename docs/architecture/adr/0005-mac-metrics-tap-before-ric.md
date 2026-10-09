@@ -1,6 +1,6 @@
 # ADR-0005: Start RAN visibility with a MAC metrics tap, not an E2/RIC xApp
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0010](0010-two-ran-sources.md)
 - **Date:** 2026-08-06
 
 ## Context
