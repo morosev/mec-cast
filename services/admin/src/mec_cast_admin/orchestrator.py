@@ -701,7 +701,17 @@ class Orchestrator:
                 self._store.journal(run.run_id, "stop-timeout", {"missing_reports": missing})
                 run.state = advance(run.state, Event.STOP_TIMEOUT)
 
-        if run.state in {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED} and not online:
+        # In `starting`, no participants is not "all offline": a node is one
+        # only once a status carrying this run_id has been processed, and a
+        # slow one (the RIC-side xApp, a busy host) is still between run.start
+        # and that first status. Judging then failed runs 2 s after Start in
+        # the lab. A run nobody joins is bounded by the start timeout instead.
+        not_yet_joined = run.state is RunState.STARTING and not participants
+        if (
+            run.state in {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED}
+            and not online
+            and not not_yet_joined
+        ):
             run.state = advance(run.state, Event.ALL_OFFLINE)
 
         if run.state is RunState.STOPPING and all(r.node_id in run.reports for r in participants):
