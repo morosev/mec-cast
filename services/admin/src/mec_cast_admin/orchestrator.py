@@ -645,6 +645,15 @@ class Orchestrator:
                 # someone reads months later.
                 run.findings = [f for f in self._findings if f.get("cell") in (None, "", run.cell)]
             self._persist(run, "auto", {"from": str(before), "to": str(run.state)})
+            if run.state is RunState.FAILED:
+                # A run the supervisor fails must still be stopped on its
+                # nodes. Nothing told them before, so a node that joined a run
+                # which then timed out kept recording it — and with RAN control
+                # (ADR-0011) the xApp kept its PRB cap in force with the admin
+                # still reachable, so its own admin-loss revert never fired.
+                await self._broadcast_command(
+                    p.CommandType.RUN_STOP, run_id=run.run_id, run=run, by_membership=True
+                )
             self.events.emit(
                 f"run {before} -> {run.state}",
                 run_id=run.run_id,

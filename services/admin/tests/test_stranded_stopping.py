@@ -134,3 +134,32 @@ class TestStrandedStopping:
             report(es, en, "edge", None)
             row = wait_for(client, run_id, RunState.STOPPED, timeout=3.0)
             assert row["state"] == RunState.STOPPED
+
+
+class TestAFailedRunIsStoppedOnItsNodes:
+    """A run the supervisor fails is stopped on the nodes recording it.
+
+    Found by driving the E2 xApp through the admin with no client or edge: the
+    run timed out to `failed` and the xApp kept recording it, because nothing
+    sent it `run.stop`. Harmless for a collector; for an xApp holding a PRB
+    cap (ADR-0011) it means the cap outlives the run.
+    """
+
+    def test_a_start_timeout_sends_run_stop_to_the_members(self, tmp_path):
+        from mec_cast_admin import protocol as p
+        from test_ws import recv_type
+
+        app = create_app(settings_with(tmp_path, offline_timeout_s=30.0))
+        with TestClient(app) as client, contextlib.ExitStack() as stack:
+            # Any role will do; the gNB collector predates the xApp.
+            node, socket = connect(client, stack, p.NodeType.GNB, "gnb01", "default")
+            run_id = start_run(client)
+            client.post(f"/api/v1/runs/{run_id}/start")
+            env, cmd = recv_type(socket, p.MessageType.COMMAND)
+            assert cmd.command is p.CommandType.RUN_START
+            report(socket, node, p.NodeType.GNB, run_id)
+            # No client, no edge: no quorum, so start times out to failed.
+            assert wait_for(client, run_id, "failed")["state"] == "failed"
+            env, cmd = recv_type(socket, p.MessageType.COMMAND)
+            assert cmd.command is p.CommandType.RUN_STOP
+            assert cmd.run_id == run_id
