@@ -49,6 +49,12 @@ pub struct CollectorConfig {
     pub runs_dir: PathBuf,
     /// PHC device for `ptp.reliable` (`PTP_DEVICE`). `None` disables it.
     pub ptp_device: Option<String>,
+    /// Keep every report verbatim in `<run>/ran/reports.jsonl`
+    /// (`RAN_RAW_REPORTS`, on by default). This is the local record of the
+    /// deep source — the logging service holds the same reports, but a run
+    /// directory should be whole without it — and it is how a lab capture
+    /// becomes a test fixture: copy the file.
+    pub raw_reports: bool,
     /// Flush the KPI batch at this interval (or at `max_batch`).
     pub flush_interval: Duration,
     pub max_batch: usize,
@@ -61,6 +67,7 @@ impl CollectorConfig {
             logging_url: None,
             runs_dir: runs_dir.into(),
             ptp_device: None,
+            raw_reports: true,
             flush_interval: Duration::from_secs(1),
             max_batch: 100,
         }
@@ -295,7 +302,24 @@ pub struct RunSession {
     ptp: PtpMonitor,
     ptp_enabled: bool,
     ptp_error: String,
+    raw: Option<std::io::BufWriter<std::fs::File>>,
     report: RunReport,
+}
+
+/// One report as one JSONL line. srsRAN sends single-line JSON, but nothing
+/// guarantees a WebSocket frame is not pretty-printed, and a line break inside
+/// a record would split it in two.
+fn jsonl_line(payload: &[u8]) -> Vec<u8> {
+    if !payload.contains(&b'\n') && !payload.contains(&b'\r') {
+        return payload.to_vec();
+    }
+    match serde_json::from_slice::<Value>(payload) {
+        Ok(v) => v.to_string().into_bytes(),
+        // Not JSON: escape it rather than lose it; it is counted malformed.
+        Err(_) => Value::String(String::from_utf8_lossy(payload).into_owned())
+            .to_string()
+            .into_bytes(),
+    }
 }
 
 impl RunSession {
@@ -315,9 +339,22 @@ impl RunSession {
             );
         }
 
+        let raw = if cfg.raw_reports {
+            // The recorder has already created out_dir. Append, as the CSV
+            // does: a node that rejoins a run continues the same record.
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(out_dir.join("reports.jsonl"))?;
+            Some(std::io::BufWriter::new(file))
+        } else {
+            None
+        };
+
         Ok(Self {
             run_id: run_id.to_string(),
             out_dir,
+            raw,
             sender,
             handle,
             batcher: Batcher::new(cfg),
@@ -356,6 +393,13 @@ impl RunSession {
     /// in the lab, so valid without PTP. Arrival stays in `recv_ns`.
     pub fn record(&mut self, payload: &[u8], recv_ns: i64) {
         self.report.datagrams += 1;
+        if let Some(raw) = self.raw.as_mut() {
+            use std::io::Write;
+            // A full disk must not stop the measurement; the CSV and the
+            // logging service still have the report.
+            let _ = raw.write_all(&jsonl_line(payload));
+            let _ = raw.write_all(b"\n");
+        }
         let entry = kpi_entry(payload, &self.run_id, recv_ns);
         let gnb_ts_ns = entry
             .as_ref()
@@ -388,11 +432,19 @@ impl RunSession {
 
     pub fn maybe_flush(&mut self) {
         self.batcher.maybe_flush();
+        if let Some(raw) = self.raw.as_mut() {
+            use std::io::Write;
+            let _ = raw.flush();
+        }
     }
 
     /// Flush, drain the recorder, and return the final accounting.
     pub fn stop(mut self) -> RunReport {
         self.batcher.flush();
+        if let Some(mut raw) = self.raw.take() {
+            use std::io::Write;
+            let _ = raw.flush();
+        }
         let mut report = self.report();
         drop(self.sender);
         report.samples_written = self.handle.shutdown().samples_written;
@@ -642,6 +694,13 @@ mod tests {
         let id = trace_id("dev-run");
         assert_eq!(&id[..7], b"dev-run");
         assert!(id[7..].iter().all(|b| *b == 0));
+    }
+
+    #[test]
+    fn a_report_is_always_one_jsonl_line() {
+        assert_eq!(jsonl_line(br#"{"a":1}"#), br#"{"a":1}"#.to_vec());
+        assert_eq!(jsonl_line(b"{\n  \"a\": 1\n}"), br#"{"a":1}"#.to_vec());
+        assert_eq!(jsonl_line(b"not\njson"), br#""not\njson""#.to_vec());
     }
 
     #[test]

@@ -42,6 +42,9 @@ admin's gNB node status: `source`, `transport`, `ws_connected`,
     it as epoch seconds and as a zoneless ISO string, which is read as UTC.
   - `network_ns` is therefore the metrics pipeline's lag. Collector and gNB
     share a host, so it needs no PTP.
+- **One line in `reports.jsonl`**: the report verbatim. This is the local
+  record of the deep source, and the way a lab capture becomes a fixture
+  (`scripts/ran-fixture.sh`). Turn it off with `RAN_RAW_REPORTS=0`.
 - **One logging-service entry**: `service: "mec-cast-ran"`,
   `trace_id: run_id`. Its `context` holds:
   - the report verbatim, as `kpi`;
@@ -69,6 +72,7 @@ cargo run --release -p ran-collector
 | `PTP_DEVICE` | — | PHC for `ptp.reliable`, e.g. `/dev/ptp0`; needs the `linux-ptp` build |
 | `RUN_ID` | `dev-run` | Experiment id — must match the other roles; ignored under the admin |
 | `RUNS_DIR` | `runs` | Base directory; each run writes `<RUNS_DIR>/<run_id>/ran/` |
+| `RAN_RAW_REPORTS` | `1` | Keep every report verbatim in `<run>/ran/reports.jsonl` |
 | `LOGGING_URL` | — | Logging service; omit to write CSV only |
 | `ADMIN_URL` | — | Admin control plane; with it, the admin names and scopes the runs |
 
@@ -91,9 +95,24 @@ In the lab it runs as a container beside the gNB:
 | `testdata/srsran_metrics.jsonl` | ≤ 24.x (`ue_list[].ue_container`, numeric timestamp) | Hand-written. To be replaced by a lab capture. |
 | `testdata/srsran_ws_metrics.synthetic.jsonl` | 25.x (`cells[].{cell_metrics,event_list,ue_list}`, ISO timestamp) | **Synthetic**, shaped after the srsRAN docs. To be replaced by a lab capture. |
 
-Pin a real capture, with the srsRAN version in the commit, whenever the lab's
-gNB version changes. The schema varies between releases, which is why the
-parser is lenient and forwards the whole report.
+Pin a real capture whenever the lab's gNB version changes. The schema varies
+between releases, which is why the parser is lenient and forwards the whole
+report.
+
+```bash
+bash scripts/ran-fixture.sh <run_id> <srsran-version> <udp|ws>
+```
+
+This copies the run's `reports.jsonl` into `testdata/srsran_<version>.lab.jsonl`
+with a provenance sidecar. `tests/fixtures.rs` checks **every** `testdata/*.jsonl`
+without naming it:
+- each line parses;
+- each report's timestamp is readable;
+- some report carries a UE;
+- a `.lab.jsonl` has a sidecar naming its srsRAN version.
+
+The lab procedure is in the deploy manual,
+[The gNB — metrics tap, E2 and the RIC](../../docs/operations/deploy-manual.md#the-gnb--metrics-tap-e2-and-the-ric).
 
 **Tests.** They replay those fixtures over real sockets:
 
@@ -106,6 +125,7 @@ cargo test -p ran-collector
   gNB sending on both transports.
 - `tests/admin_ws.rs`: the control plane, including two admin-driven runs
   landing in two directories.
+- `tests/fixtures.rs`: every fixture, as above.
 
 **The whole path in containers, with no radio and no srsRAN build.**
 `ran/sim/gnb_sim.py` (gnb-sim) emits the fixture's reports over UDP and the

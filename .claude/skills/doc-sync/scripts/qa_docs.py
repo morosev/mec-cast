@@ -28,6 +28,11 @@ KNOWN_CONTEXT_PATHS = {
         "path inside the release zip, whose layout differs from the repo",
     ("docs/guides/running-an-experiment.md", "ran/samples.csv"):
         "path inside runs/<RUN_ID>/",
+    ("docs/guides/running-an-experiment.md", "ran/reports.jsonl"):
+        "path inside runs/<RUN_ID>/",
+    ("docs/architecture/adr/0010-two-ran-sources.md", "ran/xapp"):
+        "where the decision puts the xApp; created by the xApp phase, and an "
+        "accepted ADR is never edited to chase it",
 }
 
 problems: list[str] = []

@@ -17,7 +17,8 @@ Each run produces `runs/<run_id>/`:
 | `run.json` | Full configuration + git SHAs of repo and submodules |
 | `pub-<i>/samples.csv` | Per-frame samples, sender side — one directory per lidar instance |
 | `edge-0/samples.csv` | Per-frame samples, receiver side |
-| `ran/samples.csv` | RAN KPIs (lab runs only; single-instance, no suffix) |
+| `ran/samples.csv` | One row per srsRAN metrics report: arrival and the gNB's own stamp (`network_ns` = metrics lag). Single-instance, no suffix |
+| `ran/reports.jsonl` | Every srsRAN report verbatim — the RAN KPIs themselves. `scripts/ran-fixture.sh` turns it into a test fixture |
 | `render-<j>/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
 | `render-<j>/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
 

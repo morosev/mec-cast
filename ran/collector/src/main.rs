@@ -8,6 +8,7 @@
 //!   GNB_METRICS_WS      srsRAN `remote_control` WebSocket, host:port or
 //!                       ws:// URL (default 127.0.0.1:8001, 25.04+)
 //!   PTP_DEVICE          PHC for ptp.reliable, e.g. /dev/ptp0 (optional)
+//!   RAN_RAW_REPORTS     keep every report in <run>/ran/reports.jsonl (default 1)
 //!   RUN_ID              experiment run id (default "dev-run")
 //!   LOGGING_URL       mec-cast-logging-service base URL (optional)
 //!   RUNS_DIR          base output directory (default "runs")
@@ -42,6 +43,10 @@ fn main() -> std::io::Result<()> {
     let mut cfg = CollectorConfig::new(run_id.clone(), runs_dir);
     cfg.logging_url = env("LOGGING_URL");
     cfg.ptp_device = env("PTP_DEVICE");
+    cfg.raw_reports = !matches!(
+        env("RAN_RAW_REPORTS").as_deref(),
+        Some("0" | "false" | "no")
+    );
 
     let metrics = source::open(kind, &udp, &ws)?;
     eprintln!(

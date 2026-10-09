@@ -147,5 +147,14 @@ fn replay_fixture_end_to_end() {
     let csv = std::fs::read_to_string(dir.join("replay-run/ran/samples.csv")).expect("csv");
     assert_eq!(csv.lines().count() as u64, 1 + sent);
 
+    // Every report kept verbatim, one per line — the malformed one too, so
+    // the local record is complete. The well-formed lines ARE the fixture:
+    // a run's reports.jsonl replays exactly like the file it came from.
+    let raw = std::fs::read_to_string(dir.join("replay-run/ran/reports.jsonl")).expect("raw");
+    let lines: Vec<&str> = raw.lines().collect();
+    assert_eq!(lines.len() as u64, sent);
+    let fixture_lines: Vec<&str> = fixture.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(&lines[..fixture_lines.len()], &fixture_lines[..]);
+
     let _ = std::fs::remove_dir_all(&dir);
 }
