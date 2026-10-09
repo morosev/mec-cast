@@ -1,0 +1,831 @@
+{
+ "_comment": [
+  "The contract between the two RAN normalisers: ran/py (Python: json + kpm) and ran/collector/src/normalise.rs (Rust: json).",
+  "Each case: input -> expected rows. Compared as sets of (cell, ue, metric, gnb_ts_ns) with values equal to 1e-9 relative.",
+  "Change this file and both implementations together; regenerate nothing from code without checking the values by hand."
+ ],
+ "json": [
+  {
+   "name": "legacy_24x_layout",
+   "input": {
+    "timestamp": 1754500000.123,
+    "cell_metrics": {
+     "pci": 1,
+     "average_latency": 95,
+     "error_indication_count": 0,
+     "dl_brate": 118234567.0,
+     "ul_brate": 21345678.0
+    },
+    "ue_list": [
+     {
+      "ue_container": {
+       "pci": 1,
+       "rnti": 17921,
+       "cqi": 15,
+       "ri": 1,
+       "dl_mcs": 27,
+       "dl_brate": 118234567.0,
+       "dl_nof_ok": 11823,
+       "dl_nof_nok": 12,
+       "ul_mcs": 23,
+       "ul_brate": 21345678.0,
+       "ul_nof_ok": 2134,
+       "ul_nof_nok": 41,
+       "pusch_snr_db": 31.2,
+       "bsr": 81250,
+       "ta_ns": 260.5,
+       "dl_bs": 140000
+      }
+     }
+    ]
+   },
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.avg_latency",
+     "value": 95.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.dl_throughput_bps",
+     "value": 118234567.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.error_indications",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.ul_throughput_bps",
+     "value": 21345678.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.cqi",
+     "value": 15.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_buffer_bytes",
+     "value": 140000.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_harq_nok",
+     "value": 12.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_harq_ok",
+     "value": 11823.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_mcs",
+     "value": 27.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_ri",
+     "value": 1.0,
+     "unit": "layers"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_throughput_bps",
+     "value": 118234567.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_snr_db",
+     "value": 31.2,
+     "unit": "dB"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ta_ns",
+     "value": 260.5,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_bsr_bytes",
+     "value": 81250.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_harq_nok",
+     "value": 41.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_harq_ok",
+     "value": 2134.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_mcs",
+     "value": 23.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000123000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_throughput_bps",
+     "value": 21345678.0,
+     "unit": "bit/s"
+    }
+   ]
+  },
+  {
+   "name": "current_25x_layout",
+   "input": {
+    "timestamp": "2025-11-04T15:51:26.845",
+    "cells": [
+     {
+      "timestamp": "2025-11-04T15:51:26.845",
+      "cell_metrics": {
+       "pci": 1,
+       "average_latency": 95,
+       "max_latency": 410,
+       "error_indication_count": 0,
+       "nof_failed_pdcch_allocs": 0,
+       "late_dl_harqs": 0,
+       "late_ul_harqs": 0,
+       "pusch_prbs_used_per_tdd_slot_idx": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        40,
+        51,
+        51
+       ]
+      },
+      "event_list": [
+       {
+        "event_type": "ue_create",
+        "rnti": 17921,
+        "slot": "0.0"
+       }
+      ],
+      "ue_list": [
+       {
+        "ue": 0,
+        "pci": 1,
+        "rnti": 17921,
+        "cqi": 15,
+        "dl_ri": 1,
+        "ul_ri": 1,
+        "dl_mcs": 27,
+        "ul_mcs": 23,
+        "dl_brate": 118234567.0,
+        "ul_brate": 21345678.0,
+        "dl_nof_ok": 11823,
+        "dl_nof_nok": 12,
+        "ul_nof_ok": 2134,
+        "ul_nof_nok": 41,
+        "dl_bs": 140000,
+        "bsr": 81250,
+        "last_phr": 12,
+        "pusch_snr_db": 31.2,
+        "pusch_rsrp_db": -71.5,
+        "pucch_snr_db": 24.0,
+        "ta_ns": 260.5,
+        "sr_to_pusch_delay": {
+         "avg": 2.1,
+         "max": 6.0
+        },
+        "pusch_harq_delay": {
+         "avg": 3.4,
+         "max": 9.0
+        },
+        "crc_delay": {
+         "avg": 0.9,
+         "max": 2.0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.avg_latency",
+     "value": 95.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.error_indications",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_pdcch_allocs",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.late_dl_harqs",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.late_ul_harqs",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.max_latency",
+     "value": 410.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.pusch_prbs_used_mean",
+     "value": 14.2,
+     "unit": "prb"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "event.ue_create",
+     "value": 1.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.cqi",
+     "value": 15.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.crc_delay_avg",
+     "value": 0.9,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.crc_delay_max",
+     "value": 2.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_buffer_bytes",
+     "value": 140000.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_harq_nok",
+     "value": 12.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_harq_ok",
+     "value": 11823.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_mcs",
+     "value": 27.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_ri",
+     "value": 1.0,
+     "unit": "layers"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.dl_throughput_bps",
+     "value": 118234567.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.phr_db",
+     "value": 12.0,
+     "unit": "dB"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pucch_snr_db",
+     "value": 24.0,
+     "unit": "dB"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_harq_delay_avg",
+     "value": 3.4,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_harq_delay_max",
+     "value": 9.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_rsrp_db",
+     "value": -71.5,
+     "unit": "dB"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_snr_db",
+     "value": 31.2,
+     "unit": "dB"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.sr_to_pusch_delay_avg",
+     "value": 2.1,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.sr_to_pusch_delay_max",
+     "value": 6.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ta_ns",
+     "value": 260.5,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_bsr_bytes",
+     "value": 81250.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_harq_nok",
+     "value": 41.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_harq_ok",
+     "value": 2134.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_mcs",
+     "value": 23.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_ri",
+     "value": 1.0,
+     "unit": "layers"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_throughput_bps",
+     "value": 21345678.0,
+     "unit": "bit/s"
+    }
+   ]
+  },
+  {
+   "name": "edge_cases",
+   "input": {
+    "timestamp": 1754500000.5,
+    "cells": [
+     {
+      "cell_metrics": {
+       "pci": 7,
+       "latency_histogram": [
+        1,
+        2,
+        3
+       ],
+       "some_new_counter": 4,
+       "flag": true,
+       "label": "x",
+       "none": null
+      },
+      "ue_list": [
+       {
+        "pci": 7,
+        "rnti": 100,
+        "dl_mcs": 10,
+        "crc_delay": {
+         "avg": 1.5,
+         "max": 4
+        },
+        "new_field": 2.5,
+        "enabled": false,
+        "name": "ue-a",
+        "bad": null
+       }
+      ],
+      "event_list": [
+       {
+        "event_type": "ue_rem",
+        "rnti": 100,
+        "slot": "1.2"
+       }
+      ]
+     }
+    ]
+   },
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "",
+     "metric": "cell.raw.latency_histogram_mean",
+     "value": 2.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "",
+     "metric": "cell.raw.some_new_counter",
+     "value": 4.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "100",
+     "metric": "event.ue_rem",
+     "value": 1.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "100",
+     "metric": "ue.crc_delay_avg",
+     "value": 1.5,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "100",
+     "metric": "ue.crc_delay_max",
+     "value": 4.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "100",
+     "metric": "ue.dl_mcs",
+     "value": 10.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1754500000500000000,
+     "cell": "7",
+     "ue": "100",
+     "metric": "ue.raw.new_field",
+     "value": 2.5,
+     "unit": ""
+    }
+   ]
+  },
+  {
+   "name": "non_scheduler_layer",
+   "input": {
+    "timestamp": "2025-11-04T15:51:26.845",
+    "du": {
+     "du_high": {
+      "mac": {
+       "dl": [
+        {
+         "pci": 1,
+         "average_latency_us": 10
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expected": []
+  },
+  {
+   "name": "no_timestamp",
+   "input": {
+    "ue_list": [
+     {
+      "ue_container": {
+       "pci": 2,
+       "rnti": 5,
+       "cqi": 9
+      }
+     }
+    ]
+   },
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 0,
+     "cell": "2",
+     "ue": "5",
+     "metric": "ue.cqi",
+     "value": 9.0,
+     "unit": "index"
+    }
+   ]
+  }
+ ],
+ "kpm": [
+  {
+   "name": "style1_node_level",
+   "input": {
+    "e2_node_id": "gnbd_001_001_00019b_0",
+    "collect_start_ns": 1762271486000000000,
+    "meas": {
+     "measData": {
+      "DRB.UEThpDl": [
+       1200
+      ],
+      "DRB.UEThpUl": [
+       350
+      ]
+     },
+     "granulPeriod": 1000
+    }
+   },
+   "expected": [
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271486000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "",
+     "metric": "cell.dl_throughput_bps",
+     "value": 1200000.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271486000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "",
+     "metric": "cell.ul_throughput_bps",
+     "value": 350000.0,
+     "unit": "bit/s"
+    }
+   ]
+  },
+  {
+   "name": "style5_per_ue",
+   "input": {
+    "e2_node_id": "gnbd_001_001_00019b_0",
+    "collect_start_ns": 1762271486000000000,
+    "meas": {
+     "ueMeasData": {
+      "0": {
+       "measData": {
+        "DRB.UEThpDl": [
+         1000,
+         1100
+        ],
+        "CQI": [
+         15
+        ],
+        "Vendor.Thing": [
+         3
+        ]
+       },
+       "granulPeriod": 1000
+      }
+     }
+    }
+   },
+   "expected": [
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271486000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "e2:0",
+     "metric": "ue.dl_throughput_bps",
+     "value": 1000000.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271487000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "e2:0",
+     "metric": "ue.dl_throughput_bps",
+     "value": 1100000.0,
+     "unit": "bit/s"
+    },
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271486000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "e2:0",
+     "metric": "ue.kpm_dummy.cqi",
+     "value": 15.0,
+     "unit": ""
+    },
+    {
+     "source": "kpm",
+     "gnb_ts_ns": 1762271486000000000,
+     "cell": "gnbd_001_001_00019b_0",
+     "ue": "e2:0",
+     "metric": "ue.raw.Vendor.Thing",
+     "value": 3.0,
+     "unit": ""
+    }
+   ]
+  }
+ ]
+}

@@ -24,6 +24,7 @@
 /// free of the websocket dependency, which CI builds to prove.
 #[cfg(feature = "admin")]
 pub mod admin;
+pub mod normalise;
 pub mod source;
 
 use std::path::{Path, PathBuf};
@@ -303,6 +304,11 @@ pub struct RunSession {
     ptp_enabled: bool,
     ptp_error: String,
     raw: Option<std::io::BufWriter<std::fs::File>>,
+    /// `kpi.csv`: the normalised rows (ran/schema/metrics.md).
+    kpi: std::io::BufWriter<std::fs::File>,
+    /// Latest per-report UE throughput sum, `(dl, ul)` bit/s, for the admin's
+    /// cross-source parity check.
+    last_throughput: Option<(f64, f64)>,
     report: RunReport,
 }
 
@@ -351,10 +357,27 @@ impl RunSession {
             None
         };
 
+        let kpi_path = out_dir.join("kpi.csv");
+        let kpi_new = std::fs::metadata(&kpi_path)
+            .map(|m| m.len() == 0)
+            .unwrap_or(true);
+        let mut kpi = std::io::BufWriter::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&kpi_path)?,
+        );
+        if kpi_new {
+            use std::io::Write;
+            writeln!(kpi, "{}", normalise::KPI_CSV_HEADER)?;
+        }
+
         Ok(Self {
             run_id: run_id.to_string(),
             out_dir,
             raw,
+            kpi,
+            last_throughput: None,
             sender,
             handle,
             batcher: Batcher::new(cfg),
@@ -368,6 +391,11 @@ impl RunSession {
 
     pub fn out_dir(&self) -> &Path {
         &self.out_dir
+    }
+
+    /// Latest UE throughput sum `(dl, ul)` in bit/s, if any report had one.
+    pub fn last_throughput(&self) -> Option<(f64, f64)> {
+        self.last_throughput
     }
 
     /// `(enabled, error)` for the admin status.
@@ -418,6 +446,18 @@ impl RunSession {
         });
         match entry {
             Some(mut entry) => {
+                let rows = normalise::normalise_json(&entry["context"]["kpi"]);
+                {
+                    use std::io::Write;
+                    for row in &rows {
+                        let _ = writeln!(self.kpi, "{}", row.csv_line(recv_ns));
+                    }
+                }
+                if let Some(t) = normalise::ue_throughput(&rows) {
+                    self.last_throughput = Some(t);
+                }
+                entry["context"]["norm"] =
+                    Value::Array(rows.iter().map(normalise::RanSample::to_json).collect());
                 let ptp = self.ptp.poll();
                 entry["context"]["gnb_ts_ns"] = json!(gnb_ts_ns);
                 entry["context"]["ptp"] = json!({
@@ -432,6 +472,10 @@ impl RunSession {
 
     pub fn maybe_flush(&mut self) {
         self.batcher.maybe_flush();
+        {
+            use std::io::Write;
+            let _ = self.kpi.flush();
+        }
         if let Some(raw) = self.raw.as_mut() {
             use std::io::Write;
             let _ = raw.flush();
@@ -441,6 +485,10 @@ impl RunSession {
     /// Flush, drain the recorder, and return the final accounting.
     pub fn stop(mut self) -> RunReport {
         self.batcher.flush();
+        {
+            use std::io::Write;
+            let _ = self.kpi.flush();
+        }
         if let Some(mut raw) = self.raw.take() {
             use std::io::Write;
             let _ = raw.flush();
@@ -574,6 +622,15 @@ pub fn run_with_admin(
     Ok(total)
 }
 
+/// The admin's `counters` are `dict[str, int]` (protocol.py): a float is
+/// rejected and takes the whole status frame with it, so the gNB would look
+/// silent. Whole bit/s, as integers.
+#[cfg_attr(not(feature = "admin"), allow(dead_code))]
+fn throughput_counters(counters: &mut Value, dl: f64, ul: f64) {
+    counters["ue_dl_throughput_bps"] = json!(dl.round() as i64);
+    counters["ue_ul_throughput_bps"] = json!(ul.round() as i64);
+}
+
 #[cfg(feature = "admin")]
 fn accumulate(mut total: RunReport, one: RunReport) -> RunReport {
     total.datagrams += one.datagrams;
@@ -631,16 +688,20 @@ fn send_status(
     let (state, run_id, counters) = match session {
         Some(active) => {
             let r = active.report();
-            (
-                "running",
-                Some(active.run_id()),
-                json!({
+            ("running", Some(active.run_id()), {
+                let mut c = json!({
                     "datagrams": r.datagrams,
                     "malformed": r.malformed,
                     "batches_posted": r.batches_posted,
                     "post_failures": r.post_failures,
-                }),
-            )
+                });
+                // The admin compares this with the xApp's KPM figure
+                // (WF_RAN_SOURCES_DISAGREE): same quantity, two sources.
+                if let Some((dl, ul)) = active.last_throughput() {
+                    throughput_counters(&mut c, dl, ul);
+                }
+                c
+            })
         }
         None => (
             "idle",
@@ -694,6 +755,15 @@ mod tests {
         let id = trace_id("dev-run");
         assert_eq!(&id[..7], b"dev-run");
         assert!(id[7..].iter().all(|b| *b == 0));
+    }
+
+    #[test]
+    fn throughput_counters_are_integers_the_admin_accepts() {
+        let mut c = json!({});
+        throughput_counters(&mut c, 118_234_567.5, 21_345_678.4);
+        assert!(c["ue_dl_throughput_bps"].is_i64());
+        assert_eq!(c["ue_dl_throughput_bps"], 118_234_568);
+        assert_eq!(c["ue_ul_throughput_bps"], 21_345_678);
     }
 
     #[test]

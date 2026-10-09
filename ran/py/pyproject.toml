@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mec-cast-ran"
+version = "0.1.0"
+description = "One RAN data model for mec-cast: normalise srsRAN JSON reports and E2SM-KPM indications into RanSample rows"
+requires-python = ">=3.8"   # the O-SC RIC xApp runner is python:3.8-slim
+license = { text = "MIT" }
+# Standard library only: it runs inside the RIC's xApp container, on lab hosts
+# and in tools/, none of which should need anything installed for it.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+# The O-RAN SC xApp runner is python:3.8-slim. Lint for what runs there, not
+# for the newest syntax: built-in generics in annotations would break it.
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "BLE", "RUF"]
+# typing.Dict/Optional on purpose: some are runtime expressions (aliases), where
+# 3.8 cannot evaluate the newer syntax. One style throughout is clearer.
+ignore = ["RUF001", "RUF002", "RUF003", "UP006", "UP007", "UP035", "UP045"]

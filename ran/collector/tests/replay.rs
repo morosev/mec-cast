@@ -147,6 +147,15 @@ fn replay_fixture_end_to_end() {
     let csv = std::fs::read_to_string(dir.join("replay-run/ran/samples.csv")).expect("csv");
     assert_eq!(csv.lines().count() as u64, 1 + sent);
 
+    // Normalised rows: the fixture's three reports each give 4 cell and 14
+    // UE rows (vectors.json pins the same numbers for the first one).
+    let kpi = std::fs::read_to_string(dir.join("replay-run/ran/kpi.csv")).expect("kpi.csv");
+    let mut lines = kpi.lines();
+    assert_eq!(lines.next(), Some(ran_collector::normalise::KPI_CSV_HEADER));
+    assert_eq!(lines.count(), 3 * 18);
+    assert!(kpi.contains(",1,17921,ue.dl_mcs,27,index"));
+    assert_eq!(all[0]["context"]["norm"].as_array().unwrap().len(), 18);
+
     // Every report kept verbatim, one per line — the malformed one too, so
     // the local record is complete. The well-formed lines ARE the fixture:
     // a run's reports.jsonl replays exactly like the file it came from.

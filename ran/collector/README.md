@@ -42,6 +42,10 @@ admin's gNB node status: `source`, `transport`, `ws_connected`,
     it as epoch seconds and as a zoneless ISO string, which is read as UTC.
   - `network_ns` is therefore the metrics pipeline's lag. Collector and gNB
     share a host, so it needs no PTP.
+- **Rows in `kpi.csv`**: the report normalised into the RAN data model
+  (`ran/schema/metrics.md`) — canonical names and units, one row per metric
+  per UE or cell. The same rules as the Python normaliser in `ran/py`, held
+  together by `ran/schema/vectors.json` (`tests/vectors.rs`).
 - **One line in `reports.jsonl`**: the report verbatim. This is the local
   record of the deep source, and the way a lab capture becomes a fixture
   (`scripts/ran-fixture.sh`). Turn it off with `RAN_RAW_REPORTS=0`.
@@ -49,7 +53,12 @@ admin's gNB node status: `source`, `transport`, `ws_connected`,
   `trace_id: run_id`. Its `context` holds:
   - the report verbatim, as `kpi`;
   - `recv_ns` and `gnb_ts_ns`;
-  - `ptp: {offset_ns, reliable}`.
+  - `ptp: {offset_ns, reliable}`;
+  - `norm`: the normalised rows.
+
+The status sent to the admin carries the latest UE throughput sum
+(`ue_dl/ul_throughput_bps`, integers), which the admin compares with the E2
+xApp's KPM figure (`WF_RAN_SOURCES_DISAGREE`).
 
 KPIs of interest: DL/UL MCS, CQI, HARQ ok/nok, BSR, SNR/RSRP, timing advance,
 per-UE throughput, and the scheduler's own delays (`sr_to_pusch_delay`,
