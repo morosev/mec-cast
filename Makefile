@@ -58,6 +58,10 @@ COMPOSE_ADMIN := $(COMPOSE) -f deploy/compose/admin.yml
 # local.yml alone must keep producing comparable measurements.
 COMPOSE_RENDER := $(COMPOSE) -f deploy/compose/render.yml
 COMPOSE_RENDER_ADMIN := $(COMPOSE_ADMIN) -f deploy/compose/render.yml
+# The RAN side, simulated: gnb-sim plus the real collector. An overlay for the
+# same reason again, and the way to exercise the collector without a lab.
+COMPOSE_RAN := $(COMPOSE) -f deploy/compose/ran.yml
+COMPOSE_RAN_ADMIN := $(COMPOSE_ADMIN) -f deploy/compose/ran.yml
 
 # NETEM=0 leaves the link unimpaired on ANY up- target: `NETEM=0 make up-render-admin`.
 # The sidecar is a leaf -- it shares the lidar client's netns and nothing depends
@@ -217,7 +221,7 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 
 # ─── run ──────────────────────────────────────────────────────────────────
 ##@ Run — local compose topology
-.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-logging down down-hard logs view
+.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-ran up-ran-admin up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')} \
@@ -296,6 +300,18 @@ up-render-admin: build-ros2 ## Return path + renderer, driven by the control pla
 	@echo "admin page: http://localhost:8099/admin"
 	@$(call render_hint,$(COMPOSE_RENDER_ADMIN),up-render-admin,admin)
 
+# RAN_SOURCE picks the collector's transport (auto | udp | ws); gnb-sim always
+# speaks both, as a gNB configured for either would.
+up-ran: build-ros2 ## Local topology + a simulated gNB and the RAN collector
+	RUN_ID=$${RUN_ID:-$$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')} \
+	  $(COMPOSE_RAN) up -d --build $(NETEM_SCALE)
+	@echo "ran collector source=$${RAN_SOURCE:-auto}; KPIs land in runs/<run_id>/ran/"
+	@echo "  $(COMPOSE_RAN) logs ran-collector gnb-sim"
+
+up-ran-admin: build-ros2 ## Simulated gNB + collector, driven by the control plane
+	ADMIN_URL=ws://admin:8099/ws/node $(COMPOSE_RAN_ADMIN) up -d --build $(NETEM_SCALE)
+	@echo "admin page: http://localhost:8099/admin   (the gNB node is gnb-gnb-local-0)"
+
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build
 
@@ -321,8 +337,8 @@ down-hard: ## Stop it AND delete the database volume (destroys run history)
 # the eight running services and silently omitted admin and render — the two
 # you are most likely to be reading logs for. Compose is happy to be given
 # files whose services are not running.
-logs: ## Follow container logs (including admin and renderer when running)
-	$(COMPOSE_RENDER_ADMIN) logs -f
+logs: ## Follow container logs (including admin, renderer and RAN when running)
+	$(COMPOSE_RENDER_ADMIN) -f deploy/compose/ran.yml logs -f
 
 # The viewer is a host application, not a container: it needs a display, and
 # the ROS image has no X libraries. It lives on the UE — locally, this machine

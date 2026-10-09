@@ -1,0 +1,64 @@
+# The RAN side, simulated: a stand-in gNB and the real collector.
+#
+# Overlay on top of local.yml, for the same reason admin.yml and render.yml
+# are overlays: local.yml alone must keep producing the measurements every
+# earlier run is compared against.
+#
+#   make up-ran          # standalone, env-RUN_ID path
+#   make up-ran-admin    # same plus the control plane
+#
+# gnb-sim (ran/sim/gnb_sim.py) speaks BOTH of srsRAN's metrics transports at
+# once — UDP push and the remote_control WebSocket — so the collector's choice
+# is exercised exactly as against a real gNB. No radio, no srsRAN build: it
+# runs wherever Docker does, macOS included.
+#
+# Knobs: RAN_SOURCE (auto | udp | ws, the collector's GNB_METRICS_SOURCE),
+#        SIM_MODE (replay | model), SIM_PERIOD_MS (1000), SIM_SEED (42)
+services:
+  gnb-sim:
+    image: mec-cast-gnb-sim
+    build:
+      context: ../../ran
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        RUN pip install --no-cache-dir "websockets>=12"
+        WORKDIR /app
+        COPY sim ./sim
+        COPY collector/testdata ./collector/testdata
+        CMD ["python", "-u", "sim/gnb_sim.py"]
+    environment:
+      SIM_UDP_TARGET: ran-collector:55555
+      SIM_WS_BIND: 0.0.0.0:8001
+      SIM_MODE: ${SIM_MODE:-replay}
+      SIM_PERIOD_MS: ${SIM_PERIOD_MS:-1000}
+      SIM_SEED: ${SIM_SEED:-42}
+
+  ran-collector:
+    image: mec-cast-ran
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ran.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    # A stable host for the admin's node id (gnb-<host>-0), as the lab's
+    # network_mode: host gives it for free.
+    hostname: gnb-local
+    environment:
+      RUN_ID: ${RUN_ID:-dev-run}
+      # Empty means standalone. `make up-ran-admin` sets it, as
+      # up-render-admin does for the renderer.
+      ADMIN_URL: ${ADMIN_URL:-}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://logging:8000
+      CELL: ${CELL:-}
+      GNB_METRICS_SOURCE: ${RAN_SOURCE:-auto}
+      GNB_METRICS_ADDR: 0.0.0.0:55555
+      GNB_METRICS_WS: gnb-sim:8001
+      # No PHC in a container on a laptop. Left empty, entries say
+      # ptp.reliable=false honestly — the same-host case of timing-model.md.
+      PTP_DEVICE: ""
+    volumes:
+      - ../../runs:/runs
+    depends_on:
+      - gnb-sim

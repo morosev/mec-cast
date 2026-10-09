@@ -18,6 +18,7 @@ Getting software onto machines is
 - [Opening the renderer](#opening-the-renderer)
 - [Watching it live — the native viewer](#watching-it-live--the-native-viewer)
 - [When the renderer looks broken but is not](#when-the-renderer-looks-broken-but-is-not)
+- [The RAN side, without a radio](#the-ran-side-without-a-radio)
 
 ## Four concepts first
 
@@ -429,6 +430,27 @@ Frame delivery was identical with 11 errors and with 410.
 Adding the renderer makes them more frequent because it puts one more node and
 one more topic into the graph the client must discover — not because the return
 path is at fault.
+
+## The RAN side, without a radio
+
+The lab's gNB feeds `ran-collector`. Locally, `gnb-sim` stands in for it. It
+sends srsRAN-shaped reports over **both** transports srsRAN has used, the UDP
+push and the 25.04+ `remote_control` WebSocket, so the collector is exercised
+exactly as against a real gNB:
+
+```bash
+make up-ran                    # the local topology + gnb-sim + ran-collector
+RAN_SOURCE=ws make up-ran      # pin the collector to one transport (udp | ws | auto)
+make up-ran-admin              # driven by the admin; the gNB node is gnb-gnb-local-0
+```
+
+KPIs land in `runs/$RUN_ID/ran/samples.csv` and in the logging service under
+`service=mec-cast-ran`. Each entry carries the report verbatim plus the gNB's
+own timestamp (`gnb_ts_ns`). `SIM_MODE=model` replaces the fixture's cycle
+with a seeded random walk; `SIM_PERIOD_MS` sets the report period.
+
+`pytest tests/e2e/test_ran_local.py -v` runs all three source settings end to
+end and needs no ROS image. See [ran/collector](../../ran/collector/README.md).
 
 ## See also
 

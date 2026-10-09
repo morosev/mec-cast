@@ -102,7 +102,7 @@ why the RAN is read through two sources (a JSON tap and an E2 xApp).
 | Telemetry crate (+ PyO3, C ABI) | Working, tested |
 | ROS2 + Zenoh profile | Working; netem e2e green |
 | WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
-| RAN metrics tap | Working against a captured fixture |
+| RAN metrics tap | UDP and WebSocket (srsRAN 25.04+) sources, tested against fixtures and `gnb-sim` (`make up-ran`); not yet verified on the lab gNB |
 | Logging service submodule | Wired at `services/logging` |
 | Admin control plane | Wired at `services/admin`; `make up-admin`, page on :8099 |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |
