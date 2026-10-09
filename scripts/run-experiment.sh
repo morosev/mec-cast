@@ -65,10 +65,13 @@ if [ ! -f services/logging/pyproject.toml ] && \
   export MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service
 fi
 
+# No -v on down: it deletes the pgdata volume, i.e. this run's snapshots and
+# every earlier run's, and the query printed below then returns nothing. The
+# same mistake was removed from `make down`; it survived here.
 cleanup() {
   echo "==> Stopping producers so recorders drain and flush"
   $COMPOSE stop -t 15 lidar-client edge >/dev/null 2>&1 || true
-  $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
+  $COMPOSE down --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -165,5 +168,6 @@ echo "==> Done. Artifacts:"
 echo "    $RUN_DIR/run.json"
 ls -la "$RUN_DIR"/*/samples.csv 2>/dev/null || echo "    (no CSV — check container logs)"
 echo
-echo "Query snapshots:"
+echo "Query snapshots (the stack is torn down on exit; the database is kept):"
+echo "  make up-logging"
 echo "  curl -sG http://localhost:8000/api/v1/logs --data-urlencode 'trace_id=$RUN_ID' | jq"
