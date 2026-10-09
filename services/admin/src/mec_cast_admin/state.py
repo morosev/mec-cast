@@ -54,6 +54,14 @@ OCCUPIES_SLOT: frozenset[RunState] = frozenset(
     {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED, RunState.STOPPING}
 )
 
+#: States in which a node may still JOIN a run. ``STOPPING`` occupies the
+#: slot but is not here: its ``run.stop`` has already gone out, to the nodes
+#: recording it at that moment, so a node that joins afterwards is never told
+#: to stop and records the finished run indefinitely.
+ACCEPTS_PARTICIPANTS: frozenset[RunState] = frozenset(
+    {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED}
+)
+
 _TRANSITIONS: dict[tuple[RunState, Event], RunState] = {
     (RunState.DRAFT, Event.START): RunState.STARTING,
     (RunState.DRAFT, Event.REMOVE): RunState.REMOVED,

@@ -24,7 +24,17 @@ from . import topology as topo
 from .config import Settings
 from .events import EventLog
 from .registry import Registry
-from .state import Action, Event, RunState, TransitionError, advance, allowed_actions, occupies_slot
+from .state import (
+    ACCEPTS_PARTICIPANTS,
+    TERMINAL,
+    Action,
+    Event,
+    RunState,
+    TransitionError,
+    advance,
+    allowed_actions,
+    occupies_slot,
+)
 from .store import Run, RunStore, utc_now, uuid7
 from .topology import DEFAULT_CELL
 from .workflow import diagnose
@@ -53,6 +63,11 @@ class Orchestrator:
         #: timeout clock, so a slow cell could hold a fast one open forever.
         self._starting_since: dict[str, float] = {}
         self._stopping_since: dict[str, float] = {}
+        #: (node_id, run_id) pairs already sent a catch-up `run.stop` because
+        #: the node reported recording a run that had ended. Once each: the
+        #: node's statuses keep naming the run until the stop lands, and a
+        #: stop per status would spam it while it drains.
+        self._late_stops: set[tuple[str, str]] = set()
         #: Findings are computed once per supervise pass, not per snapshot.
         #: The "is this counter rising?" checks compare against the previous
         #: pass, so evaluating them at an arbitrary moment would read a counter
@@ -427,9 +442,13 @@ class Orchestrator:
 
         # The run for THIS node's cell, not simply the first active one — a
         # node joining cell B must not be told to start cell A's run.
+        # A STOPPING run still holds the slot but is not offered: its stop
+        # went out before this node existed, so nothing would ever tell it to
+        # stop. A gNB collector retrying its first connect joined that window
+        # and recorded a stopped run indefinitely.
         run = self.active_run_in(record.cell or DEFAULT_CELL)
         active = None
-        if run is not None:
+        if run is not None and run.state in ACCEPTS_PARTICIPANTS:
             active = p.ActiveRun(run_id=run.run_id, label=run.label, params=run.params)
             if record.autostart or record.node_type is p.NodeType.EDGE:
                 run.participants.setdefault(
@@ -467,7 +486,32 @@ class Orchestrator:
                 self._store.save(reported)
 
         run = self._runs.get(record.run_id or "") or self.active_run_in(record.cell or DEFAULT_CELL)
-        if run is not None and record.run_id == run.run_id:
+        if (
+            run is not None
+            and record.run_id == run.run_id
+            and run.state in TERMINAL
+            and record.state is p.NodeState.RUNNING
+        ):
+            # Still recording a run that has ended — it missed the stop
+            # (joined late, or the frame was lost). Tell it directly; the stop
+            # is unscoped on the node, but its own status says this is the
+            # run it is recording. Its manifest is frozen, so not recorded.
+            key = (node_id, run.run_id)
+            if key not in self._late_stops:
+                frame = p.build(
+                    p.MessageType.COMMAND,
+                    p.CommandPayload(command=p.CommandType.RUN_STOP, run_id=run.run_id),
+                )
+                if await self.send(node_id, frame):
+                    self._late_stops.add(key)
+                    logger.warning(
+                        "node %s still recording %s run %s; sent run.stop",
+                        node_id,
+                        run.state,
+                        run.run_id,
+                    )
+                    self._store.journal(run.run_id, "late-stop", {"node_id": node_id})
+        elif run is not None and record.run_id == run.run_id:
             run.participants.setdefault(
                 node_id,
                 {
