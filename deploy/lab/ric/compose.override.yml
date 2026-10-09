@@ -1,0 +1,12 @@
+# mec-cast's only change to srsRAN's oran-sc-ric: publish E2 on the host.
+#
+# Upstream ships the e2term port commented out, so a gNB on another machine
+# cannot reach the RIC. This overlay publishes it, over SCTP, on the infra
+# host's management LAN address (E2 never rides the 5G user plane — the same
+# reasoning as ADR-0003). ric.sh passes it with -f; the upstream checkout is
+# never edited, which keeps it a clean pinned copy of an AGPL project that
+# lives beside this repo, not inside it (ADR-0010).
+services:
+  e2term:
+    ports:
+      - "${RIC_E2_BIND:-0.0.0.0}:36421:36421/sctp"

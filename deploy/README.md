@@ -18,9 +18,13 @@ compose/         Local topology
   local.yml        zenoh router, lidar client, netem sidecar, edge
   logging.yml      logging service + postgres
   render.yml       edge return path + the UE renderer (ADR-0009)
+  ran.yml          gnb-sim + ran-collector: the RAN side without a radio
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role
+  ran-check.sh     on the gNB host: srsRAN version, metrics transport, collector, admin view
+  srsran/          gnb.yml sections mec-cast needs (metrics, remote_control, e2, pcap)
+  ric/             the O-RAN SC near-RT RIC, pinned and run beside the repo (ADR-0010)
   topology.example.yml  copy to topology.yml to declare the fleet (optional)
   ptp/             PTP units, config, and cross-host verification
 ```

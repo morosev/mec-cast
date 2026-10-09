@@ -1,0 +1,45 @@
+# What mec-cast needs from the lab gNB's config. MERGE these sections into the
+# lab's gnb.yml (srsRAN 25.04+ key names); do not run this file on its own.
+#
+# Key names are from srsRAN's own reference (srsran/oran-sc-ric at the pin in
+# deploy/lab/ric/ric.sh, e2-agents/srsRAN/gnb_zmq.yaml) and the srsRAN docs'
+# "Outputs" page. Confirm them against `gnb --help` on the lab build.
+
+# --- JSON metrics -> ran-collector (GNB_METRICS_SOURCE=ws or auto) ----------
+metrics:
+  enable_json: true
+  periodicity:
+    # ms. srsRAN's default; lower it to resolve faster than a second, and
+    # watch the gNB's CPU when you do.
+    du_report_period: 1000
+  layers:
+    enable_sched: true        # per-UE MCS, CQI, HARQ, BSR, SNR, delays — the point of the tap
+    enable_mac: true
+    enable_rlc: true
+
+remote_control:
+  enabled: true
+  # ran-collector runs on this host with network_mode: host and connects to
+  # 127.0.0.1:8001 (GNB_METRICS_WS). Keep it on loopback: no auth.
+  bind_addr: 127.0.0.1
+  port: 8001
+
+# --- srsRAN <= 24.x instead: UDP push (GNB_METRICS_SOURCE=udp or auto) ------
+# metrics:
+#   enable_json_metrics: true
+#   addr: 127.0.0.1
+#   port: 55555
+
+# --- E2 -> the near-RT RIC on the infra host (deploy/lab/ric) ---------------
+e2:
+  enable_du_e2: true
+  e2sm_kpm_enabled: true
+  e2sm_rc_enabled: true
+  addr: 10.0.0.10             # INFRA_HOST: where ric.sh published e2term (SCTP 36421)
+  bind_addr: 10.0.0.30        # THIS host's management-LAN address (needed when the RIC is remote)
+  port: 36421
+
+# --- Captures for fixtures (Phase 0) ----------------------------------------
+pcap:
+  e2ap_enable: true
+  e2ap_du_filename: /tmp/gnb_du_e2ap.pcap

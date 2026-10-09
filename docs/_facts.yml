@@ -86,6 +86,7 @@ ports:
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this for srsRAN <= 24.x; set in gnb.yml metrics.addr/port"}
   gnb_remote_control: {port: 8001, proto: ws, note: "srsRAN 25.04+ remote_control WebSocket on the gNB host; ran-collector connects and sends metrics_subscribe (GNB_METRICS_WS)"}
+  ric_e2:         {port: 36421, proto: sctp, note: "O-RAN SC RIC e2term on the infra host (deploy/lab/ric); published by compose.override.yml; needs the sctp kernel module"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
   render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer page on the UE; only with sink=rerun; management LAN only, no auth"}

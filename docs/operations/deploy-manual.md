@@ -15,6 +15,7 @@ that already exists is [admin-manual.md](admin-manual.md).
 - [Local deployment](#local-deployment)
 - [Lab deployment](#lab-deployment)
 - [Watching a run in the lab](#watching-a-run-in-the-lab)
+- [The gNB — metrics tap, E2 and the RIC](#the-gnb--metrics-tap-e2-and-the-ric)
 - [Starting and stopping a role](#starting-and-stopping-a-role)
 - [Updating to a new version](#updating-to-a-new-version)
 - [Verifying what actually landed](#verifying-what-actually-landed)
@@ -470,6 +471,73 @@ failure. Every snapshot also records `context.ptp.reliable`, so a bad run can
 be filtered afterwards — but noticing during the run is far cheaper. The
 reasoning is [ADR-0003](../architecture/adr/0003-ptp-on-management-lan.md); the
 setup is [deploy/lab/ptp/](../../deploy/lab/ptp/README.md).
+
+### The gNB — metrics tap, E2 and the RIC
+
+Do this once when bringing up the RAN side, and again after **every srsRAN
+upgrade**: the metrics schema and the transport both change between releases
+([ADR-0010](../architecture/adr/0010-two-ran-sources.md)).
+
+**1. Configure the gNB.** Merge the sections of
+[`deploy/lab/srsran/gnb.mec-cast.yml`](../../deploy/lab/srsran/gnb.mec-cast.yml)
+into the lab's `gnb.yml`:
+
+- `metrics.enable_json` and `remote_control` for 25.04+, or the commented
+  UDP block for 24.x and older;
+- `e2:` pointing at the infra host;
+- `pcap.e2ap_enable` for the capture.
+
+Restart the gNB.
+
+**2. Start the collector** on the gNB host as usual (`deploy.sh gnb …`).
+`GNB_METRICS_SOURCE` defaults to `auto`, so it needs no change for either
+transport.
+
+**3. Check it, from the repo on the gNB host:**
+
+```bash
+INFRA_HOST=10.0.0.10 bash deploy/lab/ran-check.sh
+```
+
+It reports:
+- the srsRAN version, and so which transport to expect;
+- whether `remote_control` is listening;
+- the collector's log, which says which transport `auto` locked onto;
+- the admin's view of the node: `source`, `transport`, `ws_last_error`,
+  `ptp_enabled`, counters;
+- the newest run on disk.
+
+Record the srsRAN version it prints in [lab-topology.md](lab-topology.md).
+
+**4. Start a short run** from the admin page with the LiDAR UE attached and
+streaming, about 2 minutes. Then rerun `ran-check.sh`. Step 5 should show
+`reports.jsonl` with one layout and a count that matches `samples.csv`.
+
+**5. Capture the fixture.** The collector keeps every report verbatim in
+`runs/<run_id>/ran/reports.jsonl`, so a fixture is a copy:
+
+```bash
+bash scripts/ran-fixture.sh <run_id> <srsran-version> <udp|ws>
+```
+
+This writes `ran/collector/testdata/srsran_<version>.lab.jsonl` and its
+provenance sidecar, then runs the fixture tests on it. Commit both, naming the
+version.
+
+**6. The E2 path — RIC on the infra host.** srsRAN's `oran-sc-ric` runs
+beside the repo at a pinned commit, never inside it (AGPL):
+
+```bash
+sudo modprobe sctp                    # once per host: E2 is SCTP
+bash deploy/lab/ric/ric.sh up         # clones ~/oran-sc-ric at the pin, publishes SCTP 36421
+bash deploy/lab/ric/ric.sh status     # the gNB should appear as CONNECTED
+bash deploy/lab/ric/ric.sh kpm        # stock KPM monitor, style 5, logged under runs/ric/
+```
+
+If the gNB connects and then drops, the RIC refuses a reconnect for 60 s, so
+restart the gNB *after* the RIC. When `kpm` prints indications, copy the gNB's
+`/tmp/gnb_du_e2ap.pcap` and the `runs/ric/kpm-*.log` beside the run. Those are
+the E2 fixtures the xApp phase starts from.
 
 ## Starting and stopping a role
 
