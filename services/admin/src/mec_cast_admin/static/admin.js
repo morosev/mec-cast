@@ -136,6 +136,7 @@ function roleChips(run, nodes, topology) {
   const roles = (topology && topology.roles) || [
     { role: 'client', required: true }, { role: 'edge', required: true },
     { role: 'gnb', required: false }, { role: 'render', required: false },
+    { role: 'xapp', required: false },
   ];
   const participants = Object.values(run.participants || {});
   const counts = {};

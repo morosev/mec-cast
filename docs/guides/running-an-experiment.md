@@ -19,6 +19,8 @@ Each run produces `runs/<run_id>/`:
 | `edge-0/samples.csv` | Per-frame samples, receiver side |
 | `ran/samples.csv` | One row per srsRAN metrics report: arrival and the gNB's own stamp (`network_ns` = metrics lag). Single-instance, no suffix |
 | `ran/reports.jsonl` | Every srsRAN report verbatim — the RAN KPIs themselves. `scripts/ran-fixture.sh` turns it into a test fixture |
+| `ran/kpi.csv` | The same reports normalised: one row per metric, canonical names and units ([ran/schema](../../ran/schema/metrics.md)) |
+| `ran-kpm/` | The E2 xApp's run: `kpi.csv` (same schema, `source=kpm`), `indications.jsonl`, `control.csv` (ADR-0011) |
 | `render-<j>/samples.csv` | Per-frame samples, renderer side (site 2) — only with the return path on |
 | `render-<j>/session.rrd` | Replayable Rerun recording — only with `RENDER_SINK=rerun` |
 

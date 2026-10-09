@@ -120,13 +120,13 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 
 # ─── test ─────────────────────────────────────────────────────────────────
 ##@ Test — this machine
-.PHONY: test test-all test-rust test-python test-admin test-ros2 test-e2e test-legacy test-ffi
+.PHONY: test test-all test-rust test-python test-admin test-ran test-ros2 test-e2e test-legacy test-ffi
 
-test: test-rust test-ffi test-python test-admin ## Fast tests (no docker)
+test: test-rust test-ffi test-python test-admin test-ran ## Fast tests (no docker)
 
 # test-legacy is deliberately NOT here: it needs the libwebrtc addon, which
 # is a ~20 GB opt-in build. Run it explicitly when working on Profile B.
-test-all: test-rust test-ffi test-python test-admin test-ros2 test-e2e ## Everything, containers included
+test-all: test-rust test-ffi test-python test-admin test-ran test-ros2 test-e2e ## Everything, containers included
 
 test-rust: ## Unit + property + integration tests across the workspace
 	cargo test --workspace
@@ -148,6 +148,15 @@ test-admin: ## Admin control-plane tests + the shared ROS2 client
 	  echo "ERROR: $(ADMIN_VENV) missing. Run: make bootstrap"; exit 1; }
 	$(ADMIN_PYTEST) services/admin/tests -q
 	$(ADMIN_PYTEST) ros2/src/mec_cast_admin_client/test -q
+
+# The RAN data model (ran/py) and the E2 xApp (ran/xapp), against gnb-sim's E2
+# feed in-process. Run with the admin venv, which has pytest and websockets;
+# CI runs the same suites on Python 3.8, the RIC's xApp runner.
+test-ran: ## RAN data model + E2 xApp (Python)
+	@test -x $(ADMIN_PYTEST) || { \
+	  echo "ERROR: $(ADMIN_VENV) missing. Run: make bootstrap"; exit 1; }
+	cd ran/py && ../../$(ADMIN_PYTEST) -q
+	cd ran/xapp && ../../$(ADMIN_PYTEST) -q
 
 # The legacy addon's video path needs a camera, so it cannot be exercised in
 # CI or WSL. This covers the C boundary it depends on, from a C compiler.
@@ -203,10 +212,11 @@ lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 # happened. Skipped with a warning rather than failing when ruff is absent:
 # the Rust half is still worth running on a machine without the admin venv.
 	@if [ -x services/admin/.venv/bin/ruff ]; then \
-		services/admin/.venv/bin/ruff check services/admin && \
-		services/admin/.venv/bin/ruff format --check services/admin; \
+		services/admin/.venv/bin/ruff check services/admin ran/py ran/xapp && \
+		services/admin/.venv/bin/ruff format --check services/admin ran/py ran/xapp; \
 	elif command -v ruff >/dev/null 2>&1; then \
-		ruff check services/admin && ruff format --check services/admin; \
+		ruff check services/admin ran/py ran/xapp && \
+		ruff format --check services/admin ran/py ran/xapp; \
 	else \
 		echo "WARNING: ruff not found; skipped the Python checks CI will run."; \
 		echo "  pip install -e 'services/admin[dev]'"; \
@@ -215,8 +225,8 @@ lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 fmt: ## Apply rustfmt, and ruff's formatting where available
 	cargo fmt --all
 	@if [ -x services/admin/.venv/bin/ruff ]; then \
-		services/admin/.venv/bin/ruff check services/admin --fix; \
-		services/admin/.venv/bin/ruff format services/admin; \
+		services/admin/.venv/bin/ruff check services/admin ran/py ran/xapp --fix; \
+		services/admin/.venv/bin/ruff format services/admin ran/py ran/xapp; \
 	fi
 
 # ─── run ──────────────────────────────────────────────────────────────────

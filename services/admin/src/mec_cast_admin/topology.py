@@ -88,6 +88,10 @@ DEFAULT_ROLES: tuple[RoleSpec, ...] = (
     RoleSpec(NodeType.EDGE, required=True, absence="error", min_per_cell=1, max_per_cell=1),
     RoleSpec(NodeType.GNB, required=False, absence="warn", max_per_cell=1),
     RoleSpec(NodeType.RENDER, required=False, absence=None),
+    # The E2 xApp is a second RAN source, not a requirement: silent when
+    # absent by default, since most runs are JSON-tap only. A study that needs
+    # KPM declares `roles: {xapp: {required: true}}` in topology.yml.
+    RoleSpec(NodeType.XAPP, required=False, absence=None, max_per_cell=1),
 )
 
 

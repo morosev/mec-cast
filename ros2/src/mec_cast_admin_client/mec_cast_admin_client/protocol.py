@@ -25,6 +25,7 @@ class NodeType:
     EDGE = "edge"
     GNB = "gnb"
     RENDER = "render"
+    XAPP = "xapp"
 
 
 class MessageType:
@@ -47,6 +48,7 @@ class CommandType:
     STREAM_START = "stream.start"
     STREAM_STOP = "stream.stop"
     STATUS_REPORT = "status.report"
+    RAN_POLICY = "ran.policy"
 
 
 class NodeState:

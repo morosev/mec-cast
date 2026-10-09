@@ -11,7 +11,7 @@ from . import __version__
 from . import protocol as p
 from .dependencies import OrchestratorDep
 from .orchestrator import Orchestrator, OrchestratorError
-from .schemas import HealthResponse, RunCreate, StateResponse
+from .schemas import HealthResponse, RanPolicyUpdate, RunCreate, StateResponse
 from .state import Action
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,18 @@ async def start_run(run_id: str, orchestrator: OrchestratorDep) -> dict:
 @runs_router.post("/runs/{run_id}/stop", summary="Stop a run")
 async def stop_run(run_id: str, orchestrator: OrchestratorDep) -> dict:
     return await _act(orchestrator, run_id, Action.STOP)
+
+
+@runs_router.post("/runs/{run_id}/ran-policy", summary="Apply a RAN policy to an active run")
+async def ran_policy(run_id: str, body: RanPolicyUpdate, orchestrator: OrchestratorDep) -> dict:
+    """Send a validated ``ran_policy`` to the xApp recording this run
+    (ADR-0011). Whether it took effect is the xApp's ``policy_state`` and its
+    ``ran-kpm/control.csv`` — this only says it was delivered."""
+    try:
+        sent = await orchestrator.set_ran_policy(run_id, body.ran_policy)
+    except OrchestratorError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return {"run_id": run_id, "ran_policy": body.ran_policy, "delivered_to": sent}
 
 
 @runs_router.delete("/runs/{run_id}", summary="Remove a run from the table")

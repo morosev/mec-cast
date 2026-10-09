@@ -287,6 +287,36 @@ class Orchestrator:
         self.mark_dirty()
         return run
 
+    async def set_ran_policy(self, run_id: str, policy: dict[str, Any]) -> int:
+        """Send an (already validated) RAN policy to the run's xApp, mid-run.
+
+        Recorded in the run's params, so run.json says which policy was asked
+        for; whether it was *applied* is the xApp's to report (policy_state,
+        WF_POLICY_NOT_APPLIED) and its control.csv's to prove.
+        """
+        run = self.get_run(run_id)
+        if run.state not in {RunState.STARTING, RunState.RUNNING, RunState.DEGRADED}:
+            raise OrchestratorError(
+                f"Run {run.seq} is {run.state}; a RAN policy only applies to an active run."
+            )
+        sent = await self._broadcast_command(
+            p.CommandType.RAN_POLICY,
+            run_id=run.run_id,
+            node_type=p.NodeType.XAPP,
+            args={"ran_policy": policy},
+            run=run,
+            by_membership=True,
+        )
+        if sent == 0:
+            raise OrchestratorError(
+                f"No xApp is recording run {run.seq}: nothing to apply the policy. "
+                "Lab: bash deploy/lab/ric/ric.sh xapp. Local: make up-ran-admin."
+            )
+        run.params = dict(run.params, ran_policy=policy)
+        self._persist(run, "ran-policy", {"ran_policy": policy, "sent": sent})
+        self.mark_dirty()
+        return sent
+
     def _persist(self, run: Run, event: str, detail: dict[str, Any]) -> None:
         self._store.save(run)
         self._store.journal(run.run_id, event, detail)
@@ -460,6 +490,7 @@ class Orchestrator:
                     "edge": "edge",
                     "gnb": "ran",
                     "render": "render",
+                    "xapp": "ran-kpm",
                 }.get(role)
                 if leaf:
                     run.sites[node_id] = {

@@ -398,3 +398,71 @@ class TestClockSkew:
             counters={"frames": 800, "negative_delays": 0},
         )
         assert "WF_CLOCK_SKEW" not in codes(registry, make_run())
+
+
+class TestE2Xapp:
+    """The xApp findings, and the two RAN sources checked against each other."""
+
+    RUN = make_run().run_id
+
+    def test_an_xapp_without_an_e2_node_says_how_to_connect_one(self):
+        registry = Registry()
+        join(registry, NodeType.XAPP, "ric01", params={"adapter": "osc", "e2_connected": False})
+        found = [f for f in diagnose(registry, make_run()) if f.code == "WF_XAPP_NO_E2"]
+        assert found and "36421" in found[0].remedy
+
+    def test_a_silent_subscription_is_reported(self):
+        registry = Registry()
+        join(
+            registry,
+            NodeType.XAPP,
+            "ric01",
+            params={"e2_connected": True},
+            counters={"indications": 5},
+        )
+        registry.snapshot_counters()
+        registry.on_status(
+            "xapp-ric01-0",
+            StatusPayload(
+                node_type=NodeType.XAPP,
+                state=NodeState.RUNNING,
+                run_id=self.RUN,
+                params={"e2_connected": True},
+                counters={"indications": 5},
+            ),
+        )
+        assert "WF_KPM_SILENT" in codes(registry, make_run())
+
+    def test_an_absent_xapp_is_silent_by_default(self):
+        registry = Registry()
+        join(registry, NodeType.CLIENT, "ue01", streaming=True)
+        join(registry, NodeType.EDGE, "mec01", subscribed=True)
+        assert not {c for c in codes(registry, make_run()) if "XAPP" in c}
+
+    def _both(self, json_dl: int, kpm_dl: int) -> set[str]:
+        registry = Registry()
+        join(
+            registry,
+            NodeType.GNB,
+            "gnb01",
+            counters={"datagrams": 1, "ue_dl_throughput_bps": json_dl},
+        )
+        join(
+            registry,
+            NodeType.XAPP,
+            "ric01",
+            params={"e2_connected": True},
+            counters={"indications": 1, "ue_dl_throughput_bps": kpm_dl},
+        )
+        return codes(registry, make_run())
+
+    def test_sources_that_agree_are_not_reported(self):
+        assert "WF_RAN_SOURCES_DISAGREE" not in self._both(100_000_000, 92_000_000)
+
+    def test_a_kpm_scale_error_is_reported(self):
+        # The failure the catalogue's "verify" column exists for: KPM in
+        # kbit/s read as bit/s is off by exactly 1000.
+        assert "WF_RAN_SOURCES_DISAGREE" in self._both(100_000_000, 100_000)
+
+    def test_near_idle_traffic_is_not_compared(self):
+        assert "WF_RAN_SOURCES_DISAGREE" not in self._both(50_000, 5_000)

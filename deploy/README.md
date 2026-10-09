@@ -14,11 +14,12 @@ Three environments, one mechanism (docker compose), different composition.
 docker/          Dockerfiles + the ROS image entrypoint and zenoh configs
   ros.Dockerfile   telemetry wheel (stage 1) + ROS2 Jazzy + colcon (stage 2)
   ran.Dockerfile   srsRAN metrics collector
+  xapp.Dockerfile  the E2 xApp on Python 3.8, sim adapter (local; the lab runs it inside the RIC)
 compose/         Local topology
   local.yml        zenoh router, lidar client, netem sidecar, edge
   logging.yml      logging service + postgres
   render.yml       edge return path + the UE renderer (ADR-0009)
-  ran.yml          gnb-sim + ran-collector: the RAN side without a radio
+  ran.yml          gnb-sim + ran-collector + xapp: both RAN sources without a radio
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role

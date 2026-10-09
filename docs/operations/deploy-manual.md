@@ -15,7 +15,7 @@ that already exists is [admin-manual.md](admin-manual.md).
 - [Local deployment](#local-deployment)
 - [Lab deployment](#lab-deployment)
 - [Watching a run in the lab](#watching-a-run-in-the-lab)
-- [The gNB — metrics tap, E2 and the RIC](#the-gnb--metrics-tap-e2-and-the-ric)
+- [The gNB — metrics tap, E2, the RIC and the xApp](#the-gnb--metrics-tap-e2-and-the-ric)
 - [Starting and stopping a role](#starting-and-stopping-a-role)
 - [Updating to a new version](#updating-to-a-new-version)
 - [Verifying what actually landed](#verifying-what-actually-landed)
@@ -538,6 +538,51 @@ If the gNB connects and then drops, the RIC refuses a reconnect for 60 s, so
 restart the gNB *after* the RIC. When `kpm` prints indications, copy the gNB's
 `/tmp/gnb_du_e2ap.pcap` and the `runs/ric/kpm-*.log` beside the run. Those are
 the E2 fixtures the xApp phase starts from.
+
+**7. The mec-cast xApp.** Only after the stock `kpm` worked in step 6, so that
+a failure here is ours and not the E2 path's. Stop `kpm` with Ctrl-C first,
+then run the xApp inside the RIC's runner with the `osc` adapter
+([ran/xapp](../../ran/xapp/README.md)):
+
+```bash
+INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # foreground; -d to detach
+```
+
+- **The admin page** shows the node `xapp-<host>-0` with `e2_connected=true`.
+  Without it you get `WF_XAPP_NO_E2`, whose remedy is the gNB's `e2:` block.
+- **Start a 2-minute run.** Expect `runs/<id>/ran-kpm/kpi.csv` and
+  `indications.jsonl`. `WF_KPM_SILENT` means subscribed but nothing arriving:
+  check the UE is attached and carrying traffic.
+- **Parity:** `WF_RAN_SOURCES_DISAGREE` must *not* appear while traffic is
+  steady. If it does with a constant ratio, the KPM unit is wrong — the
+  catalogue's *verify* column (`ran/schema/metrics.md`). Fix the scale in both
+  normalisers and `vectors.json`.
+- **Join the two sources:**
+
+  ```bash
+  python3 tools/ran_join.py runs/<id>                 # JSON tap
+  python3 tools/ran_join.py runs/<id> --source kpm    # KPM
+  ```
+
+**8. The first control.** A short run with a policy, before any campaign
+([ADR-0011](../architecture/adr/0011-run-scoped-ran-control.md)):
+
+```bash
+curl -s -X POST http://$INFRA_HOST:8099/api/v1/runs -H 'Content-Type: application/json' \
+  -d '{"label":"rc-smoke","params":{"ran_policy":{"ue":0,"max_prb_ratio":30,"schedule":[{"t_s":30,"max_prb_ratio":100}]}}}'
+```
+
+Start it on the admin page, with the LiDAR UE streaming.
+
+- **`ran-kpm/control.csv`** must read `apply:sent, apply:ack, step@30s:…,
+  revert-run-stop:…`. `failed` with no ack usually means the slice does not
+  match oran-sc-ric's hard-coded PLMN 00101 / SST 1 / SD 1, and the admin
+  raises `WF_POLICY_NOT_APPLIED`.
+- **The JSON tap's** `ue.dl_throughput_bps` in `runs/<id>/ran/kpi.csv` should drop under
+  the cap and recover at 30 s. That is the effect, seen by the source that did
+  not cause it.
+- **E2 UE id 0** is the first UE the agent knows. Confirm it is the LiDAR UE
+  before trusting a cap on it.
 
 ## Starting and stopping a role
 

@@ -58,6 +58,12 @@ class Finding:
         }
 
 
+#: WF_RAN_SOURCES_DISAGREE: the relative gap that counts as disagreement, and
+#: the throughput below which both sources are too near idle to compare.
+RAN_PARITY_TOLERANCE = 0.25
+RAN_PARITY_FLOOR_BPS = 100_000
+
+
 def _rising(record: NodeRecord, key: str) -> bool | None:
     """Whether a counter grew since the previous pass.
 
@@ -81,6 +87,11 @@ _ABSENCE_PROSE: dict[NodeType, tuple[str, str]] = {
     NodeType.CLIENT: (
         "No client node is connected, so no frames are being produced.",
         "Local: `make up-admin`. Lab: `bash deploy/lab/deploy.sh ue <user@host>`.",
+    ),
+    NodeType.XAPP: (
+        "No E2 xApp is connected; this run will have no E2SM-KPM figures.",
+        "Lab: `bash deploy/lab/ric/ric.sh xapp` on the infra host. Local: "
+        "`make up-ran-admin`. The JSON tap still records RAN KPIs without it.",
     ),
     NodeType.GNB: (
         "No gNB collector is connected; this run will have no RAN KPIs.",
@@ -121,6 +132,7 @@ def diagnose(
     clients = [r for r in online if r.node_type == NodeType.CLIENT]
     edges = [r for r in online if r.node_type == NodeType.EDGE]
     gnbs = [r for r in online if r.node_type == NodeType.GNB]
+    xapps = [r for r in online if r.node_type == NodeType.XAPP]
     renderers = [r for r in online if r.node_type == NodeType.RENDER]
 
     run_is_active = run is not None and run.state in {
@@ -476,6 +488,92 @@ def diagnose(
                     "that cannot connect says why in its status (ws_last_error).",
                 )
             )
+
+    # --- the E2 xApp -------------------------------------------------------
+    for xapp in xapps:
+        params = xapp.params or {}
+        if params.get("e2_connected") is False:
+            findings.append(
+                Finding(
+                    "WF_XAPP_NO_E2",
+                    "warn",
+                    xapp.node_id,
+                    f"{xapp.node_id} is up but the RIC has no E2 node connected "
+                    f"(adapter {params.get('adapter') or '?'}).",
+                    "Point the gNB at the RIC: gnb.yml e2: addr <infra host>, bind_addr "
+                    "<gNB host>, port 36421 (deploy/lab/srsran/gnb.mec-cast.yml). Check "
+                    "`bash deploy/lab/ric/ric.sh status`. After a gNB disconnect the RIC "
+                    "refuses it for 60 s: restart the gNB after the RIC, then wait.",
+                    cell=cell_of(xapp),
+                )
+            )
+        elif xapp.state == NodeState.RUNNING and _rising(xapp, "indications") is False:
+            findings.append(
+                Finding(
+                    "WF_KPM_SILENT",
+                    "warn",
+                    xapp.node_id,
+                    f"{xapp.node_id} is subscribed but no KPM indications are arriving.",
+                    "Check the subscription in the xApp log and that the UE is attached "
+                    "and carrying traffic: srsRAN's E2 agent reports only for active UEs. "
+                    "oran-sc-ric documents that its xApps sometimes need a restart before "
+                    "indications are delivered.",
+                    cell=cell_of(xapp),
+                )
+            )
+
+    # --- RAN control -------------------------------------------------------
+    # A run labelled with a policy that is not in force measures the wrong
+    # thing and looks fine doing it — which is why this is an error.
+    for xapp in xapps:
+        params = xapp.params or {}
+        if params.get("policy_state") == "failed":
+            findings.append(
+                Finding(
+                    "WF_POLICY_NOT_APPLIED",
+                    "error",
+                    xapp.node_id,
+                    f"{xapp.node_id} could not apply the run's RAN policy: "
+                    f"{params.get('policy_error') or 'no reason given'}.",
+                    "The run's data is NOT under the policy it names. Check ran-kpm/"
+                    "control.csv for the RIC's answer. oran-sc-ric's PRB-quota encoder "
+                    "assumes PLMN 00101, SST 1, SD 1: the lab slice must match. Stop the "
+                    "run, or re-send the policy (POST /api/v1/runs/<id>/ran-policy).",
+                    cell=cell_of(xapp),
+                )
+            )
+
+    # --- the two RAN sources agree? ----------------------------------------
+    # Throughput is the one quantity both measure (ran/schema/metrics.md). A
+    # gap here is either a real disagreement or a wrong KPM scale — the
+    # catalogue's "verify" column — and either way it must not pass silently.
+    for xapp in xapps:
+        for gnb in gnbs:
+            if cell_of(gnb) != cell_of(xapp) or not (gnb.run_id and gnb.run_id == xapp.run_id):
+                continue
+            for direction in ("dl", "ul"):
+                key = f"ue_{direction}_throughput_bps"
+                a, b = gnb.counters.get(key), xapp.counters.get(key)
+                if a is None or b is None:
+                    continue
+                hi, lo = max(a, b), min(a, b)
+                if hi < RAN_PARITY_FLOOR_BPS:
+                    continue  # both near idle: ratios of noise
+                if (hi - lo) / hi > RAN_PARITY_TOLERANCE:
+                    findings.append(
+                        Finding(
+                            "WF_RAN_SOURCES_DISAGREE",
+                            "warn",
+                            xapp.node_id,
+                            f"{direction.upper()} throughput: JSON tap {a / 1e6:.2f} Mbit/s, "
+                            f"KPM {b / 1e6:.2f} Mbit/s ({(hi - lo) / hi:.0%} apart).",
+                            "A constant ratio (x1000, x8) is a unit: fix the KPM scale in "
+                            "ran/schema/metrics.md and both normalisers. A varying gap means "
+                            "the sources disagree or describe different UEs. Their windows "
+                            "differ by up to one report period, so judge a sustained gap.",
+                            cell=cell_of(xapp),
+                        )
+                    )
 
     # --- consistency ------------------------------------------------------
     if run is not None:

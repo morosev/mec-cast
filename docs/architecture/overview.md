@@ -56,7 +56,11 @@ ros2/             Single colcon workspace (see exception below)
   src/mec_cast_render/        draws the edge's result — runs on the UE
   src/mec_cast_admin_client/  control-plane WebSocket client — all nodes
 telemetry/        Shared Rust crate + PyO3 bindings — the spine
-ran/collector/    O-DU MAC scheduler metrics tap
+ran/collector/    O-DU MAC scheduler metrics tap (srsRAN JSON, UDP or WebSocket)
+ran/xapp/         E2 xApp: KPM monitoring + RC control (ADR-0010, ADR-0011)
+ran/py/           the RAN data model: normalisers shared by the xApp and tools
+ran/schema/       metric catalogue + the vectors both normalisers test against
+ran/sim/          gnb-sim: srsRAN's metrics and an E2 feed, without srsRAN
 services/logging/ Logging service (submodule)
 services/admin/   Admin service: run orchestration (in-repo)
 third_party/      Vendored forks, excluded from workspace + build contexts
@@ -115,7 +119,9 @@ Derived metrics per sample: `network = recv − send`,
 |---|---|---|
 | Per-frame samples | `runs/<run_id>/<site>/samples.csv` | firehose; analyzed with pandas; Parquet later |
 | 2 s aggregated snapshots | logging service (`service=mec-cast-{pub,edge,ran}`) | queryable in Postgres (`context` JSONB) |
-| RAN KPIs | logging service (`service=mec-cast-ran`, `context.kpi`) | joined to app latency by `trace_id` |
+| RAN KPIs | `runs/<run_id>/ran/` (JSON tap) and `ran-kpm/` (E2 xApp): `kpi.csv` normalised, raw reports beside it | joined to per-frame latency by time (`tools/ran_join.py`) |
+| RAN KPIs, live | logging service (`service=mec-cast-ran` / `mec-cast-ran-kpm`, `context.kpi` raw + `context.norm`) | joined to app latency by `trace_id` |
+| RAN control | `ran-kpm/control.csv` + logging `context.control` | every action and its outcome, on the measurement clock (ADR-0011) |
 
 `trace_id = RUN_ID` (one UUID per experiment run) joins everything across
 publisher, edge, and RAN.
@@ -177,10 +183,22 @@ fronthaul O-RU.
   `ran/collector/testdata/`, and runnable locally against `gnb-sim`
   (`make up-ran`). If the lab ever splits O-CU and O-DU into separate
   processes, that config moves with the DU and the collector's target with it.
-- **Phase RAN-2 (planned, [ADR-0010](adr/0010-two-ran-sources.md)):** an
-  E2 xApp on the O-RAN SC near-RT RIC, *beside* the tap rather than instead of
-  it — E2SM-KPM for standardized KPIs, then E2SM-RC for run-scoped PRB-quota
-  control. Both sources normalise into one RAN data model.
+- **One RAN data model ([ran/schema](../../ran/schema/metrics.md)):** both
+  sources normalise into the same rows — canonical metric names and units,
+  `source,gnb_ts_ns,recv_ns,cell,ue,metric,value,unit` — in
+  `runs/<run_id>/ran/kpi.csv` and `runs/<run_id>/ran-kpm/kpi.csv`, with the raw
+  reports kept beside them.
+  A Rust and a Python normaliser are held together by `vectors.json`;
+  `tools/ran_join.py` joins either source to the per-frame latency.
+- **Phase RAN-2 (implemented, not yet lab-verified, [ADR-0010](adr/0010-two-ran-sources.md)):**
+  an E2 xApp (`ran/xapp`) on the O-RAN SC near-RT RIC, *beside* the tap — a
+  RIC-agnostic core of capabilities over an `E2Port`, with an `osc` adapter
+  inside the RIC's xApp runner and a `sim` adapter against `gnb-sim`. It
+  reports E2SM-KPM as `service=mec-cast-ran-kpm`; the admin compares its UE
+  throughput with the tap's (`WF_RAN_SOURCES_DISAGREE`).
+- **Phase RAN-3 (implemented, not yet lab-verified, [ADR-0011](adr/0011-run-scoped-ran-control.md)):**
+  E2SM-RC slice-level PRB quota as a run's `ran_policy` — scoped to the run,
+  every action recorded in `ran-kpm/control.csv`, always reverted.
 
 ## Local development topology (no hardware)
 

@@ -27,6 +27,11 @@ percentiles, why the RAN has two sources. Read these before proposing to change 
 **trust a number** → [architecture/timing-model.md](architecture/timing-model.md)
 — what each metric measures, and precisely when it is valid.
 
+**work with RAN data** → [ran/schema/metrics.md](../ran/schema/metrics.md)
+— the one RAN data model both sources write, its metric catalogue, and which
+units still need verifying in the lab; [tools/](../tools/README.md) joins it
+to per-frame latency.
+
 **work on the media profile** → [architecture/str0m-profile.md](architecture/str0m-profile.md)
 — the planned str0m SFU, its wire contract, and the migration plan.
 

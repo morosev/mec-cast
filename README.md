@@ -68,7 +68,9 @@ Run `make help` for all targets.
 | 4 | **Logging service** (submodule) | [`services/logging/`](docs/operations/logging-submodule.md) |
 | 4.i | **Admin service** — run orchestration (in-repo) | [`services/admin/`](docs/operations/admin-service.md) |
 | 5 | **Third-party, extended** | [`third_party/`](third_party/README.md) — [webrtc](docs/guides/building-libwebrtc.md), [str0m](docs/architecture/str0m-profile.md) |
-| — | RAN metrics tap | [`ran/collector/`](ran/collector/README.md) |
+| — | RAN metrics tap (srsRAN JSON) | [`ran/collector/`](ran/collector/README.md) |
+| — | E2 xApp — KPM + RC on the near-RT RIC | [`ran/xapp/`](ran/xapp/README.md) |
+| — | RAN data model | [`ran/schema/`](ran/schema/metrics.md) |
 | — | Deployment | [`deploy/`](deploy/README.md) |
 
 The top level is organised by **deployment location**, so the tree mirrors
@@ -102,7 +104,9 @@ why the RAN is read through two sources (a JSON tap and an E2 xApp).
 | Telemetry crate (+ PyO3, C ABI) | Working, tested |
 | ROS2 + Zenoh profile | Working; netem e2e green |
 | WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
-| RAN metrics tap | UDP and WebSocket (srsRAN 25.04+) sources, tested against fixtures and `gnb-sim` (`make up-ran`); not yet verified on the lab gNB |
+| RAN metrics tap | UDP and WebSocket (srsRAN 25.04+) sources, normalised to `kpi.csv`; tested against fixtures and `gnb-sim` (`make up-ran`); not yet verified on the lab gNB |
+| E2 xApp (KPM) | Implemented; e2e green against `gnb-sim`; `osc` adapter brought up inside the real RIC runner; not yet verified against a srsRAN E2 agent |
+| RAN control (RC PRB quota) | Implemented, run-scoped ([ADR-0011](docs/architecture/adr/0011-run-scoped-ran-control.md)); e2e green against `gnb-sim`; not yet lab-verified |
 | Logging service submodule | Wired at `services/logging` |
 | Admin control plane | Wired at `services/admin`; `make up-admin`, page on :8099 |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |

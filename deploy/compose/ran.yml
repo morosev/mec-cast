@@ -7,13 +7,19 @@
 #   make up-ran          # standalone, env-RUN_ID path
 #   make up-ran-admin    # same plus the control plane
 #
+# Both RAN sources of ADR-0010 run here: ran-collector reads gnb-sim's JSON,
+# and the E2 xApp reads its E2 feed through the `sim` adapter (the lab uses
+# `osc`, inside the RIC — deploy/lab/ric/ric.sh xapp). A ran_policy on a run
+# caps the UE in gnb-sim, so the control loop is visible in both sources.
+#
 # gnb-sim (ran/sim/gnb_sim.py) speaks BOTH of srsRAN's metrics transports at
 # once — UDP push and the remote_control WebSocket — so the collector's choice
 # is exercised exactly as against a real gNB. No radio, no srsRAN build: it
 # runs wherever Docker does, macOS included.
 #
 # Knobs: RAN_SOURCE (auto | udp | ws, the collector's GNB_METRICS_SOURCE),
-#        SIM_MODE (replay | model), SIM_PERIOD_MS (1000), SIM_SEED (42)
+#        SIM_MODE (replay | model), SIM_PERIOD_MS (1000), SIM_SEED (42),
+#        KPM_STYLE (5), XAPP_CAPABILITIES (kpm_monitor,rc_control)
 services:
   gnb-sim:
     image: mec-cast-gnb-sim
@@ -62,3 +68,28 @@ services:
       - ../../runs:/runs
     depends_on:
       - gnb-sim
+
+  xapp:
+    image: mec-cast-xapp
+    build:
+      context: ../..
+      dockerfile: deploy/docker/xapp.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    hostname: ric-local
+    environment:
+      E2_ADAPTER: sim
+      SIM_E2: gnb-sim:8002
+      XAPP_CAPABILITIES: ${XAPP_CAPABILITIES:-kpm_monitor,rc_control}
+      KPM_STYLE: ${KPM_STYLE:-5}
+      RUN_ID: ${RUN_ID:-dev-run}
+      ADMIN_URL: ${ADMIN_URL:-}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://logging:8000
+      CELL: ${CELL:-}
+    volumes:
+      - ../../runs:/runs
+    depends_on:
+      - gnb-sim
+

@@ -54,7 +54,23 @@
                  "detail": {"pci": 1, "dl_mcs": 27, "cqi": 15}}],
       "params": {"bind": "0.0.0.0:55555"},
       "counters": {"datagrams": 9021, "malformed": 0,
-                   "batches_posted": 90, "post_failures": 0},
+                   "batches_posted": 90, "post_failures": 0,
+                   "ue_dl_throughput_bps": 118234568, "ue_ul_throughput_bps": 21345678},
+      "autostart": true, "last_error": null, "report": {}
+    }
+  },
+  "status_xapp": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000020",
+    "ts_ns": 1787000000000000020, "node_id": "xapp-ric01-0",
+    "payload": {
+      "node_type": "xapp", "state": "running",
+      "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": false, "subscribed": true, "peers": [],
+      "params": {"adapter": "osc", "e2_connected": true,
+                 "e2_node_id": "gnbd_001_001_00019b_0", "kpm_style": 5,
+                 "capabilities": ["kpm_monitor", "rc_control"]},
+      "counters": {"indications": 42, "rows": 168, "controls_sent": 0, "controls_failed": 0,
+                   "ue_dl_throughput_bps": 118000000, "ue_ul_throughput_bps": 21000000},
       "autostart": true, "last_error": null, "report": {}
     }
   },
@@ -108,6 +124,17 @@
                 "args": {"rate_hz": 10.0, "num_points": 30000, "seed": 42}}
   },
 
+  "command_ran_policy": {
+    "v": 1, "type": "command", "msg_id": "00000000-0000-4000-8000-000000000021",
+    "ts_ns": 1787000000000000021, "node_id": null,
+    "payload": {
+      "command": "ran.policy", "target_node_type": "xapp",
+      "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "args": {"ran_policy": {"type": "prb_quota", "ue": 0, "min_prb_ratio": 0,
+                              "max_prb_ratio": 30, "dedicated_prb_ratio": 100,
+                              "schedule": []}}
+    }
+  },
   "command_run_stop": {
     "v": 1, "type": "command", "msg_id": "00000000-0000-4000-8000-00000000000b",
     "ts_ns": 1787000000000000011, "node_id": null,

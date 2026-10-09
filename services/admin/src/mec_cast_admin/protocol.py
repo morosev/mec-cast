@@ -34,6 +34,9 @@ class NodeType(StrEnum):
     CLIENT = "client"
     EDGE = "edge"
     GNB = "gnb"
+    #: The E2 xApp on the near-RT RIC (ADR-0010): the standards-path RAN
+    #: source beside the gNB's JSON collector.
+    XAPP = "xapp"
     RENDER = "render"
 
 
@@ -65,6 +68,9 @@ class CommandType(StrEnum):
     STREAM_START = "stream.start"
     STREAM_STOP = "stream.stop"
     STATUS_REPORT = "status.report"
+    #: A RAN control policy for the run's xApp, mid-run (ADR-0011). Nodes
+    #: that do not know it ignore it; only the xApp is sent it.
+    RAN_POLICY = "ran.policy"
 
 
 class NodeState(StrEnum):

@@ -10,3 +10,15 @@ services:
   e2term:
     ports:
       - "${RIC_E2_BIND:-0.0.0.0}:36421:36421/sctp"
+
+  # The mec-cast xApp runs INSIDE the RIC's own xApp runner: the static
+  # routing table sends RIC_INDICATION and RIC_CONTROL_ACK to this container's
+  # address (10.0.2.20), so that is where an xApp must listen. The repo's code
+  # is mounted read-only — nothing of ours is copied into their image — and
+  # runs/ is mounted so the xApp writes beside every other node's data.
+  python_xapp_runner:
+    volumes:
+      - ${MECCAST_ROOT:?set by ric.sh}/ran/py:/opt/mec-cast/ran/py:ro
+      - ${MECCAST_ROOT:?set by ric.sh}/ran/xapp:/opt/mec-cast/ran/xapp:ro
+      - ${MECCAST_ROOT:?set by ric.sh}/ros2/src/mec_cast_admin_client/mec_cast_admin_client:/opt/mec-cast/admin_client/mec_cast_admin_client:ro
+      - ${MECCAST_ROOT:?set by ric.sh}/runs:/runs

@@ -22,6 +22,7 @@ on:
       - "deploy/**"
       - "tests/e2e/**"
       - "scripts/**"
+      - "tools/**"
       - ".github/workflows/platform.yml"
   pull_request:
     paths:
@@ -36,6 +37,7 @@ on:
       - "deploy/**"
       - "tests/e2e/**"
       - "scripts/**"
+      - "tools/**"
       - ".github/workflows/platform.yml"
 
 jobs:
@@ -86,6 +88,25 @@ jobs:
       - run: pip install "websockets>=12" pytest
       - run: pytest ros2/src/mec_cast_admin_client/test -q
 
+  # The RAN data model and the E2 xApp, on Python 3.8: the O-RAN SC RIC's
+  # xApp runner is python:3.8-slim, and the xApp runs inside it. 22.04 because
+  # setup-python's 3.8 builds are reliably there.
+  ran-python:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - run: pip install pytest "websockets>=12,<14" ruff
+      - run: ruff check ran/py ran/xapp && ruff format --check ran/py ran/xapp
+      # The normaliser against ran/schema/vectors.json, and tools/ran_join.py.
+      - run: pytest -q
+        working-directory: ran/py
+      # The xApp, including against gnb-sim's E2 feed in-process.
+      - run: pytest -q
+        working-directory: ran/xapp
+
   ros:
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f deploy/docker/ran.Dockerfile -t mec-cast-ran .
+      - run: docker build -f deploy/docker/xapp.Dockerfile -t mec-cast-xapp .
 
   # Full netem e2e needs NET_ADMIN and ~2 min of runtime: main/nightly only.
   e2e:

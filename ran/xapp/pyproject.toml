@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mec-cast-xapp"
+version = "0.1.0"
+description = "The mec-cast E2 xApp: KPM monitoring and run-scoped RC control on the O-RAN SC near-RT RIC (ADR-0010)"
+# The O-RAN SC xApp runner image is python:3.8-slim; this runs inside it.
+requires-python = ">=3.8"
+license = { text = "MIT" }
+# mec-cast-ran (ran/py) and mec_cast_admin_client (ros2/src/...) are
+# installed from the repo alongside; see deploy/docker/xapp.Dockerfile and
+# deploy/lab/ric/ric.sh. websockets carries the admin client and the sim adapter.
+dependencies = ["websockets>=12"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+mec-cast-xapp = "mec_cast_xapp.app:main"
+
+# Third-party capabilities register here; see mec_cast_xapp.core.load_capabilities.
+[project.entry-points."mec_cast_xapp.capabilities"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "../py/src", "../../ros2/src/mec_cast_admin_client", "../sim"]
+testpaths = ["tests"]
+
+[tool.ruff]
+# The O-RAN SC xApp runner is python:3.8-slim. Lint for what runs there, not
+# for the newest syntax: built-in generics in annotations would break it.
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "BLE", "RUF"]
+# typing.Dict/Optional on purpose: some are runtime expressions (aliases), where
+# 3.8 cannot evaluate the newer syntax. One style throughout is clearer.
+ignore = ["RUF001", "RUF002", "RUF003", "UP006", "UP007", "UP035", "UP045"]

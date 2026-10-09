@@ -5,12 +5,18 @@
 #   bash deploy/lab/ric/ric.sh up        # clone at the pin if needed, start
 #   bash deploy/lab/ric/ric.sh status    # containers, E2 port, connected E2 nodes
 #   bash deploy/lab/ric/ric.sh kpm       # stock KPM monitor xApp, logged under runs/ric/
+#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # the mec-cast xApp
+#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp -d   # ...detached
 #   bash deploy/lab/ric/ric.sh down
 #
 # Runs on the infra role. The RIC is srsRAN's oran-sc-ric (AGPL-3.0): it is
 # cloned to $RIC_DIR (default ~/oran-sc-ric), checked out at RIC_PIN below and
 # never modified or vendored. compose.override.yml beside this script is our
 # only addition: it publishes e2term's SCTP port so the lab gNB can reach it.
+#
+# The mec-cast xApp (ran/xapp, E2_ADAPTER=osc) runs inside the RIC's xApp
+# runner, where the routing table delivers indications; INFRA_HOST is how it
+# reaches the admin and the logging service from inside the RIC's network.
 #
 # Variables: RIC_DIR, RIC_E2_BIND (host address to publish E2 on, default all),
 # STYLE (kpm report style, 5), METRICS (kpm metrics), UE_IDS (style 5, "0"),
@@ -37,6 +43,9 @@ UE_IDS=${UE_IDS:-0}
 case "$(uname -m)" in
   arm64|aarch64) export DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM:-linux/amd64} ;;
 esac
+
+export MECCAST_ROOT="$ROOT_DIR"
+mkdir -p "$ROOT_DIR/runs"
 
 compose() { docker compose --project-directory "$RIC_DIR" -f "$RIC_DIR/docker-compose.yml" -f "$HERE/compose.override.yml" "$@"; }
 
@@ -111,11 +120,35 @@ case "${1:-}" in
     compose exec python_xapp_runner ./kpm_mon_xapp.py --e2_node_id="$node" \
       --kpm_report_style="$STYLE" --ue_ids="$UE_IDS" --metrics="$METRICS" 2>&1 | tee "$log"
     ;;
+  xapp)
+    : "${INFRA_HOST:?set INFRA_HOST: the admin (:8099) and logging (:8000) host, as the RIC network reaches it}"
+    detach=""
+    [ "${2:-}" = "-d" ] && detach="-d"
+    # websockets carries the admin client; the runner image does not have it.
+    # 13.x is the last release that supports the runner's Python 3.8.
+    compose exec -T python_xapp_runner python3 -c 'import websockets' 2>/dev/null \
+      || compose exec -T python_xapp_runner pip install -q "websockets>=12,<14"
+    echo "==> mec-cast xApp (osc adapter) -> admin ws://$INFRA_HOST:8099, logging http://$INFRA_HOST:8000"
+    compose exec $detach \
+      -e PYTHONPATH=/opt/mec-cast/ran/py/src:/opt/mec-cast/ran/xapp/src:/opt/mec-cast/admin_client \
+      -e E2_ADAPTER=osc \
+      -e OSC_XAPPS_DIR=/opt/xApps \
+      -e ADMIN_URL="${ADMIN_URL-ws://$INFRA_HOST:8099/ws/node}" \
+      -e LOGGING_URL="http://$INFRA_HOST:8000" \
+      -e RUNS_DIR=/runs \
+      -e XAPP_HOST="${XAPP_HOST:-$(hostname -s)}" \
+      -e CELL="${CELL:-}" \
+      -e VCS_REF="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)" \
+      -e XAPP_CAPABILITIES="${XAPP_CAPABILITIES:-kpm_monitor,rc_control}" \
+      -e KPM_STYLE="${STYLE}" \
+      ${E2_NODE_ID:+-e E2_NODE_ID="$E2_NODE_ID"} \
+      python_xapp_runner python3 -m mec_cast_xapp
+    ;;
   down)
     compose down
     ;;
   *)
-    sed -n '2,18p' "$0"
+    sed -n '2,25p' "$0"
     exit 2
     ;;
 esac

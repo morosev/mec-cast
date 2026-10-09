@@ -452,6 +452,22 @@ with a seeded random walk; `SIM_PERIOD_MS` sets the report period.
 `pytest tests/e2e/test_ran_local.py -v` runs all three source settings end to
 end and needs no ROS image. See [ran/collector](../../ran/collector/README.md).
 
+The same overlay runs the **E2 xApp** against gnb-sim's E2 feed (`E2_ADAPTER=sim`).
+It writes `runs/$RUN_ID/ran-kpm/` — KPM rows in the same schema as the JSON
+tap, plus `control.csv`. Under the admin, a run can carry a RAN policy, and
+gnb-sim applies the cap so both sources show it
+([ADR-0011](../architecture/adr/0011-run-scoped-ran-control.md)):
+
+```bash
+make up-ran-admin
+curl -s -X POST localhost:8099/api/v1/runs -H 'Content-Type: application/json' \
+  -d '{"label":"cap","params":{"ran_policy":{"ue":0,"max_prb_ratio":25}}}'
+# start it on http://localhost:8099/admin, stop it, then:
+python3 tools/ran_join.py runs/<run_id> --source kpm
+```
+
+`pytest tests/e2e/test_ran_control.py -v` is that whole loop, asserted.
+
 ## See also
 
 - [running-an-experiment.md](running-an-experiment.md) — the measurement workflow

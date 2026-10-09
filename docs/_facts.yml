@@ -67,6 +67,7 @@ services:
   publisher: mec-cast-pub
   edge:      mec-cast-edge
   ran:       mec-cast-ran
+  ran_kpm:   mec-cast-ran-kpm
   media:     mec-cast-media
   admin:     mec-cast-admin
   render:    mec-cast-render
@@ -87,6 +88,7 @@ ports:
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this for srsRAN <= 24.x; set in gnb.yml metrics.addr/port"}
   gnb_remote_control: {port: 8001, proto: ws, note: "srsRAN 25.04+ remote_control WebSocket on the gNB host; ran-collector connects and sends metrics_subscribe (GNB_METRICS_WS)"}
   ric_e2:         {port: 36421, proto: sctp, note: "O-RAN SC RIC e2term on the infra host (deploy/lab/ric); published by compose.override.yml; needs the sctp kernel module"}
+  sim_e2:         {port: 8002, proto: ws, note: "gnb-sim's E2 feed for the xApp's sim adapter (local only; deploy/compose/ran.yml)"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
   render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer page on the UE; only with sink=rerun; management LAN only, no auth"}
@@ -223,7 +225,7 @@ deployment:
   lab_roles: [infra, edge, gnb, ue]
   lab_start_order: "infra -> edge -> gnb -> ue"
   local_services: [postgres, logging, zenoh-router, lidar-client, netem, edge]
-  images: {ros: mec-cast-ros, ran: mec-cast-ran}
+  images: {ros: mec-cast-ros, ran: mec-cast-ran, xapp: mec-cast-xapp, gnb_sim: mec-cast-gnb-sim}
   compose_local: "-f deploy/compose/logging.yml -f deploy/compose/local.yml"
   # Compose names the project after the directory holding the compose file, so
   # container names differ between the two topologies: `compose-postgres-1`

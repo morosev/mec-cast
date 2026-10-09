@@ -27,6 +27,26 @@ Environment (all optional):
   SIM_WS_BIND     host:port, empty = off      (0.0.0.0:8001)
   SIM_MODE        replay | model              (replay)
   SIM_SEED        model seed                  (42)
+  SIM_E2_BIND     host:port, empty = off      (0.0.0.0:8002)
+  SIM_E2_NODE     the E2 node id it reports   (gnbd_001_001_00019b_0)
+
+**The E2 feed** (SIM_E2_BIND) stands in for a near-RT RIC with one srsRAN E2
+node behind it, for the xApp's ``sim`` adapter. It is a small JSON protocol,
+not E2AP — what it simulates is the *data*, decoded exactly as oran-sc-ric's
+``extract_meas_data`` decodes it:
+
+  -> {"op": "nodes"}                                  <- {"op": "nodes", "nodes": [...]}
+  -> {"op": "subscribe", "id", "style", "metrics", "ue_ids", "period_ms"}
+                                                      <- {"op": "subscribed", "id"}
+                                                      <- {"op": "indication", "id", "indication": {...}}
+  -> {"op": "unsubscribe", "id"}
+  -> {"op": "control", "id", "action": "prb_quota", "ue_id", "min_prb_ratio",
+      "max_prb_ratio", "dedicated_prb_ratio"}          <- {"op": "control_ack", "id", "ok", "detail"}
+
+KPM values come from the same report the JSON transports just sent (kbit/s,
+as TS 28.552 specifies), and a PRB-quota control caps that UE's throughput in
+**both** — which is what lets the xApp's parity check and control loop be
+tested on a laptop. E2 UE id N is the N-th UE of the report.
 
 Standard library plus ``websockets`` (>=12, the sync server).
 """
@@ -160,6 +180,183 @@ class Subscribers:
         return sent
 
 
+#: KPM measurement -> how to derive it from one srsRAN UE, given the period in
+#: seconds. Units as TS 28.552: throughput kbit/s, volume kbit.
+KPM_FROM_UE = {
+    "DRB.UEThpDl": lambda ue, s: ue.get("dl_brate", 0) / 1000.0,
+    "DRB.UEThpUl": lambda ue, s: ue.get("ul_brate", 0) / 1000.0,
+    "DRB.RlcSduTransmittedVolumeDL": lambda ue, s: ue.get("dl_brate", 0) * s / 1000.0,
+    "DRB.RlcSduTransmittedVolumeUL": lambda ue, s: ue.get("ul_brate", 0) * s / 1000.0,
+    "DRB.RlcPacketDropRateDl": lambda ue, s: 0,
+    "DRB.PacketSuccessRateUlgNBUu": lambda ue, s: round(
+        100.0
+        * ue.get("ul_nof_ok", 0)
+        / max(1, ue.get("ul_nof_ok", 0) + ue.get("ul_nof_nok", 0)),
+        2,
+    ),
+    # srsRAN's own agent reports these as dummies; so does this one.
+    "CQI": lambda ue, s: ue.get("cqi", 0),
+    "RSRP": lambda ue, s: 0,
+    "RSRQ": lambda ue, s: 0,
+}
+
+
+class E2Sim:
+    """One E2 node's KPM view of the reports, and its PRB-quota control."""
+
+    def __init__(self, node_id: str = "gnbd_001_001_00019b_0"):
+        self.node_id = node_id
+        self.lock = threading.Lock()
+        self.latest: dict | None = None
+        #: E2 UE id -> max PRB ratio in percent, from RC controls.
+        self.caps: dict[int, int] = {}
+        self.server = None
+
+    # --- shared state -----------------------------------------------------
+
+    def ues(self, report: dict | None = None) -> list[dict]:
+        report = report if report is not None else self.latest
+        out: list[dict] = []
+        for lst in ue_lists(report or {}):
+            out.extend(ue_fields(e) for e in lst)
+        return out
+
+    def apply_caps(self, report: dict) -> None:
+        """Scale capped UEs' throughput, in place, before anything is sent."""
+        with self.lock:
+            caps = dict(self.caps)
+        for idx, ue in enumerate(self.ues(report)):
+            ratio = caps.get(idx)
+            if ratio is None:
+                continue
+            for key in ("dl_brate", "ul_brate"):
+                if key in ue:
+                    ue[key] = round(ue[key] * ratio / 100.0, 1)
+
+    def update(self, report: dict) -> None:
+        with self.lock:
+            self.latest = copy.deepcopy(report)
+
+    def indication(
+        self, style: int, metrics: list[str], ue_ids: list[int], period_ms: int
+    ) -> dict:
+        with self.lock:
+            report = copy.deepcopy(self.latest)
+        ues = self.ues(report) if report else []
+        s = period_ms / 1000.0
+        known = [m for m in metrics if m in KPM_FROM_UE]
+
+        def per_ue(ue: dict) -> dict:
+            return {m: [KPM_FROM_UE[m](ue, s)] for m in known}
+
+        if style in (1, 2):
+            if style == 2:
+                idx = ue_ids[0] if ue_ids else 0
+                data = per_ue(ues[idx]) if idx < len(ues) else {m: [0] for m in known}
+            else:
+                data = {m: [sum(KPM_FROM_UE[m](ue, s) for ue in ues)] for m in known}
+            meas = {"measData": data, "granulPeriod": period_ms}
+        else:
+            wanted = ue_ids if style == 5 else list(range(len(ues)))
+            meas = {
+                "ueMeasData": {
+                    str(i): {"measData": per_ue(ues[i]), "granulPeriod": period_ms}
+                    for i in wanted
+                    if i < len(ues)
+                }
+            }
+        start = time.time_ns() - period_ms * 1_000_000
+        return {"e2_node_id": self.node_id, "collect_start_ns": start, "meas": meas}
+
+    def control(self, msg: dict) -> tuple[bool, str]:
+        if msg.get("action") != "prb_quota":
+            return False, f"unsupported action {msg.get('action')!r}"
+        lo, hi = int(msg.get("min_prb_ratio", 0)), int(msg.get("max_prb_ratio", 100))
+        if not 0 <= lo <= hi <= 100:
+            return False, f"bad ratios min={lo} max={hi}"
+        ue = int(msg.get("ue_id", 0))
+        with self.lock:
+            if hi >= 100:
+                self.caps.pop(ue, None)
+            else:
+                self.caps[ue] = hi
+        log(f"e2: PRB quota ue={ue} min={lo} max={hi}")
+        return True, ""
+
+    # --- the feed ---------------------------------------------------------
+
+    def serve(self, bind: str):
+        from websockets.sync.server import serve
+
+        def handler(ws):
+            subs: dict[str, threading.Event] = {}
+            send_lock = threading.Lock()
+
+            def send(obj: dict) -> None:
+                with send_lock:
+                    ws.send(json.dumps(obj, separators=(",", ":")))
+
+            def emit(sid: str, req: dict, stop: threading.Event) -> None:
+                period = max(1000, int(req.get("period_ms") or 1000))
+                while not stop.wait(period / 1000.0):
+                    if self.latest is None:
+                        continue
+                    ind = self.indication(
+                        int(req.get("style") or 5),
+                        list(req.get("metrics") or []),
+                        [int(u) for u in (req.get("ue_ids") or [0])],
+                        period,
+                    )
+                    try:
+                        send({"op": "indication", "id": sid, "indication": ind})
+                    except Exception:  # noqa: BLE001 - client gone
+                        return
+
+            try:
+                for message in ws:
+                    try:
+                        msg = json.loads(message)
+                    except ValueError:
+                        continue
+                    op = msg.get("op")
+                    if op == "nodes":
+                        send({"op": "nodes", "nodes": [self.node_id]})
+                    elif op == "subscribe":
+                        sid = str(msg.get("id"))
+                        stop = threading.Event()
+                        subs[sid] = stop
+                        send({"op": "subscribed", "id": sid})
+                        threading.Thread(
+                            target=emit, args=(sid, msg, stop), daemon=True
+                        ).start()
+                        log(f"e2: subscription {sid} style={msg.get('style')}")
+                    elif op == "unsubscribe":
+                        stop = subs.pop(str(msg.get("id")), None)
+                        if stop:
+                            stop.set()
+                    elif op == "control":
+                        ok, detail = self.control(msg)
+                        send(
+                            {
+                                "op": "control_ack",
+                                "id": msg.get("id"),
+                                "ok": ok,
+                                "detail": detail,
+                            }
+                        )
+            finally:
+                for stop in subs.values():
+                    stop.set()
+
+        host, port = split_hostport(bind)
+        self.server = serve(handler, host, port)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        log(
+            f"e2 feed on {host}:{self.server.socket.getsockname()[1]} (node {self.node_id})"
+        )
+        return self.server
+
+
 def serve_ws(bind: str, subscribers: Subscribers):
     from websockets.sync.server import serve
 
@@ -204,6 +401,10 @@ def main() -> int:
 
     subscribers = Subscribers()
     server = serve_ws(ws_bind, subscribers) if ws_bind else None
+    e2 = E2Sim(os.environ.get("SIM_E2_NODE") or "gnbd_001_001_00019b_0")
+    e2_bind = os.environ.get("SIM_E2_BIND", "0.0.0.0:8002")
+    if e2_bind:
+        e2.serve(e2_bind)
 
     udp = None
     if udp_target:
@@ -227,6 +428,8 @@ def main() -> int:
                 cell["timestamp"] = stamp
         if model:
             model.apply(report)
+        e2.apply_caps(report)
+        e2.update(report)
         text = json.dumps(report, separators=(",", ":"))
 
         if udp is not None:
@@ -247,6 +450,8 @@ def main() -> int:
 
     if server is not None:
         server.shutdown()
+    if e2.server is not None:
+        e2.server.shutdown()
     log(f"stopped after {sent} reports")
     return 0
 

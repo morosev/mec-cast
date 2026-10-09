@@ -16,6 +16,7 @@ alternatives lost, and what the decision costs.
 | [0008](0008-run-identity-and-store.md) | Run identity is a UUIDv7, stored in `run.json` | Accepted |
 | [0009](0009-render-return-path.md) | A return path and a UE-side renderer | Accepted |
 | [0010](0010-two-ran-sources.md) | Keep the JSON tap, and add an E2 xApp beside it | Accepted |
+| [0011](0011-run-scoped-ran-control.md) | RAN control is run-scoped, recorded, and always reverted | Accepted |
 
 ## Writing a new one
 
