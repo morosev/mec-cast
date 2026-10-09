@@ -28,7 +28,7 @@ broken — the data simply cannot be correlated, which you will not discover
 until analysis. Each terminal is a separate shell, so put it in a file:
 
 ```bash
-echo "export RUN_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)" > .run-env
+echo "export RUN_ID=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')" > .run-env
 ```
 
 Then in **every** terminal, first thing:
@@ -322,6 +322,16 @@ Linux binary:
 ```bash
 python3 -m venv ~/.rrviewer && ~/.rrviewer/bin/pip install "rerun-sdk==0.36.3"
 ```
+
+On **macOS** that fails with `No matching distribution found`: `python3` is
+Apple's 3.9 and rerun 0.36 publishes no wheel for it. Let uv supply the
+interpreter (bootstrap installs uv on a Mac that needs it):
+
+```bash
+uv venv --python '>=3.10' ~/.rrviewer && uv pip install --python ~/.rrviewer/bin/python "rerun-sdk==0.36.3"
+```
+
+The viewer then opens as a native window, GPU-accelerated — no WSLg caveat.
 
 Match the version to the SDK pinned in `deploy/docker/ros.Dockerfile`
 (`>=0.36,<0.37`); a viewer from another minor release may refuse the

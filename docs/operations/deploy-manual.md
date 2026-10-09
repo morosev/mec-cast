@@ -75,6 +75,9 @@ that displays the stream. Install it once, on the UE and nowhere else:
 python3 -m venv ~/.rrviewer && ~/.rrviewer/bin/pip install "rerun-sdk==0.36.3"
 ```
 
+On a Mac `python3` is 3.9, which rerun 0.36 does not support — use
+`uv venv --python '>=3.10' ~/.rrviewer && uv pip install --python ~/.rrviewer/bin/python "rerun-sdk==0.36.3"`.
+
 Match the version to the SDK the image pins (`>=0.36,<0.37` in
 `ros.Dockerfile`) — a viewer from a different minor release may refuse the
 recording. Watching a run is
@@ -90,7 +93,8 @@ differs:
 |---|---|---|
 | Default shell | bash | **zsh** — which is why the guides define `compose` as a function, never a `$COMPOSE` variable |
 | Docker | daemon on the host | Docker Desktop or colima — **a VM that must be running first**; there is no group to add yourself to |
-| `uuidgen` | `sudo apt install uuid-runtime` | built in |
+| `uuidgen` | `sudo apt install uuid-runtime` | built in — but prints **UPPERCASE**; pipe through `tr A-F a-f` when typing `RUN_ID=$(uuidgen)` by hand (`trace_id` matching is case-sensitive). `make up-local`, `run-experiment.sh` and the `.run-env` recipe already do |
+| Python | 3.12 on Ubuntu 24.04 | Apple's **3.9** — too old for the telemetry wheel and for rerun; bootstrap installs uv and lets it supply 3.10+ |
 | `jq` | `sudo apt install jq` | `brew install jq` |
 | `watch` | built in | absent — use the `while` loop shown inline, or `brew install watch` |
 | Listening sockets | `ss -ltn` | `lsof -iTCP -sTCP:LISTEN -n -P` |
@@ -100,6 +104,52 @@ differs:
 One macOS trap that is not really a difference: **start Docker Desktop before
 the first command**, or everything fails with `Cannot connect to the Docker
 daemon`. It is a VM and takes a moment.
+
+### A fresh Mac
+
+Verified on macOS 26, Apple Silicon, from a machine with nothing but the
+Xcode Command Line Tools. Everything builds natively for arm64 — the ROS
+image included — and `make test`, `make lint`, `make test-ros2` and
+`make test-e2e` all pass.
+
+1. **Homebrew** (needs your password, so run it yourself):
+
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+   ```bash
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
+   ```
+
+2. **Docker Desktop**, then **launch it once**:
+
+   ```bash
+   brew install --cask docker && open -a Docker
+   ```
+
+   Until the first launch, `docker` exists but `docker compose` does not —
+   `unknown command: docker compose` — because the app installs its CLI
+   plugins on first start, into `~/.docker/cli-plugins`. Give it 8 GB of
+   memory and 40 GB of disk in Settings → Resources; the ROS image alone is
+   2.4 GB.
+
+3. **Bootstrap.** Installs rustup and, since Apple's Python is 3.9, uv —
+   both per user, no sudo:
+
+   ```bash
+   bash scripts/bootstrap-dev.sh
+   ```
+
+4. **Put both on PATH for new shells.** zsh reads neither `~/.profile` nor
+   anything the installers wrote, so without this `make test` cannot find
+   `cargo` in the next terminal:
+
+   ```bash
+   echo '. "$HOME/.cargo/env"; export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
+   ```
+
+Then `make test`, and `make test-all` for the container tier.
 
 ## One-time setup per machine
 

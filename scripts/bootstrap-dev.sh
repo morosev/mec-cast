@@ -67,6 +67,12 @@ VENV="$ROOT_DIR/telemetry/python/.venv"
 # deliberately instead of trusting whatever `python3` happens to be.
 py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; }
 
+# uv's installer puts it in ~/.local/bin, which a fresh macOS shell does not
+# have on PATH -- the same trap as ~/.cargo/bin above.
+if ! have uv && [ -x "$HOME/.local/bin/uv" ]; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
 if [ -x "$VENV/bin/python" ] && py_ok "$VENV/bin/python"; then
   : # already on 3.10+
 else
@@ -83,13 +89,17 @@ else
     for c in python3.13 python3.12 python3.11 python3.10 python3; do
       if have "$c" && py_ok "$c"; then PYBIN="$c"; break; fi
     done
-    if [ -z "$PYBIN" ]; then
-      echo "ERROR: no Python 3.10+ found; the telemetry wheel needs one." >&2
-      echo "  Install uv (recommended):  brew install uv" >&2
-      echo "  ...or a Python directly:   brew install python@3.12" >&2
-      exit 1
+    if [ -n "$PYBIN" ]; then
+      "$PYBIN" -m venv "$VENV"
+    else
+      # A fresh Mac has only Apple's 3.9 and no Homebrew. Install uv the way
+      # rustup is installed above -- per user, no sudo -- and let it fetch a
+      # self-contained 3.10+ interpreter.
+      echo "No Python 3.10+ found (macOS ships 3.9). Installing uv..."
+      curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
+      export PATH="$HOME/.local/bin:$PATH"
+      uv venv --python '>=3.10' --seed "$VENV"
     fi
-    "$PYBIN" -m venv "$VENV"
   fi
 fi
 "$VENV/bin/pip" install --quiet --upgrade pip

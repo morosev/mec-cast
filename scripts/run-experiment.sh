@@ -46,7 +46,9 @@ done
 # uuidgen lives in uuid-runtime, which is not installed everywhere. The
 # kernel source always exists on Linux. Without this fallback RUN_ID silently
 # became empty: run.json landed in runs/ while the CSVs went to runs/dev-run/.
-RUN_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+# macOS uuidgen prints UPPERCASE; every other minter (Linux, the admin's
+# UUIDv7) is lowercase, and trace_id matching in Postgres is case-sensitive.
+RUN_ID=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')
 if [ -z "$RUN_ID" ]; then
   echo "ERROR: could not generate a RUN_ID" >&2
   exit 1
