@@ -286,6 +286,15 @@ This drives the format policy; do not "simplify" it away:
   diagram and *clock authority* elsewhere; preserve that meaning.
 - Never leave a bare `%%` line — Mermaid can read it as a directive and
   swallow the lines that follow.
+- **`fontFamily` is one family, never a list.** Mermaid 11 drops a
+  comma-separated `themeVariables.fontFamily`, so the generated CSS reads
+  `font-family:` with no value and the labels draw in the browser's default
+  serif at its default size — while the boxes were measured at the configured
+  14px. Every long label then loses its last character or two
+  (`MECLOG_AUTO_MIGRATE=t`, `ADMIN_URI`). It went unnoticed for several renders
+  because it looks like a font quirk, not a bug. `"Arial"` exists on macOS and
+  is aliased to a metric-compatible font on Linux; check the SVG for an empty
+  `font-family:` if labels clip again.
 - Keep the two detailed diagrams separate. They answer different questions
   ("where does this number come from" vs "what runs where"); merged, both
   become unreadable.
