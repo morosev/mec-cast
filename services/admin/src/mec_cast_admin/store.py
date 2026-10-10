@@ -121,6 +121,10 @@ class Run:
     reports: dict[str, dict[str, Any]] = field(default_factory=dict)
     findings: list[dict[str, Any]] = field(default_factory=list)
     removed: bool = False
+    #: node_id -> {e2_ue_id, rnti}: the declared UE identities in force when
+    #: the run started, frozen with it, so analysis of this run maps a client
+    #: node to its RAN ids without trusting today's topology.yml.
+    ue_map: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def to_manifest(self) -> dict[str, Any]:
         """The on-disk shape, compatible with the experiment script's."""
@@ -150,6 +154,7 @@ class Run:
             "reports": self.reports,
             "findings": self.findings,
             "removed": self.removed,
+            "ue_map": self.ue_map,
         }
 
     @classmethod
@@ -183,6 +188,7 @@ class Run:
             reports=data.get("reports") or {},
             findings=data.get("findings") or [],
             removed=bool(data.get("removed", False)),
+            ue_map=data.get("ue_map") or {},
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -39,6 +39,13 @@ nodes:
     host: ue-a1
     instance: 0
     cell: cell-a
+    # Optional, clients only: which RAN UE this is, as observed at session
+    # start (research protocol step 0.2) — e2_ue_id for the E2 xApp, rnti for
+    # the JSON tap. Both follow attach order: re-check after a re-attach.
+    # With it, a ran_policy can say "ue": "client-ue-a1-0", every run freezes
+    # the mapping into run.json (ue_map), and tools/ran_join.py --ue accepts
+    # the node name.
+    ue: {e2_ue_id: 0, rnti: 17921}
   - role: client
     host: ue-a1
     instance: 1          # a second LiDAR on the same robot

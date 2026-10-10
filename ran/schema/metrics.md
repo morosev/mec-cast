@@ -92,11 +92,16 @@ add a vector for it.
 The two sources name UEs differently: JSON uses the RNTI, KPM uses the E2 UE
 id. Neither is the client node.
 
-- **In a single-UE cell** (the lab today), the mapping is trivial.
-  `tools/ran_join.py` takes the only UE and says so.
-- **With several UEs**, `ran_join.py --ue <rnti>` picks one explicitly.
-  Without `--ue`, it picks the UE with the most uplink throughput (the LiDAR
-  is the uplink-heavy one) and prints its choice.
+- **Record the mapping in `topology.yml`.** A client node may declare
+  `ue: {e2_ue_id: 0, rnti: 17921}` — what was observed at session start
+  (research protocol step 0.2). Every run freezes the cell's hints into
+  `run.json` as `ue_map`, so a run keeps the mapping it ran under.
+- **Then name the node.** `ran_join.py --ue client-ue-a1-0` maps it through
+  that run's `ue_map` (RNTI for json, E2 id for kpm), and a `ran_policy` may
+  say `"ue": "client-ue-a1-0"`.
+- **Without a declaration:** in a single-UE cell `ran_join.py` takes the only
+  UE and says so; with several, `--ue <rnti>` or `--ue e2:<id>`, or by default
+  the UE with the most uplink throughput (the LiDAR is the uplink-heavy one).
 - **JSON `event.ue_create` rows** carry the RNTI at attach. Correlating them
   with a UE's attach time is the route to an automatic mapping once more than
   one UE is in a cell.

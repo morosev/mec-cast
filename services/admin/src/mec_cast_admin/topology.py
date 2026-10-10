@@ -33,7 +33,7 @@ what the fleet should be.
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .protocol import NodeType
@@ -104,15 +104,24 @@ class NodeSpec:
     host: str
     cell: str = DEFAULT_CELL
     instance: int = 0
+    #: For a client: which RAN UE it is, as observed — ``e2_ue_id`` (the
+    #: E2 xApp's id) and/or ``rnti`` (the JSON tap's). Both follow attach
+    #: order, so this records what an operator saw at session start (research
+    #: protocol step 0.2), and must be re-checked after a re-attach. It lets a
+    #: ran_policy and tools/ran_join.py name the client node, not an id.
+    ue: dict[str, int] | None = field(default=None, compare=False, hash=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "node_id": self.node_id,
             "role": str(self.role),
             "host": self.host,
             "cell": self.cell,
             "instance": self.instance,
         }
+        if self.ue:
+            out["ue"] = dict(self.ue)
+        return out
 
 
 @dataclass(frozen=True)
@@ -225,9 +234,31 @@ def _parse_nodes(raw: Any, source: str) -> tuple[NodeSpec, ...]:
                 host=host,
                 cell=cell,
                 instance=instance,
+                ue=_parse_ue(entry.get("ue"), role, where),
             )
         )
     return tuple(nodes)
+
+
+_UE_KEYS = ("e2_ue_id", "rnti")
+
+
+def _parse_ue(raw: Any, role: str, where: str) -> dict[str, int] | None:
+    """A client's RAN identity hint: ``{e2_ue_id: 0, rnti: 17921}``."""
+    if raw is None:
+        return None
+    if role != str(NodeType.CLIENT):
+        raise TopologyError(f"{where}: `ue` belongs on a client node, not a {role}")
+    if not isinstance(raw, dict) or not raw:
+        raise TopologyError(f"{where}: `ue` must be a mapping with {' and/or '.join(_UE_KEYS)}")
+    out: dict[str, int] = {}
+    for key, value in raw.items():
+        if key not in _UE_KEYS:
+            raise TopologyError(f"{where}: `ue.{key}` is not one of {list(_UE_KEYS)}")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise TopologyError(f"{where}: `ue.{key}` must be a non-negative integer")
+        out[key] = value
+    return out
 
 
 def _parse_roles(raw: Any, source: str) -> tuple[RoleSpec, ...]:

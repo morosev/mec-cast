@@ -77,6 +77,10 @@ The environment sets defaults: `KPM_STYLE`, `KPM_METRICS`, `KPM_UE_IDS`,
 
 - Percent of the cell's PRBs, applied through E2SM-RC Control Style 2,
   Action 6.
+- **`ue`** is an E2 UE id, or — under the admin — a client node_id such as
+  `"client-ue-a1-0"`. The admin resolves a node through its `ue: {e2_ue_id}`
+  hint in `topology.yml`, keeps the name as `ue_node`, and refuses (409) a
+  node it cannot resolve. A standalone xApp takes ids only.
 - Give it when creating the run:
   `POST /api/v1/runs {"params": {"ran_policy": ...}}`.
 - Or send it mid-run: `POST /api/v1/runs/<id>/ran-policy {"ran_policy": ...}`.

@@ -335,3 +335,82 @@ nodes:
         node = join(registry, NodeType.EDGE, "mec01", cell="cell-b")
         assert registry.online()[0].cell == "cell-b"
         assert node in {r.node_id for r in registry.online()}
+
+
+class TestUeIdentity:
+    """A client's RAN identity hint, and what it lets a policy and a run say."""
+
+    TEXT = """
+nodes:
+  - {role: client, host: ue-a1, cell: cell-a, ue: {e2_ue_id: 0, rnti: 17921}}
+  - {role: client, host: ue-a2, cell: cell-a}
+  - {role: edge,   host: edge-a, cell: cell-a}
+"""
+
+    def test_a_client_may_declare_its_ue_ids(self, tmp_path):
+        spec = topo.load(write(tmp_path, self.TEXT))
+        assert spec.find("client-ue-a1-0").ue == {"e2_ue_id": 0, "rnti": 17921}
+        assert spec.find("client-ue-a2-0").ue is None
+        assert spec.to_dict()["nodes"][0]["ue"]["rnti"] == 17921
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "{role: edge, host: e, ue: {e2_ue_id: 0}}",  # not a client
+            "{role: client, host: u, ue: {imsi: 1}}",  # unknown key
+            "{role: client, host: u, ue: {e2_ue_id: -1}}",
+            "{role: client, host: u, ue: {rnti: true}}",
+        ],
+    )
+    def test_a_malformed_hint_is_refused_at_load(self, tmp_path, bad):
+        with pytest.raises(topo.TopologyError):
+            topo.load(write(tmp_path, f"nodes:\n  - {bad}\n"))
+
+    def _orchestrator(self, tmp_path):
+        from mec_cast_admin.config import Settings
+        from mec_cast_admin.orchestrator import Orchestrator
+        from mec_cast_admin.store import JsonRunStore
+
+        settings = Settings(
+            runs_dir=str(tmp_path / "runs"),
+            topology_path=str(write(tmp_path, self.TEXT)),
+            min_free_gb_start=0,
+            min_free_gb_abort=0,
+        )
+        return Orchestrator(settings, JsonRunStore(settings.runs_dir))
+
+    def test_a_policy_naming_a_client_resolves_to_its_e2_id(self, tmp_path):
+        orch = self._orchestrator(tmp_path)
+        run = orch.create_run(
+            params={"ran_policy": {"ue": "client-ue-a1-0", "max_prb_ratio": 30}}, cell="cell-a"
+        )
+        policy = run.params["ran_policy"]
+        assert policy["ue"] == 0 and policy["ue_node"] == "client-ue-a1-0"
+
+    @pytest.mark.parametrize(
+        ("ue", "why"),
+        [
+            ("client-nobody-0", "neither an E2 UE id nor a node"),
+            ("edge-edge-a-0", "not a client"),
+            ("client-ue-a2-0", "has no `ue:"),
+        ],
+    )
+    def test_an_unresolvable_client_is_refused_with_the_reason(self, tmp_path, ue, why):
+        from mec_cast_admin.orchestrator import OrchestratorError
+
+        orch = self._orchestrator(tmp_path)
+        with pytest.raises(OrchestratorError, match=why):
+            orch.create_run(params={"ran_policy": {"ue": ue}}, cell="cell-a")
+
+    def test_a_run_freezes_the_ue_map_it_started_under(self, tmp_path):
+        import asyncio
+
+        from mec_cast_admin.state import Action
+        from mec_cast_admin.store import Run
+
+        orch = self._orchestrator(tmp_path)
+        run = orch.create_run(cell="cell-a")
+        asyncio.run(orch.act(run.run_id, Action.START))
+        assert run.ue_map == {"client-ue-a1-0": {"e2_ue_id": 0, "rnti": 17921}}
+        again = Run.from_manifest(run.to_manifest())
+        assert again.ue_map == run.ue_map, "run.json must carry it"

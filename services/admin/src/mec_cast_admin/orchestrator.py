@@ -213,11 +213,14 @@ class Orchestrator:
                 f"No cell {cell!r} in {self.topology.source}. "
                 f"Declared cells: {', '.join(self.topology.cells)}."
             )
+        params = dict(params or {})
+        if params.get("ran_policy"):
+            params["ran_policy"] = self.resolve_ran_policy(params["ran_policy"], cell)
         run = Run(
             run_id=uuid7(),
             seq=max((r.seq for r in self._runs.values()), default=0) + 1,
             label=label,
-            params=params or {},
+            params=params,
             cell=cell or DEFAULT_CELL,
         )
         self._runs[run.run_id] = run
@@ -277,6 +280,12 @@ class Orchestrator:
 
         if action is Action.START:
             run.started_utc = utc_now()
+            # The UE identities in force for this run, frozen with it.
+            run.ue_map = {
+                n.node_id: dict(n.ue)
+                for n in self.topology.nodes_in(run.cell)
+                if n.role is p.NodeType.CLIENT and n.ue
+            }
             self._check_headroom_to_start()
             run.participants = {}
             self._starting_since[run.run_id] = time.monotonic()
@@ -302,6 +311,36 @@ class Orchestrator:
         self.mark_dirty()
         return run
 
+    def resolve_ran_policy(self, policy: dict[str, Any], cell: str) -> dict[str, Any]:
+        """Turn a policy that names a client node into one the xApp can apply.
+
+        ``ue`` may be a client node_id. It resolves through that node's `ue:`
+        hint in the declared topology — the E2 UE id an operator observed at
+        session start — and the node name is kept as ``ue_node`` so the run
+        records which client the cap was meant for, not only an id that
+        follows attach order.
+        """
+        ue = policy.get("ue", 0)
+        if not isinstance(ue, str):
+            return policy
+        node = self.topology.find(ue)
+        if node is None:
+            raise OrchestratorError(
+                f"ran_policy.ue {ue!r} is neither an E2 UE id nor a node declared in "
+                f"{self.topology.source or 'a topology'} (no topology.yml means ids only)."
+            )
+        if node.role is not p.NodeType.CLIENT:
+            raise OrchestratorError(f"ran_policy.ue {ue!r} is a {node.role}, not a client")
+        if node.cell != (cell or DEFAULT_CELL):
+            raise OrchestratorError(f"ran_policy.ue {ue!r} is in cell {node.cell}, not {cell}")
+        e2 = (node.ue or {}).get("e2_ue_id")
+        if e2 is None:
+            raise OrchestratorError(
+                f"{ue} has no `ue: {{e2_ue_id: N}}` in {self.topology.source}: record the "
+                "E2 UE id observed at session start (research protocol step 0.2)."
+            )
+        return dict(policy, ue=e2, ue_node=ue)
+
     async def set_ran_policy(self, run_id: str, policy: dict[str, Any]) -> int:
         """Send an (already validated) RAN policy to the run's xApp, mid-run.
 
@@ -314,6 +353,7 @@ class Orchestrator:
             raise OrchestratorError(
                 f"Run {run.seq} is {run.state}; a RAN policy only applies to an active run."
             )
+        policy = self.resolve_ran_policy(policy, run.cell)
         sent = await self._broadcast_command(
             p.CommandType.RAN_POLICY,
             run_id=run.run_id,

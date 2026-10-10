@@ -202,11 +202,12 @@ at `/etc/mec-cast`, so no other configuration is needed; point
 
 What declaring buys:
 
-| Situation | Finding |
+| Situation | Result |
 |---|---|
 | A node connects that is not listed | `WF_TOPOLOGY_UNDECLARED` |
 | A listed node never connects | `WF_TOPOLOGY_MISSING` |
 | A node reports a cell other than its declared one | `WF_TOPOLOGY_CELL_MISMATCH` |
+| A client declares `ue: {e2_ue_id, rnti}` | A `ran_policy` may name the client node; every run freezes the cell's hints into `run.json` as `ue_map` |
 
 The first is the one that earns the file. A leftover container from an
 earlier experiment can satisfy quorum and quietly join a run, and nothing

@@ -18,8 +18,9 @@ its cell.
 
 - **Input:** it reads `kpi.csv`, or re-normalises `reports.jsonl` for runs
   recorded before `kpi.csv` existed.
-- **Which UE:** the only one, or the uplink-heavy one (the LiDAR), or
-  `--ue`.
+- **Which UE:** `--ue` takes an RNTI, `e2:<id>`, or a client node_id, which is
+  resolved through the run's `run.json` `ue_map`. Without `--ue`, it uses the
+  only UE, or the uplink-heavy one (the LiDAR).
 - **The summary's r** is descriptive. On `gnb-sim`, whose RAN model has no
   coupling to the network at all, r(cqi, network) still came out -0.69 over
   45 s. Compare runs; do not read one. Tested in `ran/py/tests`.

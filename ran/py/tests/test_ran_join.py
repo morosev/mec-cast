@@ -64,3 +64,21 @@ def test_an_explicit_ue_wins(tmp_path, capsys):
     run = make_run(tmp_path)
     assert ran_join.main([str(run), "--ue", "8"]) == 0
     assert "8" in capsys.readouterr().out
+
+
+def test_a_client_node_resolves_through_the_runs_ue_map(tmp_path, capsys):
+    run = make_run(tmp_path)
+    (run / "run.json").write_text(
+        '{"run_id": "r", "ue_map": {"client-ue-a1-0": {"rnti": 8, "e2_ue_id": 1}}}'
+    )
+    assert ran_join.main([str(run), "--ue", "client-ue-a1-0"]) == 0
+    assert "client-ue-a1-0 -> 8" in capsys.readouterr().err
+
+
+def test_an_unmapped_node_is_refused_with_the_remedy(tmp_path):
+    run = make_run(tmp_path)
+    (run / "run.json").write_text('{"run_id": "r", "ue_map": {}}')
+    import pytest
+
+    with pytest.raises(SystemExit, match=r"topology\.yml"):
+        ran_join.main([str(run), "--ue", "client-nobody-0"])

@@ -4,6 +4,7 @@
     python3 tools/ran_join.py runs/<run_id>                 # summary
     python3 tools/ran_join.py runs/<run_id> -o joined.csv   # per-frame table
     python3 tools/ran_join.py runs/<run_id> --source kpm --ue e2:0
+    python3 tools/ran_join.py runs/<run_id> --ue client-ue-a1-0   # by client node
 
 For every frame in ``edge-0/samples.csv`` it takes, per RAN metric, the most
 recent RAN sample at or before the frame's time (an as-of join), for the
@@ -75,8 +76,33 @@ def load_frames(run: Path, site: str) -> list[dict]:
         return [r for r in csv.DictReader(f) if r.get("kind", "frame") == "frame"]
 
 
-def pick_ue(rows: list[dict], wanted: str | None) -> str:
+def node_ue(run: Path, node: str, source: str) -> str | None:
+    """A client node_id -> its RAN id for this source, from the run's own
+    run.json `ue_map` (the topology's `ue:` hints frozen at start)."""
+    manifest = run / "run.json"
+    if not manifest.exists():
+        return None
+    ids = (json.loads(manifest.read_text()).get("ue_map") or {}).get(node)
+    if not ids:
+        return None
+    if source == "kpm":
+        return f"e2:{ids['e2_ue_id']}" if "e2_ue_id" in ids else None
+    return str(ids["rnti"]) if "rnti" in ids else None
+
+
+def pick_ue(rows: list[dict], wanted: str | None, run: Path | None = None,
+            source: str = "json") -> str:
     ues = sorted({r["ue"] for r in rows if r["ue"]})
+    if wanted and wanted not in ues and run is not None:
+        mapped = node_ue(run, wanted, source)
+        if mapped is None:
+            raise SystemExit(
+                f"--ue {wanted!r} is not a UE in the data ({ues}) and run.json has no "
+                f"{'e2_ue_id' if source == 'kpm' else 'rnti'} for it in ue_map "
+                "(declare `ue:` on the client in topology.yml)"
+            )
+        print(f"UE: {wanted} -> {mapped} (run.json ue_map)", file=sys.stderr)
+        wanted = mapped
     if wanted:
         if wanted not in ues:
             raise SystemExit(f"--ue {wanted!r} not in the data; UEs seen: {ues}")
@@ -133,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("run", type=Path, help="runs/<run_id>")
     ap.add_argument("--source", choices=["json", "kpm"], default="json")
-    ap.add_argument("--ue", help="RNTI (json) or e2:<id> (kpm); default: inferred")
+    ap.add_argument(
+        "--ue", help="RNTI (json), e2:<id> (kpm), or a client node_id; default: inferred"
+    )
     ap.add_argument("--site", default="edge-0", help="per-frame CSV directory (edge-0)")
     ap.add_argument("--at", choices=["capture", "recv"], default="capture")
     ap.add_argument("--max-age-ms", type=float, help="default: 2x the report period")
@@ -142,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rows = load_ran(args.run, args.source)
     frames = load_frames(args.run, args.site)
-    ue = pick_ue(rows, args.ue)
+    ue = pick_ue(rows, args.ue, args.run, args.source)
     s = series(rows, ue)
     period = report_period_ns(s)
     max_age = int(args.max_age_ms * 1e6) if args.max_age_ms else 2 * period

@@ -27,7 +27,7 @@ Each step settles something the campaign would otherwise assume.
 | # | Check | How | Pass |
 |---|---|---|---|
 | 0.1 | **Which direction the control acts on.** oran-sc-ric describes its PRB-quota example as limiting *downlink* PRBs. The LiDAR traffic is *uplink*. `gnb-sim` caps both directions, so the local tests cannot answer this. | One UE with saturating iperf3 traffic in both directions. Apply `max_prb_ratio: 20`, hold 30 s, lift it. Read `ue.dl_throughput_bps` and `ue.ul_throughput_bps` from the JSON tap. | Recorded which of DL / UL / both drops. **If UL does not drop, stop:** this control cannot test H1, and the campaign needs a different lever (an uplink slice in `gnb.yml`, or a different RC action). |
-| 0.2 | **Which E2 UE id is the LiDAR UE** | Attach the LiDAR UE alone; note its E2 UE id in `ran-kpm/kpi.csv` and its RNTI in `ran/kpi.csv`. Attach the competitor; note both again | A written mapping, re-checked at the start of every session (ids follow attach order) |
+| 0.2 | **Which E2 UE id is the LiDAR UE** | Attach the LiDAR UE alone; note its E2 UE id in `runs/<id>/ran-kpm/kpi.csv` and its RNTI in `runs/<id>/ran/kpi.csv`. Attach the competitor; note both again | Both clients' ids written into `topology.yml` as `ue: {e2_ue_id, rnti}`, re-checked at the start of every session (ids follow attach order). Policies then name the client node, and every run's `run.json` carries the mapping as `ue_map` |
 | 0.3 | **The two sources agree** | Steady uplink traffic, no policy, 2 min | No `WF_RAN_SOURCES_DISAGREE`; the KPM throughput scale confirmed (the *verify* column of `ran/schema/metrics.md`) |
 | 0.4 | **Clocks** | `verify-ptp.sh --peer` between UE and edge hosts | Passes; `context.ptp.reliable` true on every measuring host |
 
@@ -92,7 +92,7 @@ replaced.
 | One-way uplink delay | `edge-0/samples.csv`, `network_ns` | p50, p99, p99.9 over the window, whole-run (ADR-0004) |
 | Sensor to processed | `edge-0/samples.csv`, `e2e_ns` | p50, p99 |
 | Delivery | `pub-0` vs `edge-0` sequence numbers | fraction delivered |
-| Mechanism | `ran/kpi.csv` joined per frame (`tools/ran_join.py`) | LiDAR UE's `ul_mcs`, `ul_harq_nok`, `ul_bsr_bytes`, `sr_to_pusch_delay`, PRB use |
+| Mechanism | `runs/<id>/ran/kpi.csv` joined per frame (`tools/ran_join.py`) | LiDAR UE's `ul_mcs`, `ul_harq_nok`, `ul_bsr_bytes`, `sr_to_pusch_delay`, PRB use |
 
 ### Analysis
 

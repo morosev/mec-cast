@@ -18,9 +18,13 @@ from mec_cast_admin.workflow import diagnose
 from test_workflow import join, make_run
 from test_ws import hello, recv, recv_type, send
 
+# {"ue": "abc"} is refused by the xApp, which has no topology. The admin
+# reads a string as a client node to resolve, and refuses an unknown one at
+# create instead (test_topology.TestUeIdentity).
 BAD = [
     {"type": "slicing"},
-    {"ue": "abc"},
+    {"ue": -1},
+    {"ue": ""},
     {"max_prb_ratio": 130},
     {"min_prb_ratio": 50, "max_prb_ratio": 20},
     {"schedule": [{"t_s": 10}, {"t_s": 5}]},

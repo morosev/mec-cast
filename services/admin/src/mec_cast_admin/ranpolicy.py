@@ -32,7 +32,11 @@ class RanPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str = "prb_quota"
-    ue: int = Field(default=0, ge=0, description="E2 UE id (gNB-CU-UE-F1AP-ID).")
+    #: An E2 UE id, or a client node_id the admin resolves through the
+    #: declared topology's `ue:` hints (orchestrator.resolve_ran_policy).
+    ue: int | str = Field(default=0, description="E2 UE id, or a client node_id.")
+    #: Set by the admin when `ue` named a node: which one it was.
+    ue_node: str | None = None
     min_prb_ratio: int = Field(default=0, ge=0, le=100)
     max_prb_ratio: int = Field(default=100, ge=0, le=100)
     dedicated_prb_ratio: int = Field(default=100, ge=0, le=100)
@@ -48,8 +52,21 @@ class RanPolicy(BaseModel):
     @field_validator("ue", mode="before")
     @classmethod
     def _e2_prefix(cls, v: Any) -> Any:
-        if isinstance(v, str) and v.startswith("e2:"):
-            return v[3:]
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("e2:"):
+                v = v[3:]
+            if v.isdigit():
+                return int(v)
+            if not v:
+                raise ValueError("ue must be an E2 UE id or a client node_id")
+        return v
+
+    @field_validator("ue")
+    @classmethod
+    def _non_negative(cls, v: int | str) -> int | str:
+        if isinstance(v, int) and v < 0:
+            raise ValueError("ue must be >= 0")
         return v
 
     @model_validator(mode="after")
