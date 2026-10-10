@@ -14,8 +14,8 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "1dc0fc96f6d874e41bbcb6e1947e9462e0e7c5af"
-  last_synced_date: "2026-09-22"
+  last_synced_sha: "f8e2e1ed37730ae2edc36983d1968d373f1bc51f"
+  last_synced_date: "2026-10-10"
 
 # --- identity ---------------------------------------------------------------
 platform:

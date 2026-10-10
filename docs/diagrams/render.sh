@@ -32,7 +32,8 @@ if [ -z "$MMDC" ] && [ -x "$HOME/.deckbuild/node_modules/.bin/mmdc" ]; then
 fi
 if [ -z "$MMDC" ]; then
   echo "mermaid-cli not found. Install it with:"
-  echo "  npm install -g @mermaid-js/mermaid-cli"
+  echo "  npm install -g @mermaid-js/mermaid-cli@11"
+  echo "  (11, not latest: 12 dropped -w for --size, which sizes PNGs differently)"
   echo "Or just edit the .mmd files — the overview diagrams render on GitHub"
   echo "from the fences in README.md without any toolchain."
   exit 1

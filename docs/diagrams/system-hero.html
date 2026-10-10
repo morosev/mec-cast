@@ -257,8 +257,12 @@
         <div class="t">O-CU · RRC / PDCP</div>
       </div>
       <div class="chip tap sm">
-        <div class="t">ran-collector</div>
-        <div class="s">taps MAC KPIs — UDP JSON :55555</div>
+        <div class="t">ran-collector · JSON tap</div>
+        <div class="s">scheduler KPIs — WS :8001 or UDP :55555</div>
+      </div>
+      <div class="chip tap sm">
+        <div class="t">E2 xApp · near-RT RIC</div>
+        <div class="s">KPM · run-scoped PRB quota (RC)</div>
       </div>
     </div>
   </div>
@@ -376,7 +380,7 @@
 <div class="foot">
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
   <span><span class="k">Transport:</span> rmw_zenoh over Reliable UDP (rel=1) — NAT traversal and ~2 MB payloads</span>
-  <span><span class="k">RAN tap:</span> O-DU MAC KPIs correlated to application latency</span>
+  <span><span class="k">RAN:</span> JSON tap + E2 xApp, one data model, correlated to application latency; RC control scoped to a run — E2 not yet lab-verified</span>
   <span><span class="k">Return path:</span> processed cloud back to a UE renderer — a round trip stamped on one clock, so it needs no PTP</span>
   <span class="planned">robotic arm shown as intended deployment; results return to the UE today, but no actuation is commanded</span>
 </div>

@@ -96,11 +96,15 @@ flowchart LR
   subgraph EDGE["MEC edge server"]
     ZR["Zenoh router"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
-    ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
     ZR --> EN
   end
 
-  RANC["ran-collector<br/>O-DU MAC / scheduler KPIs"]
+  ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
+
+  subgraph RANS["RAN sources — one data model"]
+    RANC["ran-collector — JSON tap<br/>O-DU scheduler KPIs"]
+    XAPP["E2 xApp on the near-RT RIC<br/>KPM monitoring · run-scoped RC"]
+  end
   SPINE["mec-cast-telemetry — shared spine<br/>64-byte TimingEnvelope · DelayStats · clocks + PTP · lock-free recorder"]
   CSV["Per-frame CSV<br/>runs/&lt;RUN_ID&gt;/"]
   LOG["Logging service + PostgreSQL<br/>2 s aggregated snapshots"]
@@ -108,7 +112,9 @@ flowchart LR
   ROSC -->|"Uu — PointCloud2"| GNB
   CORE -->|"UPF / N6"| ZR
   EN -.->|"mec_cast/result — voxel cloud, opt-in"| RENDER
-  GNB -.->|"UDP JSON metrics"| RANC
+  GNB -.->|"JSON · UDP / WS"| RANC
+  GNB <-.->|"E2 · KPM, RC"| XAPP
+  XAPP -->|"ran-kpm/ · same data model"| CSV
 
   ROSC --- SPINE
   EN --- SPINE
@@ -122,13 +128,14 @@ flowchart LR
   ADMIN <-.-> EN
   ADMIN <-.-> RANC
   ADMIN <-.-> RENDER
+  ADMIN <-.-> XAPP
 
   PTP["PTP grandmaster — management / backhaul LAN<br/>every measuring host on the SAME grandmaster, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,ADMIN comp
+  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,XAPP,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note
@@ -147,29 +154,30 @@ flowchart LR
 
   subgraph UEH["Host 1 — role: ue"]
     direction TB
-    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST, INFRA_HOST"]
+    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST,<br/>INFRA_HOST"]
     PTPU["/dev/ptp0"]
   end
 
   subgraph GNBH["Host 2 — role: gnb"]
     direction TB
-    SRS["srsRAN — O-CU / O-DU<br/>metrics: addr + port in gnb.yml"]
-    RC["ran-collector<br/>binds UDP :55555"]
-    SRS -->|"UDP JSON"| RC
+    SRS["srsRAN — O-CU / O-DU<br/>gnb.yml: enable_json + remote_control (25.x)<br/>or metrics addr + port (24.x)"]
+    RC["ran-collector<br/>WS :8001 or UDP :55555"]
+    SRS -->|"JSON metrics"| RC
   end
 
   subgraph EDGEH["Host 3 — role: edge"]
     direction TB
     ZR["zenoh-router<br/>listens udp/:7447?rel=1"]
     ED["edge<br/>ingest + processing"]
-    ADM["mec-cast-admin<br/>:8099 control plane"]
     ZR --> ED
   end
 
   subgraph INFRAH["Host 4 — role: infra"]
     direction TB
+    ADM["mec-cast-admin<br/>:8099 control plane"]
     LOGS["logging service<br/>:8000, auto-migrate"]
     PG["postgres:16<br/>volume pgdata"]
+    RIC["near-RT RIC + E2 xApp (optional)<br/>e2term SCTP :36421"]
     LOGS --> PG
   end
 
@@ -181,6 +189,9 @@ flowchart LR
   LC -.->|"ws :8099 control"| ADM
   ED -.-> ADM
   RC -.-> ADM
+  RIC -.-> ADM
+  SRS -.->|"E2 · SCTP :36421"| RIC
+  RIC -.->|"HTTP :8000"| LOGS
 
   GM["PTP grandmaster — management / backhaul LAN"]
   GM -->|"PTP → PHC → clock"| UEH
@@ -193,7 +204,7 @@ flowchart LR
   RC -.-> RUNS
 
   class UEH,GNBH,EDGEH,INFRAH host
-  class LC,SRS,RC,ZR,ED,ADM,LOGS,PG,PTPU,RUNS svc
+  class LC,SRS,RC,ZR,ED,ADM,LOGS,PG,RIC,PTPU,RUNS svc
   class GM sync
 ```
 

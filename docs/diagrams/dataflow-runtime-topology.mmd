@@ -31,10 +31,10 @@ flowchart TB
 
   subgraph H2["HOST — role: gnb &nbsp;&nbsp; compose.gnb.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
-    SRSRAN["srsRAN Project — O-CU / O-DU<br/>runs natively, not containerised<br/>gnb.yml: metrics.addr / metrics.port"]:::ext
-    RANC["container: ran-collector<br/>image mec-cast-ran<br/>GNB_METRICS_ADDR=0.0.0.0:55555"]:::ctr
+    SRSRAN["srsRAN Project — O-CU / O-DU<br/>runs natively, not containerised<br/>gnb.yml: enable_json + remote_control :8001 (25.x)<br/>or metrics.addr / metrics.port (24.x)"]:::ext
+    RANC["container: ran-collector<br/>image mec-cast-ran<br/>GNB_METRICS_SOURCE=auto · GNB_METRICS_WS=127.0.0.1:8001<br/>GNB_METRICS_ADDR=0.0.0.0:55555"]:::ctr
     RANVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
-    SRSRAN -->|"UDP :55555 · JSON KPI datagrams"| RANC
+    SRSRAN -->|"JSON KPI reports · WS :8001 or UDP :55555"| RANC
     RANC --- RANVOL
   end
 
@@ -42,11 +42,9 @@ flowchart TB
     direction TB
     ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens udp/0.0.0.0:7447?rel=1<br/>restart: unless-stopped"]:::ctr
     EDGEC["container: edge<br/>ros2 run mec_cast_edge edge<br/>subscribes over rmw_zenoh_cpp"]:::ctr
-    ADMC["container: admin<br/>mec-cast-admin serve<br/>published :8099 · HTTP + WebSocket<br/>MECADM_RUNS_DIR=/runs"]:::ctr
     EDGEVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
     ZR -->|"in-process Zenoh session"| EDGEC
     EDGEC --- EDGEVOL
-    ADMC --- EDGEVOL
   end
 
   subgraph H4["HOST — role: infra &nbsp;&nbsp; compose.infra.yml"]
@@ -54,12 +52,16 @@ flowchart TB
     LOGC["container: logging<br/>uvicorn → FastAPI<br/>published :8000<br/>MECLOG_AUTO_MIGRATE=true<br/>restart: unless-stopped"]:::ctr
     PGC["container: postgres:16<br/>NO published port by default<br/>healthcheck pg_isready"]:::ctr
     PGVOL["named volume pgdata<br/>→ /var/lib/postgresql/data"]:::vol
+    ADMC["container: admin<br/>mec-cast-admin serve<br/>published :8099 · HTTP + WebSocket<br/>MECADM_RUNS_DIR=/runs"]:::ctr
+    RICC["optional: oran-sc-ric (pinned, beside the repo)<br/>e2term SCTP :36421 · python_xapp_runner<br/>runs the mec-cast xApp, E2_ADAPTER=osc"]:::ext
     LOGC -->|"postgresql://postgres@postgres:5432<br/>asyncpg pool"| PGC
     PGC --- PGVOL
   end
 
   UEC -.->|"ws :8099 · ADMIN_URL"| ADMC
   RANC -.->|"ws :8099 · ADMIN_URL"| ADMC
+  RICC -.->|"ws :8099 · ADMIN_URL"| ADMC
+  SRSRAN -.->|"E2 · SCTP :36421"| RICC
   RENC -.->|"ws :8099 · ADMIN_URL"| ADMC
 
   subgraph NET5G["5G NETWORK — user plane"]

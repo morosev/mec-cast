@@ -27,11 +27,15 @@ flowchart LR
   subgraph EDGE["MEC edge server"]
     ZR["Zenoh router"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
-    ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
     ZR --> EN
   end
 
-  RANC["ran-collector<br/>O-DU MAC / scheduler KPIs"]
+  ADMIN["mec-cast-admin<br/>run control plane · WebSocket"]
+
+  subgraph RANS["RAN sources — one data model"]
+    RANC["ran-collector — JSON tap<br/>O-DU scheduler KPIs"]
+    XAPP["E2 xApp on the near-RT RIC<br/>KPM monitoring · run-scoped RC"]
+  end
   SPINE["mec-cast-telemetry — shared spine<br/>64-byte TimingEnvelope · DelayStats · clocks + PTP · lock-free recorder"]
   CSV["Per-frame CSV<br/>runs/&lt;RUN_ID&gt;/"]
   LOG["Logging service + PostgreSQL<br/>2 s aggregated snapshots"]
@@ -39,7 +43,9 @@ flowchart LR
   ROSC -->|"Uu — PointCloud2"| GNB
   CORE -->|"UPF / N6"| ZR
   EN -.->|"mec_cast/result — voxel cloud, opt-in"| RENDER
-  GNB -.->|"UDP JSON metrics"| RANC
+  GNB -.->|"JSON · UDP / WS"| RANC
+  GNB <-.->|"E2 · KPM, RC"| XAPP
+  XAPP -->|"ran-kpm/ · same data model"| CSV
 
   ROSC --- SPINE
   EN --- SPINE
@@ -53,13 +59,14 @@ flowchart LR
   ADMIN <-.-> EN
   ADMIN <-.-> RANC
   ADMIN <-.-> RENDER
+  ADMIN <-.-> XAPP
 
   PTP["PTP grandmaster — management / backhaul LAN<br/>every measuring host on the SAME grandmaster, never the 5G user plane"]
   PTP -.-> UE
   PTP -.-> EDGE
   PTP -.-> RANC
 
-  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,ADMIN comp
+  class LIDAR,ROSC,RENDER,GNB,CORE,ZR,EN,RANC,XAPP,ADMIN comp
   class SPINE spine
   class CSV,LOG store
   class PTP note

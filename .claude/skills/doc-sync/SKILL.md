@@ -5,7 +5,7 @@ description: Sync mec-cast documentation with the code, then optionally regenera
 
 # doc-sync
 
-Keeps `docs/`, the component READMEs, the 10-slide deck, the Mermaid diagrams
+Keeps `docs/`, the component READMEs, the 11-slide deck, the Mermaid diagrams
 and the one-picture system image truthful about the code.
 
 ```
@@ -186,17 +186,20 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | 7 | Zenoh | `adr/0001-zenoh-over-dds.md` |
 | 8 | Profile B — current | `clients/webrtc_native/README.md` |
 | 9 | Profile B — planned str0m | `architecture/str0m-profile.md` |
-| 10 | Applications and future work | `research/README.md`, ADR-0005 |
+| 10 | RAN — two sources and run-scoped control | `ran/collector/README.md`, `ran/xapp/README.md`, `ran/schema/metrics.md`, ADR-0010, ADR-0011 |
+| 11 | Applications and future work | `research/README.md`, ADR-0011 |
 
-**Pair related components on one slide; do not add an eleventh.** This has now
-happened twice — slide 4 absorbed the admin service beside logging, slide 5 the
-render node beside the lidar client — and both times the pairing held because
-the two things genuinely share a location and a role. `qa_pptx.py` pins
-`EXPECTED_SLIDES = 10` and `PROFILE_B_FIRST_SLIDE = 8`; a new slide inserted
-before 8 shifts Profile B and forces both constants, which is a content
-contract, not a formatting detail. Watch the word counts QA prints — slides 4
-(232), 10 (234), 6 (200) and 5 (193) are the dense ones — and revisit only if
-one visibly bursts.
+**Pair related components on one slide; add one only by decision.** Pairing
+held twice — slide 4 absorbed the admin service beside logging, slide 5 the
+render node beside the lidar client — because the two things genuinely share a
+location and a role. The RAN side did not fit any slide (the JSON tap, the E2
+xApp and RC control share a subject, not a location), so on 2026-10-10 the
+user chose to add slide 10 for it, after Profile B so that Profile B stays on
+8–9. `qa_pptx.py` pins `EXPECTED_SLIDES = 11` and `PROFILE_B_FIRST_SLIDE = 8`;
+a new slide inserted before 8 shifts Profile B and forces both constants, which
+is a content contract, not a formatting detail. Watch the word counts QA
+prints — slides 11 (234), 4 (232), 6 (200) and 5 (196) are the dense ones —
+and revisit only if one visibly bursts.
 
 **Slides 1–7 must not mention WebRTC, str0m, SFU, libwebrtc, or "Profile B".**
 Profile B is introduced on slide 8 and nowhere earlier. `qa_pptx.py` enforces
@@ -208,7 +211,7 @@ The 10 slides are stable, not frozen. When the system outgrows them, **notice
 it and argue the case** — never silently cram content in, never silently add a
 slide. Signals:
 
-- a component exists that no slide owns (a compression stage, a RIC xApp)
+- a component exists that no slide owns (a compression stage, a str0m SFU once built)
 - one slide's word count climbs well past its neighbours (QA prints these)
 - a slide describes something now retired — Profile B, once str0m lands
 - two unrelated ideas share a slide because there was nowhere else

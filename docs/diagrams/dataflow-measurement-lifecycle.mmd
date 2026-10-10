@@ -78,10 +78,10 @@ flowchart TB
 
   subgraph GNBHOST["RAN HOST — O-DU observability"]
     direction TB
-    SRSM["srsRAN metrics exporter — O-DU MAC scheduler<br/>gnb.yml → metrics.addr / port"]:::work
-    RCOL["ran-collector<br/>binds UDP :55555, stamps arrival"]:::work
-    RKPI["MCS · PRB usage · HARQ retx · BSR · CQI · per-UE throughput"]:::derived
-    SRSM -->|"UDP JSON"| RCOL --> RKPI
+    SRSM["srsRAN metrics exporter — O-DU MAC scheduler<br/>gnb.yml → remote_control (25.x) or metrics addr / port (24.x)"]:::work
+    RCOL["ran-collector<br/>WebSocket or UDP, stamps arrival, keeps the gNB timestamp"]:::work
+    RKPI["MCS · PRB usage · HARQ ok/nok · BSR · CQI · per-UE throughput<br/>normalised → ran/kpi.csv"]:::derived
+    SRSM -->|"JSON reports"| RCOL --> RKPI
   end
 
   PUB ==>|"Zenoh over Reliable UDP, dialled OUT to the router"| UU

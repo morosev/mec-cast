@@ -35,7 +35,7 @@ LINE_H = 1.22
 EMU = 914400.0
 
 # The deck's content contract.
-EXPECTED_SLIDES = 10
+EXPECTED_SLIDES = 11
 PROFILE_B_TERMS = r"\b(webrtc|str0m|sfu|libwebrtc|profile b)\b"
 PROFILE_B_FIRST_SLIDE = 8
 

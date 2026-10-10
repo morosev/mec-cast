@@ -51,7 +51,7 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 | `#` | Monotonic run number, for talking about a run out loud |
 | Run | Last eight characters of the id; click to copy the whole thing |
 | Status | The state machine's current state |
-| Participants | client / edge / gnb / render counts, red when a *required* role is missing |
+| Participants | client / edge / gnb / render / xapp counts, red when a *required* role is missing |
 | Started | When the run began. **Rows are ordered newest first by this**, not by id |
 | Findings | Count of errors currently detected for the active run |
 
@@ -97,16 +97,16 @@ draft ──start──► starting ──quorum──► running ◄──recov
 | `draft` | Created, never started | Start, Remove |
 | `starting` | Command sent, waiting for participants | Stop |
 | `running` | At least one client and one edge are recording | Stop |
-
-Quorum is one client and one edge. The gNB and the renderer are both
-optional — a run with no RAN KPIs, or with nobody watching, is a legitimate
-run, so neither absence degrades it. A renderer that is present but starved
-*is* a fault: `WF_RENDER_STARVED`, whose remedy names the default that causes
-it, since the edge's `publish_result` is off unless asked for.
 | `degraded` | A participant went silent; the rest keep recording | Stop |
 | `stopping` | Stop sent, waiting for the nodes to let go | — |
 | `stopped` | Finished cleanly | Remove |
 | `failed` | Never reached quorum, or everything went offline | Remove |
+
+Quorum is one client and one edge. The gNB, the renderer and the E2 xApp are
+optional — a run with no RAN KPIs, or with nobody watching, is a legitimate
+run, so no such absence degrades it. A renderer that is present but starved
+*is* a fault: `WF_RENDER_STARVED`, whose remedy names the default that causes
+it, since the edge's `publish_result` is off unless asked for.
 
 Two rules worth knowing:
 
@@ -124,6 +124,20 @@ rejoins the same run and appends to the same CSV, which is what the append
 behaviour in `telemetry/src/recorder.rs` exists for. If everything goes offline
 for 30 s, the run fails.
 
+The edges of the lifecycle, each of which once left a node recording a run
+that had ended:
+
+- **A run the supervisor fails is stopped on its nodes** — `run.stop` goes to
+  its members, as for an operator stop. Required since RAN control: an xApp
+  left recording a failed run would keep its PRB cap (ADR-0011).
+- **A `stopping` run takes no new participants.** A node that says hello
+  during `stopping` is not offered the run; only `starting`, `running` and
+  `degraded` runs are. A node whose status says it is recording a run that is
+  already stopped or failed is sent `run.stop` once, journalled `late-stop`.
+- **A `starting` run with no participants yet is not "all offline".** A node
+  becomes a participant only when a status naming the run arrives; until then
+  the start timeout, not the offline rule, bounds the wait.
+
 ## Diagnostics
 
 Findings are derived on every pass and never stored, so a condition that clears
@@ -140,7 +154,11 @@ nothing.
 | `WF_QOS_MISMATCH` | Publisher and subscriber `reliability` differ |
 | `WF_NO_FRAMES` | Client's frame count rising, edge's flat |
 | `WF_GNB_ABSENT` | No gNB collector — a warning; the run is still valid |
-| `WF_GNB_SILENT` | Collector bound but srsRAN is sending nothing |
+| `WF_GNB_SILENT` | Collector listening (UDP or WebSocket) but srsRAN is sending nothing |
+| `WF_XAPP_NO_E2` | The E2 xApp is up but the RIC has no E2 node connected |
+| `WF_KPM_SILENT` | The xApp is subscribed but no KPM indications arrive |
+| `WF_RAN_SOURCES_DISAGREE` | The JSON tap and the xApp's KPM disagree on UE throughput by more than 25 % — a real disagreement or a wrong KPM unit ([ran/schema](../../ran/schema/metrics.md)) |
+| `WF_POLICY_NOT_APPLIED` | The run names a RAN policy the xApp could not apply — an error, since the data is not under the policy it claims (ADR-0011) |
 | `WF_RUN_MISMATCH` | A node is recording a different run |
 | `WF_RENDER_CROSS_HOST` | A renderer runs on a host with no lidar client — its `e2e_ns` is no longer the PTP-free round trip of ADR-0009, but an ordinary cross-host figure valid only under a reliable PTP lock |
 | `WF_CLOCK_SKEW` | A node recorded an impossible (negative) delay: the sending host’s clock is ahead of its own, so every cross-host figure it produced is wrong by the skew. The run still looks healthy — frames flow and CSVs grow — which is why this is an error |
@@ -171,7 +189,7 @@ in the platform that can detect either.
 ## The declared topology
 
 By default the admin knows the *rules* — one client and one edge for quorum,
-a warning for a missing gNB, silence for a missing renderer — but not the
+a warning for a missing gNB, silence for a missing renderer or xApp — but not the
 *fleet*. Declaring the fleet is opt-in:
 
 ```bash
@@ -248,7 +266,9 @@ reconnection idempotent and lets an operator address one node out of many.
 | admin → node | `welcome`, `command`, `ping`, `error` |
 
 Commands are `run.start`, `run.stop`, `stream.start`, `stream.stop`,
-`status.report`.
+`status.report`, and `ran.policy` — sent only to the xApp, from
+`POST /api/v1/runs/<id>/ran-policy`, carrying a validated `ran_policy`
+(ADR-0011). A node that does not know a command ignores it.
 
 `hello` carries an optional `cell`, set from the node's `CELL` environment
 variable or its `cell` parameter. Empty means the node did not say, which is

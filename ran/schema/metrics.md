@@ -22,7 +22,7 @@ source,gnb_ts_ns,recv_ns,cell,ue,metric,value,unit
 **Files.** The collector writes `runs/<run_id>/ran/kpi.csv` and the xApp
 writes `runs/<run_id>/ran-kpm/kpi.csv`. Both also log the rows as
 `context.norm`, beside the untouched raw report in `context.kpi`. The raw form
-is kept forever (`ran/reports.jsonl`), so the normaliser can be re-run and
+is kept forever (`runs/<run_id>/ran/reports.jsonl`), so the normaliser can be re-run and
 improved after the fact.
 
 **Two implementations, one contract.** `ran/py` (`mec_cast_ran`, standard

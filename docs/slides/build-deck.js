@@ -132,8 +132,8 @@ function bullets(s, x, y, w, h, items, size) {
   arrow(s, c[1].x + c[1].w + 0.06, y + h / 2, c[2].x - 0.06, y + h / 2, "UPF");
 
   const y2 = 3.26;
-  box(s, { x: c[1].x, y: y2, w: c[1].w, h: 0.95, title: "ran-collector", lines: [
-    "O-DU MAC / scheduler KPIs over UDP JSON"] });
+  box(s, { x: c[1].x, y: y2, w: c[1].w, h: 0.95, title: "RAN — two sources", lines: [
+    "JSON tap: O-DU scheduler KPIs", "E2 xApp: KPM + run-scoped RC"] });
   box(s, { x: c[2].x, y: y2, w: c[2].w, h: 0.95, title: "Outputs", lines: [
     "per-frame CSV  +  2 s aggregated snapshots"] });
 
@@ -202,9 +202,9 @@ function bullets(s, x, y, w, h, items, size) {
   const c = cols(4, 0.42);
   const h = 1.30, y = TOP;
   box(s, { x: c[0].x, y, w: c[0].w, h, title: "ue", lines: ["lidar-client", "behind the 5G modem", "needs EDGE_HOST"] });
-  box(s, { x: c[1].x, y, w: c[1].w, h, title: "gnb", lines: ["ran-collector", "beside the srsRAN O-DU", "UDP :55555"] });
+  box(s, { x: c[1].x, y, w: c[1].w, h, title: "gnb", lines: ["ran-collector", "beside the srsRAN O-DU", "UDP :55555 or WS :8001"] });
   box(s, { x: c[2].x, y, w: c[2].w, h, title: "edge", lines: ["zenoh-router + edge", "the MEC app server", "behind the UPF"] });
-  box(s, { x: c[3].x, y, w: c[3].w, h, title: "infra", lines: ["logging + postgres", "pgdata volume", "deploy this first"] });
+  box(s, { x: c[3].x, y, w: c[3].w, h, title: "infra", lines: ["logging + postgres + admin", "optional: RIC + E2 xApp", "deploy this first"] });
 
   for (let i = 0; i < 3; i++) {
     arrow(s, c[i].x + c[i].w + 0.05, y + h / 2, c[i + 1].x - 0.05, y + h / 2);
@@ -449,11 +449,56 @@ function bullets(s, x, y, w, h, items, size) {
   ], 11.5);
 }
 
-// ================================================= 10. APPLICATIONS
+// ================================================= 10. RAN
+{
+  const s = slideBase(
+    "RAN — two sources and run-scoped control",
+    "The JSON tap for depth, an E2 xApp for the standard path and for control — one data model, so analysis never asks which produced a row."
+  );
+
+  const c = cols(3, 0.42);
+  const y = TOP, h = 1.62;
+  box(s, { x: c[0].x, y, w: c[0].w, h, title: "JSON tap — ran-collector", lines: [
+    "srsRAN metrics: UDP (≤ 24.x) or WebSocket",
+    "per-UE MCS, HARQ, BSR, SNR, scheduler delays",
+    "ran/kpi.csv + raw reports"] });
+  box(s, { x: c[1].x, y, w: c[1].w, h, title: "One RAN data model", lines: [
+    "canonical names and units",
+    "Rust + Python normalisers, one vector file",
+    "tools/ran_join.py: per-frame join"] });
+  box(s, { x: c[2].x, y, w: c[2].w, h, title: "E2 xApp — O-SC near-RT RIC", lines: [
+    "E2SM-KPM: six DRB metrics, ≥ 1 s",
+    "capabilities over an E2Port adapter",
+    "ran-kpm/kpi.csv"] });
+
+  arrow(s, c[0].x + c[0].w + 0.05, y + h / 2, c[1].x - 0.05, y + h / 2);
+  arrow(s, c[2].x - 0.05, y + h / 2, c[1].x + c[1].w + 0.05, y + h / 2);
+
+  box(s, { x: M, y: 3.62, w: CW, h: 0.92, dark: true,
+    title: "Run-scoped RC control — E2SM-RC slice PRB quota",
+    lines: ["A ran_policy belongs to a run: every action recorded in control.csv, reverted on stop, failure, replacement, admin loss and after a crash."],
+    fs: 11 });
+
+  const h2 = cols(2, 0.43);
+  box(s, { x: h2[0].x, y: 4.74, w: h2[0].w, h: 1.25, title: "Cross-checked", lines: [
+    "Both sources measure UE throughput; the admin flags a gap.",
+    "A 25 % cap read 0.252 in KPM, 0.250 in the JSON tap.",
+  ], fs: 11 });
+  box(s, { x: h2[1].x, y: 4.74, w: h2[1].w, h: 1.25, title: "Not yet verified", lines: [
+    "Against a srsRAN E2 agent and on the lab gNB.",
+    "Units marked verify in ran/schema/metrics.md.",
+  ], fs: 11 });
+
+  note(s, M, 6.18, CW, 0.5, [
+    "ADR-0010 keeps both sources; ADR-0011 sets the control rules. Tested end to end against gnb-sim, without a radio.",
+  ], 11);
+}
+
+// ================================================= 11. APPLICATIONS
 {
   const s = slideBase(
     "Applications and future work",
-    "What a per-frame, clock-disciplined latency platform over private 5G is actually for."
+    "What an experimentation testbed for industrial communication over private 5G is for."
   );
 
   const cw = 3.87, ch = 2.05, y = 1.72;
@@ -490,8 +535,8 @@ function bullets(s, x, y, w, h, items, size) {
     "Real LiDAR replacing the synthetic source",
   ], fs: 11 });
   box(s, { x: M + 2 * (cw + 0.31), y: y2, w: cw, h: ch, dark: true, title: "Research directions", lines: [
-    "E2 / near-RT RIC xApp for standardised RAN KPIs",
-    "RAN-aware scheduling: prioritise the sensor QoS flow",
+    "PRB reservation for the LiDAR UE, via run-scoped RC",
+    "Closed loop: PRBs adjusted from application p99",
     "Network slicing per application class",
     "Correlating MAC-layer events with application tails",
   ], fs: 11 });
