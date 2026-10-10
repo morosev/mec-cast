@@ -255,37 +255,48 @@ def diagnose(
                 )
             )
 
-    # A run that DECLARES a transport must match what the nodes are on.
+    # The nodes of one cell must share a Zenoh transport.
     #
-    # The transport is fixed when a node process starts: one Zenoh session,
-    # one link, established at rclpy.init(). The admin cannot change it for a
-    # run and does not pretend to. The run records which transport produced
-    # its data, and this check makes a wrong record loud rather than silent --
-    # a campaign labelled "quic" that actually ran on tcp is worse than no
-    # label at all, because nothing downstream can tell.
-    declared = str(((run.params if run is not None else None) or {}).get("transport") or "")
-    if declared:
-        for record in online:
-            actual = str((record.params or {}).get("transport") or "")
-            if actual and actual != declared:
-                findings.append(
-                    Finding(
-                        "WF_TRANSPORT_MISMATCH",
-                        "error",
-                        record.node_id,
-                        f"Run declares transport {declared!r} but "
-                        f"{record.node_id} is connected over {actual!r}. This "
-                        "run's data would be labelled with a transport it did "
-                        "not use.",
-                        "The transport is fixed at deployment, not per run: a "
-                        "Zenoh session opens one link at process start. Either "
-                        "correct the run's transport field, or redeploy that "
-                        "role with the intended ZENOH_CONFIG_OVERRIDE and "
-                        "RECREATE the container -- restarting the run cannot "
-                        "change it.",
-                        cell=cell_of(record),
-                    )
+    # The transport is fixed when a node process starts -- one Zenoh session,
+    # one link, from ZENOH_CONFIG_OVERRIDE -- and each node reports the scheme
+    # it really dials (`params.transport`). Nothing is declared per run: the
+    # run records what its participants reported (run.json `zenoh_link`).
+    # What can go wrong is a cell whose nodes dial the router over DIFFERENT
+    # links, e.g. a client redeployed on udp beside an edge still on tcp. Its
+    # data crosses two links, so a transport comparison would be measuring a
+    # mixture -- and nothing in the CSVs would show it. Nodes that do not use
+    # Zenoh (the gNB collector, the E2 xApp) report no transport and are not
+    # compared.
+    for cell in cells:
+        on_zenoh = {
+            r.node_id: str((r.params or {}).get("transport"))
+            for r in online
+            if cell_of(r) == cell and (r.params or {}).get("transport")
+        }
+        schemes = sorted(set(on_zenoh.values()))
+        if len(schemes) < 2:
+            continue
+        counts = {t: list(on_zenoh.values()).count(t) for t in schemes}
+        majority = max(schemes, key=lambda t: (counts[t], t == "tcp"))
+        others = ", ".join(sorted(n for n, t in on_zenoh.items() if t == majority))
+        for node_id, scheme in sorted(on_zenoh.items()):
+            if scheme == majority:
+                continue
+            findings.append(
+                Finding(
+                    "WF_TRANSPORT_MISMATCH",
+                    "error",
+                    node_id,
+                    f"{node_id} dials the router over {scheme!r}, while {others} "
+                    f"use {majority!r}. A run in this cell would cross two links, "
+                    "and its data would describe neither.",
+                    "Deploy every node of the cell with the same scheme in "
+                    "ZENOH_CONFIG_OVERRIDE (the compose files use tcp/...:7448) and "
+                    "RECREATE the odd container: the link is fixed when the "
+                    "process starts, so restarting a run cannot change it.",
+                    cell=cell,
                 )
+            )
 
     # Clocks, checked BEFORE a run rather than after it is spoiled.
     #

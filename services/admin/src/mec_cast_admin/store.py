@@ -126,6 +126,15 @@ class Run:
     #: node to its RAN ids without trusting today's topology.yml.
     ue_map: dict[str, dict[str, int]] = field(default_factory=dict)
 
+    def zenoh_link(self) -> str | None:
+        """The Zenoh link the run's participants reported: one scheme, or
+        ``"mixed"`` when they disagreed (WF_TRANSPORT_MISMATCH), or None when
+        none reported one. Per-node values are in ``participants``."""
+        seen = {p.get("transport") for p in self.participants.values() if p.get("transport")}
+        if not seen:
+            return None
+        return seen.pop() if len(seen) == 1 else "mixed"
+
     def to_manifest(self) -> dict[str, Any]:
         """The on-disk shape, compatible with the experiment script's."""
         return {
@@ -139,6 +148,8 @@ class Run:
                 "seed": self.params.get("seed"),
                 "modality": "pointcloud",
             },
+            # The ROS middleware, constant. The LINK it ran over is
+            # `zenoh_link`, below — kept apart so neither is read as the other.
             "transport": "rmw_zenoh_cpp",
             # --- admin additions, all optional to older readers ---
             "seq": self.seq,
@@ -155,6 +166,7 @@ class Run:
             "findings": self.findings,
             "removed": self.removed,
             "ue_map": self.ue_map,
+            "zenoh_link": self.zenoh_link(),
         }
 
     @classmethod

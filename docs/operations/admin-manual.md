@@ -954,14 +954,15 @@ explicitly still wins.
 
 ### `WF_TRANSPORT_MISMATCH`
 
-A run declared a transport that some node is not on. The transport is fixed
-when a node process starts — one Zenoh session, one link — so the admin
-records it rather than applying it, and this finding stops a campaign being
-labelled with a transport it did not use.
+The Zenoh nodes of one cell dial the router over different links, so a run
+there would cross two transports, and its `zenoh_link` in `run.json` would read
+`mixed`. The finding names each node that differs from the majority. The
+transport is fixed when a node process starts — one Zenoh session, one link —
+so nothing about a run can change it.
 
-Either correct the run's transport field, or redeploy that role with the
-intended `ZENOH_CONFIG_OVERRIDE` and **recreate** the container. Restarting
-the run cannot change it.
+Redeploy the odd role with the same scheme in `ZENOH_CONFIG_OVERRIDE` as the
+rest of the cell (the compose files use `tcp/…:7448`) and **recreate** the
+container. Compare the **Link** column in the admin's Nodes table first.
 
 ### A run stuck in `stopping`
 

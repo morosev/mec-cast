@@ -552,7 +552,7 @@ class Orchestrator:
                     )
                     self._store.journal(run.run_id, "late-stop", {"node_id": node_id})
         elif run is not None and record.run_id == run.run_id:
-            run.participants.setdefault(
+            entry = run.participants.setdefault(
                 node_id,
                 {
                     "role": str(record.node_type),
@@ -560,6 +560,11 @@ class Orchestrator:
                     "version_sha": record.version_sha,
                 },
             )
+            # The Zenoh link this participant really ran on, as it reported
+            # it: the run's record of its transport (run.json `zenoh_link`).
+            transport = (record.params or {}).get("transport")
+            if transport and "transport" not in entry:
+                entry["transport"] = str(transport)
             # Keyed by node_id, and the node REPORTS its own directory leaf
             # (params.out_leaf, e.g. "pub-0") rather than the admin deriving
             # it from node_type. The old shape keyed a constant site string

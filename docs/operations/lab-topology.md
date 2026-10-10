@@ -130,21 +130,30 @@ warning worth reading before any transport comparison: `netem delay X jitter Y`
 reorders packets, which penalises QUIC far more than TCP and is not how a real
 link behaves.
 
-## Recording which transport a run used
+## Which transport a run used
 
-A run can declare its transport in **New Run**, and the admin verifies it.
+The transport is chosen at deployment, not per run. A Zenoh session opens one
+link at `rclpy.init()`, from `ZENOH_CONFIG_OVERRIDE`, so nothing can move a
+running node from TCP to QUIC. To compare transports, redeploy with a
+different scheme and **recreate** the containers.
 
-**It is recorded, not applied.** A Zenoh session opens one link at
-`rclpy.init()`, so nothing can move a running node from TCP to QUIC — the
-field labels the run's data for provenance. Each node reports the transport it
-is really on, and a disagreement raises `WF_TRANSPORT_MISMATCH` as an error:
+- **Each node reports the link it really dials.** The admin page shows it in
+  the Nodes table (**Link**).
+- **The run records it.** Each participant's link goes into `run.json` under
+  `participants`, with a summary `zenoh_link`: one scheme, `mixed`, or null
+  when no Zenoh node took part. The top-level `transport: rmw_zenoh_cpp` is
+  the ROS middleware, not the link.
+- **A cell's Zenoh nodes must agree.** If one dials the router over a
+  different scheme, the admin raises `WF_TRANSPORT_MISMATCH` as an error, since
+  a run would cross two links:
 
-```text
-Run declares transport 'quic' but client-ran-4-0 is connected over 'tcp'.
-```
+  ```text
+  client-ran-4-0 dials the router over 'udp-rel1', while edge-mec-0 use 'tcp'.
+  ```
 
-Leave it as *(not recorded)* if you are not comparing transports. `udp-rel1`
-and `udp-rel0` are kept distinct because they are different experiments.
+`udp-rel1` and `udp-rel0` count as different links, because they are
+different experiments. The gNB collector and the xApp do not use Zenoh and are
+not compared.
 
 ## How publish/subscribe reaches the edge
 

@@ -449,6 +449,7 @@ function renderNodes(snapshot) {
       <td>${esc(n.node_type)} ${cellChip(n.cell, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
+      <td class="mono" title="Zenoh link, as the node dials it — fixed at deployment">${esc((n.params || {}).transport || '—')}</td>
       <td class="mono">${(n.peers || []).length}</td>
       <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>
@@ -503,10 +504,6 @@ $('addForm').addEventListener('submit', async (event) => {
     reliability: $('f_reliability').value,
     qos_depth: Number($('f_depth').value),
   };
-  // Only send it when chosen: an empty transport means "not recorded", and
-  // storing "" would make WF_TRANSPORT_MISMATCH fire against every node.
-  const transport = $('f_transport').value;
-  if (transport) params.transport = transport;
   try {
     const cell = $('f_cell').value || 'default';
     await call('POST', '/runs', { label: $('f_label').value.trim(), cell, params });
