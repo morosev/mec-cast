@@ -68,11 +68,19 @@ def _rising(record: NodeRecord, key: str) -> bool | None:
     """Whether a counter grew since the previous pass.
 
     None when there is no previous sample yet — the first pass after a node
-    connects must not be read as "flat".
+    connects must not be read as "flat" — and None when the counter went
+    DOWN: it was reset, which is no evidence either way. Nodes restart their
+    counters per run, and the gNB collector reports its idle count before a
+    run and the run's own count after, so the first pass after every start
+    saw e.g. 120 -> 9 and raised WF_GNB_SILENT on a collector receiving
+    reports at full rate. It failed CI intermittently, timing-dependent.
     """
     if key not in record.counters or key not in record.previous_counters:
         return None
-    return record.counters[key] > record.previous_counters[key]
+    now, before = record.counters[key], record.previous_counters[key]
+    if now < before:
+        return None
+    return now > before
 
 
 #: Message and remedy for each role whose absence is worth reporting. Kept

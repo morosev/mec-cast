@@ -158,6 +158,31 @@ class TestGnb:
         )
         assert "WF_GNB_SILENT" in codes(registry, make_run())
 
+    def test_a_counter_reset_at_run_start_is_not_silence(self):
+        """Idle count 120, then the run's own count restarting at 9: a reset,
+        not a flat counter. This raised WF_GNB_SILENT on a collector receiving
+        at full rate, on the first pass after every run start."""
+        registry = Registry()
+        join(
+            registry,
+            NodeType.GNB,
+            "gnb01",
+            state=NodeState.IDLE,
+            run_id=None,
+            counters={"datagrams": 120},
+        )
+        registry.snapshot_counters()
+        registry.on_status(
+            "gnb-gnb01-0",
+            StatusPayload(
+                node_type=NodeType.GNB,
+                state=NodeState.RUNNING,
+                run_id=make_run().run_id,
+                counters={"datagrams": 9},
+            ),
+        )
+        assert "WF_GNB_SILENT" not in codes(registry, make_run())
+
     def test_a_busy_collector_is_not_reported(self):
         registry = Registry()
         join(registry, NodeType.GNB, "gnb01", counters={"datagrams": 10})
