@@ -4,10 +4,11 @@ Experiment protocol, results, and paper material. Kept in the repo so that
 a figure can always be traced back to the code and configuration that
 produced it.
 
-## Suggested contents
+## Contents
 
-- `protocol.md` — what is being measured, which variables are swept, how
-  many repetitions, what counts as a valid run.
+- [`protocol.md`](protocol.md) — what is being measured, which variables are
+  swept, how many repetitions, what counts as a valid run. Campaign 1: PRB
+  reservation for the LiDAR UE under competing uplink load.
 - `results/` — one note per campaign, each citing the `run_id`s it draws on.
 - `figures/` — generated plots, regenerable from `tools/`.
 

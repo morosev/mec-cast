@@ -95,6 +95,13 @@ The environment sets defaults: `KPM_STYLE`, `KPM_METRICS`, `KPM_UE_IDS`,
 hard-codes PLMN `00101`, SST 1, SD 1. If the lab slice differs, controls are
 refused: `controls_failed` rises and the finding fires.
 
+**Open question: which direction the quota limits.** oran-sc-ric describes
+its example as limiting the *downlink* PRBs available to a UE. The LiDAR
+traffic is uplink. `gnb-sim` caps both directions, so the local tests cannot
+tell. Calibration step 0.1 of the
+[research protocol](../../docs/research/protocol.md) settles it on the lab
+gNB before any campaign relies on it.
+
 ## Running it
 
 | Where | How |

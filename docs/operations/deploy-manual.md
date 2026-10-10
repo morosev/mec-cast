@@ -583,6 +583,10 @@ Start it on the admin page, with the LiDAR UE streaming.
   not cause it.
 - **E2 UE id 0** is the first UE the agent knows. Confirm it is the LiDAR UE
   before trusting a cap on it.
+- **Check `ue.ul_throughput_bps` too.** oran-sc-ric describes the quota as a
+  *downlink* limit, and the LiDAR traffic is uplink. Which direction it really
+  limits is calibration step 0.1 of the
+  [research protocol](../research/protocol.md); record what you see.
 
 ## Starting and stopping a role
 

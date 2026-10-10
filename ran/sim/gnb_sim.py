@@ -45,8 +45,12 @@ not E2AP — what it simulates is the *data*, decoded exactly as oran-sc-ric's
 
 KPM values come from the same report the JSON transports just sent (kbit/s,
 as TS 28.552 specifies), and a PRB-quota control caps that UE's throughput in
-**both** — which is what lets the xApp's parity check and control loop be
-tested on a laptop. E2 UE id N is the N-th UE of the report.
+**both** sources — which is what lets the xApp's parity check and control
+loop be tested on a laptop. E2 UE id N is the N-th UE of the report.
+
+The cap applies to DL and UL alike. That is a modelling choice, not a fact
+about srsRAN: whether its RC action limits uplink at all is calibration step
+0.1 of docs/research/protocol.md, to be settled on the lab gNB.
 
 Standard library plus ``websockets`` (>=12, the sync server).
 """
