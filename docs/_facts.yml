@@ -14,7 +14,7 @@
 meta:
   # Last commit whose code changes were reviewed against the docs.
   # /doc-sync diffs from here to HEAD. Update only after a completed sync.
-  last_synced_sha: "f8e2e1ed37730ae2edc36983d1968d373f1bc51f"
+  last_synced_sha: "8d447661bb38d702f19c25d57e5a428e98632c41"
   last_synced_date: "2026-10-10"
 
 # --- identity ---------------------------------------------------------------
@@ -81,7 +81,9 @@ services:
 
 # --- ports and protocols ----------------------------------------------------
 ports:
-  zenoh_router:   {port: 7447,  proto: udp,  note: "Reliable UDP (rel=1) per ADR-0006 — Zenoh's UDP link plus transport-level reliability; NOT QUIC, no congestion control, no encryption. Rendezvous: the UE dials OUT to it"}
+  zenoh_router:   {port: 7448,  proto: tcp,  note: "THE deployed link: every node dials tcp/<router>:7448 (ADR-0006, 2026-09-23 amendment). Rendezvous: the UE dials OUT to it"}
+  zenoh_router_quic: {port: 7449, proto: quic, note: "opt-in via ZENOH_CONFIG_OVERRIDE after scripts/gen-dev-tls.sh; a listener without TLS material is FATAL to the router"}
+  zenoh_router_udp: {port: 7447,  proto: udp,  note: "udp ?rel=1, listened but unused: cannot relay on this zenoh build (declarations lost); waiting for a Zenoh fix. When it works it is Zenoh's UDP link plus transport-level reliability: NOT QUIC, no congestion control, no encryption"}
   logging_api:    {port: 8000,  proto: http, note: "published on the host"}
   postgres:       {port: 5432,  proto: tcp,  note: "NOT published by default; internal to the compose network"}
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}

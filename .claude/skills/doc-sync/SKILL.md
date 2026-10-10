@@ -355,7 +355,7 @@ air gap at Uu drawn as radiated arcs:
 | MEC edge | Zenoh router, edge ingest, CSV, PostgreSQL | sage |
 
 Links between zones carry the interface name above and the payload below
-(`Uu`, `N3`/GTP-U, `N6`/tcp:7447).
+(`Uu`, `N3`/GTP-U, `N6`/tcp:7448).
 
 **Functional layer** — a measurement axis beneath the zones, x-aligned to
 them: four stamp points (`capture_ns`, `send_ns`, `recv_ns`,

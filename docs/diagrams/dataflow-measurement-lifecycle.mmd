@@ -49,7 +49,7 @@ flowchart TB
 
   subgraph EDGEHOST["3 &nbsp; EDGE HOST — MEC application server"]
     direction TB
-    ZR2["zenoh-router :7447<br/>unicast rendezvous, NAT-traversing"]:::work
+    ZR2["zenoh-router tcp :7448<br/>unicast rendezvous, NAT-traversing"]:::work
     CB["Edge subscription callback"]:::work
     T3(["recv_ns<br/>FIRST line of the callback, before any work"]):::stamp
     PROC["Process the cloud<br/>numpy centroid + occupied-voxel count"]:::work
@@ -84,8 +84,8 @@ flowchart TB
     SRSM -->|"JSON reports"| RCOL --> RKPI
   end
 
-  PUB ==>|"Zenoh over Reliable UDP, dialled OUT to the router"| UU
-  GNB2 ==>|"udp/EDGE_HOST:7447?rel=1"| ZR2
+  PUB ==>|"Zenoh over TCP, dialled OUT to the router"| UU
+  GNB2 ==>|"tcp/EDGE_HOST:7448"| ZR2
   UPL -->|"HTTP JSON batch · service=mec-cast-edge · trace_id=RUN_ID"| API
   RCOL -->|"service=mec-cast-ran · same trace_id"| API
 

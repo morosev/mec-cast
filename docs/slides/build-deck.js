@@ -162,7 +162,7 @@ function bullets(s, x, y, w, h, items, size) {
   const h = 1.15, row1 = TOP;
   box(s, { x: c[0].x, y: row1, w: c[0].w, h, title: "lidar-client", lines: ["synthetic PointCloud2", "seed · num_points · rate_hz"] });
   box(s, { x: c[1].x, y: row1, w: c[1].w, h, title: "netem sidecar", lines: ["shares the client netns", "delay · jitter · loss"] });
-  box(s, { x: c[2].x, y: row1, w: c[2].w, h, title: "zenoh-router", lines: ["the rendezvous point", "port 7447"] });
+  box(s, { x: c[2].x, y: row1, w: c[2].w, h, title: "zenoh-router", lines: ["the rendezvous point", "tcp :7448"] });
   box(s, { x: c[3].x, y: row1, w: c[3].w, h, title: "edge", lines: ["ingest + processing", "writes CSV"] });
 
   for (let i = 0; i < 3; i++) {
@@ -375,8 +375,8 @@ function bullets(s, x, y, w, h, items, size) {
   box(s, { x: M + 8.3, y: ty, w: 3.93, h: 2.35, title: "Zenoh", lines: [
     "", "router-based unicast dial-out, traverses NAT natively",
     "", "the UE dials out — an outbound connection just works",
-    "", "large payloads over lossy links; here udp/7447?rel=1 —",
-    "retransmit, no congestion control, no TLS",
+    "", "large payloads over lossy links; here tcp/7448,",
+    "QUIC opt-in; udp ?rel=1 awaits a Zenoh fix",
   ], fs: 10.5 });
 
   note(s, M, 5.75, CW, 1.2, [

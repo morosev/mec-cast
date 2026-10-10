@@ -306,7 +306,7 @@
       <path d="M3 23 H56" stroke="url(#gc)" stroke-width="20" stroke-linecap="round"/>
       <path d="M50 7 L89 23 L50 39 Z" fill="#5C7F5E"/>
     </svg>
-    <div class="bot">udp/7447?rel=1</div>
+    <div class="bot">tcp/7448</div>
   </div>
 
   <!-- ============ MEC EDGE SITE ============ -->
@@ -379,7 +379,7 @@
 
 <div class="foot">
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
-  <span><span class="k">Transport:</span> rmw_zenoh over Reliable UDP (rel=1) — NAT traversal and ~2 MB payloads</span>
+  <span><span class="k">Transport:</span> rmw_zenoh over TCP :7448, QUIC :7449 opt-in — NAT traversal and ~2 MB payloads; udp ?rel=1 awaits a Zenoh fix</span>
   <span><span class="k">RAN:</span> JSON tap + E2 xApp, one data model, correlated to application latency; RC control scoped to a run — E2 not yet lab-verified</span>
   <span><span class="k">Return path:</span> processed cloud back to a UE renderer — a round trip stamped on one clock, so it needs no PTP</span>
   <span class="planned">robotic arm shown as intended deployment; results return to the UE today, but no actuation is commanded</span>

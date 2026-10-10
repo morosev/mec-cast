@@ -19,7 +19,7 @@ flowchart TB
   subgraph H1["HOST — role: ue &nbsp;&nbsp; compose.ue.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
     UEC["container: lidar-client<br/>image mec-cast-ros<br/>ros2 run mec_cast_ue ue_agent<br/>LIDAR_INSTANCES=N"]:::ctr
-    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[udp/EDGE_HOST:7447?rel=1]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL<br/>ADMIN_URL · CELL · PTP_DEVICE<br/>LIDAR_INSTANCES · RENDER_INSTANCES"]:::ext
+    UEENV["ENV<br/>RMW_IMPLEMENTATION=rmw_zenoh_cpp<br/>ZENOH_CONFIG_OVERRIDE=connect/endpoints=[tcp/EDGE_HOST:7448]<br/>ZENOH_ROUTER_CHECK_ATTEMPTS=-1<br/>RUN_ID · RUNS_DIR=/runs · LOGGING_URL<br/>ADMIN_URL · CELL · PTP_DEVICE<br/>LIDAR_INSTANCES · RENDER_INSTANCES"]:::ext
     UEPTP["device PTP_DEVICE → /dev/ptp0<br/>(host index varies; default ptp0)"]:::vol
     UEVOL["volume ../../runs → /runs"]:::vol
     RENC["container: render<br/>ros2 run mec_cast_ue ue_agent<br/>RENDER_INSTANCES=M · RENDER_SINK=null | rerun | ros<br/>published :9876+2j page · :9877+2j stream"]:::ctr
@@ -40,7 +40,7 @@ flowchart TB
 
   subgraph H3["HOST — role: edge &nbsp;&nbsp; compose.edge.yml &nbsp;&nbsp; network_mode: host"]
     direction TB
-    ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens udp/0.0.0.0:7447?rel=1<br/>restart: unless-stopped"]:::ctr
+    ZR["container: zenoh-router<br/>ros2 run rmw_zenoh_cpp rmw_zenohd<br/>listens tcp/:7448 (the link in use)<br/>udp/:7447?rel=1 listened, unused<br/>restart: unless-stopped"]:::ctr
     EDGEC["container: edge<br/>ros2 run mec_cast_edge edge<br/>subscribes over rmw_zenoh_cpp"]:::ctr
     EDGEVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
     ZR -->|"in-process Zenoh session"| EDGEC
@@ -71,8 +71,8 @@ flowchart TB
     RAN --> UPF
   end
 
-  UEC ==>|"PointCloud2 in CloudWithTelemetry<br/>Zenoh over Reliable UDP, dialled OUT"| RAN
-  UPF ==>|"udp/EDGE_HOST:7447?rel=1"| ZR
+  UEC ==>|"PointCloud2 in CloudWithTelemetry<br/>Zenoh over TCP, dialled OUT"| RAN
+  UPF ==>|"tcp/EDGE_HOST:7448"| ZR
 
   EDGEC ==>|"mec_cast/result · voxel cloud<br/>publish_result, off by default"| RENC
   UEC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC

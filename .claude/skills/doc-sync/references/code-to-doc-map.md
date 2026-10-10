@@ -83,7 +83,7 @@ of these changes, the diagrams and the deck hold their own copies:
 
 | Fact | Also stored in |
 |---|---|
-| Transport scheme and port (`udp/…:7447?rel=1`) | both `.mmd` dataflow diagrams — as endpoint strings *and* as prose edge labels |
+| Transport scheme and port (`tcp/…:7448`; `udp/…:7447?rel=1` is listened but unused) | both `.mmd` dataflow diagrams — as endpoint strings *and* as prose edge labels |
 | Env var names and defaults | `dataflow-runtime-topology.mmd` ENV node, `operations/admin-manual.md`, compose files |
 | Published ports | topology diagram, `deploy/README.md`, `_facts.yml`, hero MEC zone |
 | Site directory names and codes | lifecycle diagram sinks, `running-an-experiment.md` outputs table |

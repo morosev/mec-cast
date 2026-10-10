@@ -55,15 +55,14 @@ Packet loss does not cost you a few frames in proportion to the loss rate. It
 collapses throughput, and the frames go missing at the *publisher*, before the
 network is even involved.
 
-Zenoh runs over Reliable UDP — its own UDP link with Zenoh's transport-level
-reliability above it, **not** QUIC and not encrypted
-([router-config.json5](../../deploy/docker/zenoh/router-config.json5), and
-[ADR-0006](../architecture/adr/0006-reliable-udp-transport.md) for why). A
-dropped fragment is retransmitted rather than losing the whole frame, and
-there is **no congestion control**, so loss does not throttle the sender the
-way it does on TCP. What still sheds frames is volume: retransmissions add
-bytes to a path that is already the constraint, the tx queue fills, and the
-publisher's `KEEP_LAST(10)` drops the backlog before it ever reaches the wire.
+Zenoh runs over **TCP** (`tcp/…:7448`). The `udp ?rel=1` link the router
+also listens on cannot relay on this Zenoh build and waits for a fix; QUIC
+(`:7449`) is opt-in. See
+[router-config.json5](../../deploy/docker/zenoh/router-config.json5) and the
+2026-09-23 amendment of
+[ADR-0006](../architecture/adr/0006-reliable-udp-transport.md). On TCP, loss
+drives congestion control, which lowers the sending rate; the publisher's
+`KEEP_LAST(10)` queue then drops the backlog before it ever reaches the wire.
 
 The figures below were measured over TCP, whose self-limit follows the Mathis
 bound:

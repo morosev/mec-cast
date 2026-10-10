@@ -26,7 +26,7 @@ flowchart LR
 
   subgraph EDGEH["Host 3 — role: edge"]
     direction TB
-    ZR["zenoh-router<br/>listens udp/:7447?rel=1"]
+    ZR["zenoh-router<br/>tcp/:7448 · quic/:7449 opt-in"]
     ED["edge<br/>ingest + processing"]
     ZR --> ED
   end
@@ -40,7 +40,7 @@ flowchart LR
     LOGS --> PG
   end
 
-  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → udp/7447?rel=1"| ZR
+  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → tcp/7448"| ZR
   LC -.->|"HTTP :8000 snapshots"| LOGS
   ED -.->|"HTTP :8000 snapshots"| LOGS
   RC -.->|"HTTP :8000 snapshots"| LOGS
