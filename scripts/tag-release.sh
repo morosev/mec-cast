@@ -86,7 +86,16 @@ fi
 COMMIT_LOG=$(git --no-pager log "$RANGE" --oneline --no-decorate --no-merges | sed 's/^/- /')
 SHORT=$(git rev-parse --short HEAD)
 
-SUBMODULES=$(git submodule status | awk '{printf "| `%s` | `%s` |\n", $2, substr($1,2,12)}')
+# The pins recorded IN THE TAGGED COMMIT, from the tree itself -- not from
+# `git submodule status`, which describes the working tree's checkouts and
+# prefixes each line with a status character (space, + or -). awk strips the
+# leading space of a clean line, so the old substr($1,2,12) silently dropped
+# the first character of every SHA it printed.
+SUBMODULES=$(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}' |
+  while read -r path; do
+    sha=$(git ls-tree HEAD "$path" | awk '{print $3}')
+    printf '| `%s` | `%s` |\n' "$path" "${sha:0:12}"
+  done)
 
 NOTES=$(cat <<EOF
 ${DESCRIPTION}
