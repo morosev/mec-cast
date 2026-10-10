@@ -172,7 +172,7 @@ impl MetricsSource for UdpSource {
     }
 
     fn describe(&self) -> Value {
-        json!({"source": "udp", "transport": "udp", "udp": self.bind})
+        json!({"source": "udp", "metrics_transport": "udp", "udp": self.bind})
     }
 }
 
@@ -344,7 +344,7 @@ mod ws {
         fn describe(&self) -> Value {
             json!({
                 "source": "ws",
-                "transport": "ws",
+                "metrics_transport": "ws",
                 "ws": self.url,
                 "ws_connected": self.socket.is_some(),
                 "ws_connects": self.connects,
@@ -453,7 +453,7 @@ impl MetricsSource for AutoSource {
     fn describe(&self) -> Value {
         let mut d = json!({
             "source": "auto",
-            "transport": self.locked.map(Transport::as_str),
+            "metrics_transport": self.locked.map(Transport::as_str),
             "udp": self.udp_bind,
             "ws": self.ws_url,
         });
@@ -484,5 +484,15 @@ mod tests {
         let mut s = UdpSource::bind("127.0.0.1:0", Duration::from_millis(10)).unwrap();
         assert!(s.next().unwrap().is_none());
         assert_eq!(s.transport(), Some(Transport::Udp));
+    }
+
+    #[test]
+    fn the_metrics_transport_is_not_reported_as_a_zenoh_link() {
+        // The admin reads `params.transport` as a node's Zenoh link; the
+        // collector has none, so its own udp/ws must not wear that name.
+        let s = UdpSource::bind("127.0.0.1:0", Duration::from_millis(10)).unwrap();
+        let d = s.describe();
+        assert_eq!(d["metrics_transport"], "udp");
+        assert!(d.get("transport").is_none());
     }
 }

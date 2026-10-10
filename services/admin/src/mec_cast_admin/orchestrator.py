@@ -563,7 +563,8 @@ class Orchestrator:
             # The Zenoh link this participant really ran on, as it reported
             # it: the run's record of its transport (run.json `zenoh_link`).
             transport = (record.params or {}).get("transport")
-            if transport and "transport" not in entry:
+            on_zenoh = record.node_type in p.ZENOH_NODE_TYPES
+            if on_zenoh and transport and "transport" not in entry:
                 entry["transport"] = str(transport)
             # Keyed by node_id, and the node REPORTS its own directory leaf
             # (params.out_leaf, e.g. "pub-0") rather than the admin deriving

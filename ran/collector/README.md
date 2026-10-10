@@ -32,7 +32,7 @@ remote_control:
   report, not twice.
 
 The chosen transport, and any WebSocket connection error, appear in the
-admin's gNB node status: `source`, `transport`, `ws_connected`,
+admin's gNB node status: `source`, `metrics_transport`, `ws_connected`,
 `ws_last_error`.
 
 **What each report produces**

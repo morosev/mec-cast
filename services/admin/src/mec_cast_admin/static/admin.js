@@ -54,6 +54,10 @@ function showError(message) {
   box.classList.remove('hidden');
 }
 
+// Node types with a Zenoh session (protocol.ZENOH_NODE_TYPES). A gNB's
+// `transport` is its metrics feed, not a link, so the Link column skips it.
+const ZENOH_TYPES = new Set(['client', 'edge', 'render']);
+
 /* ── transport ───────────────────────────────────────────────────────── */
 
 function connect() {
@@ -449,7 +453,7 @@ function renderNodes(snapshot) {
       <td>${esc(n.node_type)} ${cellChip(n.cell, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
-      <td class="mono" title="Zenoh link, as the node dials it — fixed at deployment">${esc((n.params || {}).transport || '—')}</td>
+      <td class="mono" title="Zenoh link, as the node dials it — fixed at deployment">${esc(ZENOH_TYPES.has(n.node_type) && (n.params || {}).transport || '—')}</td>
       <td class="mono">${(n.peers || []).length}</td>
       <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>

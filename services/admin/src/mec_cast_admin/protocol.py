@@ -40,6 +40,12 @@ class NodeType(StrEnum):
     RENDER = "render"
 
 
+#: The node types that hold a Zenoh session, and so report the link they
+#: dial as `params.transport`. The gNB collector and the xApp have none: a
+#: transport they report (the collector's udp/ws metrics feed) is not a link.
+ZENOH_NODE_TYPES = frozenset({NodeType.CLIENT, NodeType.EDGE, NodeType.RENDER})
+
+
 class MessageType(StrEnum):
     # node -> admin
     HELLO = "hello"

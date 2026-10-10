@@ -68,12 +68,14 @@ class TestTransportMismatch:
         assert len(mismatches(reg)) == 1
 
     def test_nodes_without_zenoh_are_not_compared(self):
-        """The gNB collector and the xApp report no transport."""
+        """The gNB collector and the xApp have no Zenoh session. A transport
+        they report -- an older collector sent its udp/ws metrics feed as
+        `transport` -- is not a link and must not be compared."""
         reg = Registry()
         _node(reg, "client", "ue01", "tcp")
         _node(reg, "edge", "mec01", "tcp")
-        _node(reg, "gnb", "gnb01", "")
-        _node(reg, "xapp", "ric01", "")
+        _node(reg, "gnb", "gnb01", "ws")
+        _node(reg, "xapp", "ric01", "udp")
         assert mismatches(reg) == []
 
     def test_udp_reliability_is_part_of_the_identity(self):
@@ -138,3 +140,26 @@ def test_a_runs_participants_record_the_link_they_reported(client, settings):
             time.sleep(0.05)
         assert body["zenoh_link"] == "tcp"
         assert {v.get("transport") for v in body["participants"].values()} == {"tcp"}
+
+
+def test_a_gnb_participant_does_not_make_the_link_mixed(client, settings):
+    """The gNB collector's metrics feed (ws) is not the run's Zenoh link."""
+    with contextlib.ExitStack() as stack:
+        kinds = (p.NodeType.CLIENT, p.NodeType.EDGE, p.NodeType.GNB)
+        hosts = ("ue01", "mec01", "gnb01")
+        links = ("tcp", "tcp", "ws")
+        nodes = [connect(client, stack, k, h, "default") for k, h in zip(kinds, hosts, strict=True)]
+        run_id = start_run(client)
+        client.post(f"/api/v1/runs/{run_id}/start")
+        for (node, socket), kind, link in zip(nodes, kinds, links, strict=True):
+            report(socket, node, kind, run_id, params={"transport": link})
+        manifest = pathlib.Path(settings.runs_dir) / run_id / "run.json"
+        body: dict = {}
+        for _ in range(50):
+            body = json.loads(manifest.read_text()) if manifest.exists() else {}
+            if len(body.get("participants", {})) == 3 and body.get("zenoh_link"):
+                break
+            time.sleep(0.05)
+        assert body["zenoh_link"] == "tcp"
+        gnb = next(v for v in body["participants"].values() if v["role"] == "gnb")
+        assert "transport" not in gnb

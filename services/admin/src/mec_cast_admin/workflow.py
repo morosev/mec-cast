@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .protocol import NodeState, NodeType
+from .protocol import ZENOH_NODE_TYPES, NodeState, NodeType
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
@@ -273,13 +273,15 @@ def diagnose(
     # links, e.g. a client redeployed on udp beside an edge still on tcp. Its
     # data crosses two links, so a transport comparison would be measuring a
     # mixture -- and nothing in the CSVs would show it. Nodes that do not use
-    # Zenoh (the gNB collector, the E2 xApp) report no transport and are not
-    # compared.
+    # Zenoh (the gNB collector, the E2 xApp) are not compared, whatever they
+    # report.
     for cell in cells:
         on_zenoh = {
             r.node_id: str((r.params or {}).get("transport"))
             for r in online
-            if cell_of(r) == cell and (r.params or {}).get("transport")
+            if cell_of(r) == cell
+            and r.node_type in ZENOH_NODE_TYPES
+            and (r.params or {}).get("transport")
         }
         schemes = sorted(set(on_zenoh.values()))
         if len(schemes) < 2:
