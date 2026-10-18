@@ -62,6 +62,10 @@ COMPOSE_RENDER_ADMIN := $(COMPOSE_ADMIN) -f deploy/compose/render.yml
 # same reason again, and the way to exercise the collector without a lab.
 COMPOSE_RAN := $(COMPOSE) -f deploy/compose/ran.yml
 COMPOSE_RAN_ADMIN := $(COMPOSE_ADMIN) -f deploy/compose/ran.yml
+# One Ubuntu host over a software 5G link (docs/guides/local-5g-ocudu.md). Its
+# own project name, so it never collides with the netem stack's containers.
+COMPOSE_5G := docker compose -p mec5g -f deploy/compose/logging.yml \
+  -f deploy/compose/admin.yml -f deploy/compose/local-5g.yml
 
 # NETEM=0 leaves the link unimpaired on ANY up- target: `NETEM=0 make up-render-admin`.
 # The sidecar is a leaf -- it shares the lidar client's netns and nothing depends
@@ -231,7 +235,7 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 
 # ─── run ──────────────────────────────────────────────────────────────────
 ##@ Run — local compose topology
-.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-ran up-ran-admin up-logging down down-hard logs view
+.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-ran up-ran-admin up-local-5g down-local-5g up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')} \
@@ -321,6 +325,17 @@ up-ran: build-ros2 ## Local topology + a simulated gNB and the RAN collector
 up-ran-admin: build-ros2 ## Simulated gNB + collector, driven by the control plane
 	ADMIN_URL=ws://admin:8099/ws/node $(COMPOSE_RAN_ADMIN) up -d --build $(NETEM_SCALE)
 	@echo "admin page: http://localhost:8099/admin   (the gNB node is gnb-gnb-local-0)"
+
+# Through make, not a bare `compose up --build`: the build args need
+# VCS_REF/VERSION exported, or the rebuild stamps every node `unknown` and
+# WF_VERSION_SKEW goes quiet. RAN=1 adds the gNB metrics tap.
+up-local-5g: build-ros2 ## Pipeline over a local OCUDU + srsUE + Open5GS link (Ubuntu)
+	$(COMPOSE_5G) $(if $(RAN),--profile ran) up -d --build
+	@echo "admin page: http://localhost:8099/admin   (the UE appears once srsUE owns its netns)"
+	@echo "  docker logs -f mec5g-lidar-client-1"
+
+down-local-5g: ## Stop the local-5G stack, keeping the database
+	$(COMPOSE_5G) --profile ran down
 
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build

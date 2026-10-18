@@ -5,6 +5,7 @@ Three environments, one mechanism (docker compose), different composition.
 | Environment | What | Entry point |
 |---|---|---|
 | **local** | Everything on one box, netem-impaired | `make up-local` |
+| **local-5g** | One box over a software 5G link (OCUDU + srsUE + Open5GS) | `make up-local-5g`, after [docs/guides/local-5g-ocudu.md](../docs/guides/local-5g-ocudu.md) Part 1 |
 | **lab** | Four real hosts across the 5G testbed | `bash deploy/lab/deploy.sh <role> <user@host>` |
 | **ci** | Subset — no radio, no libwebrtc | `.github/workflows/platform.yml` |
 
@@ -20,6 +21,7 @@ compose/         Local topology
   logging.yml      logging service + postgres
   render.yml       edge return path + the UE renderer (ADR-0009)
   ran.yml          gnb-sim + ran-collector + xapp: both RAN sources without a radio
+  local-5g.yml     zenoh router + edge on the N6 side, lidar client behind srsUE (local 5G)
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role

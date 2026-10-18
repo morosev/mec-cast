@@ -55,6 +55,10 @@ terminal, tmux, the renderer.
 
 **run an experiment** → [guides/running-an-experiment.md](guides/running-an-experiment.md)
 
+**run the pipeline over a real 5G stack on one Ubuntu box** →
+[guides/local-5g-ocudu.md](guides/local-5g-ocudu.md) — OCUDU gNB, srsUE and
+Open5GS over ZeroMQ, with mec-cast across the link; no SDR hardware.
+
 **set up the lab** → [operations/lab-topology.md](operations/lab-topology.md)
 and [deploy/lab/ptp/](../deploy/lab/ptp/README.md)
 
