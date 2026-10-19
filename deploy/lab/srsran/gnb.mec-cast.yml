@@ -1,9 +1,13 @@
 # What mec-cast needs from the lab gNB's config. MERGE these sections into the
-# lab's gnb.yml (srsRAN 25.04+ key names); do not run this file on its own.
+# lab's gnb.yml; do not run this file on its own.
 #
-# Key names are from srsRAN's own reference (srsran/oran-sc-ric at the pin in
-# deploy/lab/ric/ric.sh, e2-agents/srsRAN/gnb_zmq.yaml) and the srsRAN docs'
-# "Outputs" page. Confirm them against `gnb --help` on the lab build.
+# Verified end to end on an OCUDU 26.10-line build (the successor of srsRAN Project, which
+# was archived 2026-06-01) on the local single-host testbed: JSON tap, E2
+# setup, KPM indications and an E2SM-RC PRB-quota control that was ACKed.
+# docs/guides/local-5g-ocudu.md has that procedure; the same keys apply to
+# srsRAN 25.04+. Confirm them against `gnb --help` on the lab build.
+#
+# The slice sections at the bottom are NOT optional if you use RAN control.
 
 # --- JSON metrics -> ran-collector (GNB_METRICS_SOURCE=ws or auto) ----------
 metrics:
@@ -43,3 +47,33 @@ e2:
 pcap:
   e2ap_enable: true
   e2ap_du_filename: /tmp/gnb_du_e2ap.pcap
+
+# --- The slice RAN control acts on (E2SM-RC slice-level PRB quota) ----------
+# oran-sc-ric's PRB-quota encoder HARD-CODES the slice it names: PLMN 00101,
+# SST 1, SD 0x000001 (xApps/python/lib/e2sm_rc_module.py at the ric.sh pin).
+# OCUDU matches that S-NSSAI exactly, against a slice configured in the
+# scheduler (cell_cfg.slicing). With no such slice -- no `slicing:` block, or a
+# slice without `sd: 1` -- every control is answered with RIC Control Failure
+# and the admin raises WF_POLICY_NOT_APPLIED. srsRAN matched on SST alone, which
+# is why oran-sc-ric's own reference config gets away without an SD.
+#
+# The UE's traffic must also LIVE in that slice, or the cap applies to an empty
+# one: the AMF's plmn_support and the subscriber's S-NSSAI carry SD 000001 too.
+# All three places: docs/operations/deploy-manual.md, "The slice".
+cu_cp:
+  amf:
+    supported_tracking_areas:
+      - tac: 7                  # the lab's TAC
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+                sd: 1
+
+cell_cfg:
+  slicing:
+    - sst: 1
+      sd: 1
+      sched_cfg:
+        min_prb_policy_ratio: 0     # the policy RAN control rewrites at run time
+        max_prb_policy_ratio: 100

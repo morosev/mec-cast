@@ -144,3 +144,44 @@ def test_boot_never_reverts_this_processes_own_policy(tmp_path, monkeypatch):
     assert port.controls == [("gnb-1", 0, 0, 30)], "only the apply; nothing reverted it"
     assert (tmp_path / MARKER).exists()
     app.stop_run()
+
+
+class RejectingPort(FakePort):
+    """An E2 node that refuses every KPM subscription, as OCUDU 26.10 does for
+    a request naming a metric it does not serve."""
+
+    def __init__(self):
+        super().__init__()
+        self.requests = []
+
+    def subscribe_kpm(self, node, style, metrics, ue_ids, period_ms, callback):
+        from mec_cast_xapp.core import SubscriptionRejected
+
+        self.requests.append((style, list(metrics), list(ue_ids)))
+        raise SubscriptionRejected("E2 node gnb-1 rejected the KPM subscription")
+
+
+def test_a_rejected_subscription_is_reported_and_backed_off(tmp_path, monkeypatch):
+    import time
+
+    from mec_cast_xapp.capabilities.kpm_monitor import DEFAULT_METRICS, REJECTED_RETRY_S
+
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    port = RejectingPort()
+    caps = load_capabilities(["kpm_monitor"])
+    app = Xapp(port, caps, runs_dir=str(tmp_path), logging_url=None)
+    app.start_run("run-a")
+    kpm = caps[0]
+    # The defaults are the ones verified against OCUDU: style 2, UE 0, and no
+    # metric the agent refuses.
+    assert port.requests == [(2, DEFAULT_METRICS, [0])]
+    assert "DRB.PacketSuccessRateUlgNBUu" not in DEFAULT_METRICS
+    # Reported, not claimed as subscribed (that only ever showed as WF_KPM_SILENT).
+    p = kpm.params()
+    assert p["kpm_subscribed"] is False
+    assert "rejected" in p["kpm_error"]
+    # The same request would be refused again: no retry for a minute.
+    kpm.tick(None)
+    assert len(port.requests) == 1
+    assert kpm._next_try - time.monotonic() > REJECTED_RETRY_S - 5
+    app.stop_run()

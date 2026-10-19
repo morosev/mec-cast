@@ -235,7 +235,7 @@ fmt: ## Apply rustfmt, and ruff's formatting where available
 
 # ─── run ──────────────────────────────────────────────────────────────────
 ##@ Run — local compose topology
-.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-ran up-ran-admin up-local-5g down-local-5g up-logging down down-hard logs view
+.PHONY: up-local up-unimpaired up-admin up-render up-render-admin up-ran up-ran-admin up-local-5g attach-local-5g down-local-5g up-logging down down-hard logs view
 
 up-local: build-ros2 ## Bring up the full local topology
 	RUN_ID=$${RUN_ID:-$$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid) | tr 'A-F' 'a-f')} \
@@ -331,8 +331,13 @@ up-ran-admin: build-ros2 ## Simulated gNB + collector, driven by the control pla
 # WF_VERSION_SKEW goes quiet. RAN=1 adds the gNB metrics tap.
 up-local-5g: build-ros2 ## Pipeline over a local OCUDU + srsUE + Open5GS link (Ubuntu)
 	$(COMPOSE_5G) $(if $(RAN),--profile ran) up -d --build
-	@echo "admin page: http://localhost:8099/admin   (the UE appears once srsUE owns its netns)"
-	@echo "  docker logs -f mec5g-lidar-client-1"
+	@echo "admin page: http://localhost:8099/admin   (the UE appears once it is attached)"
+	@echo "  next: make attach-local-5g   (restart gNB, then srsUE, while it waits)"
+
+# Re-run after EVERY srsUE or gNB restart and every client-container recreate:
+# the route over tun_srsue and the ue1 -> container netns link do not persist.
+attach-local-5g: ## Put the local-5G UE container behind srsUE and route the edge over 5G
+	bash scripts/ocudu-attach-ue.sh
 
 down-local-5g: ## Stop the local-5G stack, keeping the database
 	$(COMPOSE_5G) --profile ran down

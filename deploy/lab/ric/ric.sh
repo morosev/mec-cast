@@ -5,6 +5,7 @@
 #   bash deploy/lab/ric/ric.sh up        # clone at the pin if needed, start
 #   bash deploy/lab/ric/ric.sh status    # containers, E2 port, connected E2 nodes
 #   bash deploy/lab/ric/ric.sh kpm       # stock KPM monitor xApp, logged under runs/ric/
+#   KPM_SECONDS=30 bash deploy/lab/ric/ric.sh kpm   # ...stopping by itself after 30 s
 #   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # the mec-cast xApp
 #   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp -d   # ...detached
 #   bash deploy/lab/ric/ric.sh down
@@ -19,8 +20,11 @@
 # reaches the admin and the logging service from inside the RIC's network.
 #
 # Variables: RIC_DIR, RIC_E2_BIND (host address to publish E2 on, default all),
-# STYLE (kpm report style, 5), METRICS (kpm metrics), UE_IDS (style 5, "0"),
-# E2_NODE_ID (default: the first node the RIC reports connected).
+# STYLE (kpm report style, 2), METRICS (kpm metrics), UE_IDS (styles 2/5, "0"),
+# E2_NODE_ID (default: the first node the RIC reports connected), KPM_SECONDS
+# (kpm only: stop after this long; default until Ctrl-C). STYLE, METRICS and
+# UE_IDS reach the xApp too, as its KPM_STYLE / KPM_METRICS / KPM_UE_IDS
+# defaults; run params still override them per run.
 set -euo pipefail
 
 RIC_REPO=https://github.com/srsran/oran-sc-ric.git
@@ -31,23 +35,79 @@ RIC_PIN=621ade26251f69a4ad079ba98bb708d8e5aeeb98
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$HERE/../../.." && pwd)"
 RIC_DIR=${RIC_DIR:-$HOME/oran-sc-ric}
-STYLE=${STYLE:-5}
-# The KPMs srsRAN's E2 agent exposes beyond its dummy CQI/RSRP/RSRQ.
-METRICS=${METRICS:-DRB.UEThpDl,DRB.UEThpUl,DRB.RlcSduTransmittedVolumeDL,DRB.RlcSduTransmittedVolumeUL,DRB.RlcPacketDropRateDl,DRB.PacketSuccessRateUlgNBUu}
+# Style 2: one UE, the LiDAR UE. Style 5 needs at least two UE ids, and an
+# agent asked for a UE it does not have rejects the whole subscription.
+# Verified against OCUDU 26.10 (docs/guides/local-5g-ocudu.md, Part 3).
+STYLE=${STYLE:-2}
+# What OCUDU 26.10's KPM module serves, beyond its dummy CQI/RSRP/RSRQ. One
+# unsupported name fails the WHOLE subscription ("Action not supported" in the
+# gNB log, RICSubscriptionFailure cause misc/0 at submgr): that is why
+# DRB.PacketSuccessRateUlgNBUu, which srsRAN listed and OCUDU does not serve,
+# is no longer here.
+METRICS=${METRICS:-DRB.UEThpDl,DRB.UEThpUl,DRB.RlcSduTransmittedVolumeDL,DRB.RlcSduTransmittedVolumeUL,DRB.RlcPacketDropRateDl}
 UE_IDS=${UE_IDS:-0}
 
 # The RIC images, and the .debs the xApp runner image installs, are amd64
-# only. On an arm64 host (Apple Silicon, for local testing) build and run them
-# under emulation rather than fail on "package architecture (amd64) does not
-# match system (arm64)". The lab's infra host is x86-64 and needs none of it.
+# only. On an arm64 host build and run them as amd64. The lab's infra host is
+# x86-64 and needs none of it.
+#
+# HOW they run as amd64 matters. QEMU user emulation >= 9.0.1 crashes Go
+# programs in the garbage collector ("fatal error: lfstack.push", QEMU issue
+# 2560) -- the build of rtmgr_sim, and the RIC's Go services at runtime. Use
+# Rosetta in an Apple Silicon VM (Lima: --rosetta), or QEMU 8.1.x
+# (tonistiigi/binfmt:qemu-v8.1.5). See docs/guides/local-5g-ocudu.md.
+amd64_hint() {
+  local bf=/proc/sys/fs/binfmt_misc
+  if [ -e "$bf/rosetta" ]; then
+    return
+  elif [ -e "$bf/qemu-x86_64" ]; then
+    echo "NOTE: amd64 runs under QEMU here. QEMU >= 9.0.1 crashes the RIC's Go code"
+    echo "  (lfstack.push). If the build or a RIC service dies that way, switch to"
+    echo "  Rosetta (Lima VM) or QEMU 8.1.x -- docs/guides/local-5g-ocudu.md, Part 3."
+  else
+    echo "WARNING: arm64 host with no amd64 emulation registered; the RIC images cannot run."
+    echo "  Rosetta (Lima VM) or: docker run --privileged --rm tonistiigi/binfmt:qemu-v8.1.5 --install amd64"
+  fi
+}
 case "$(uname -m)" in
-  arm64|aarch64) export DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM:-linux/amd64} ;;
+  arm64|aarch64) export DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM:-linux/amd64}; ARM64=1 ;;
+  *) ARM64=0 ;;
 esac
 
 export MECCAST_ROOT="$ROOT_DIR"
-mkdir -p "$ROOT_DIR/runs"
+# runs/ is often created by the mec-cast containers, as root. Then this script,
+# run as the operator, cannot add runs/ric and dies on a bare mkdir error.
+if ! mkdir -p "$ROOT_DIR/runs/ric" 2>/dev/null; then
+  echo "ERROR: cannot write $ROOT_DIR/runs (owned by $(stat -c %U "$ROOT_DIR/runs" 2>/dev/null || echo '?'))." >&2
+  echo "  The containers created it as root. Give it back once: sudo chown \$USER: $ROOT_DIR/runs" >&2
+  exit 1
+fi
 
 compose() { docker compose --project-directory "$RIC_DIR" -f "$RIC_DIR/docker-compose.yml" -f "$HERE/compose.override.yml" "$@"; }
+
+# Stop processes in the xApp runner whose command line contains $1. `compose
+# exec` without a TTY (as under `| tee`) does not forward Ctrl-C, so a monitor
+# outlives its terminal and keeps its HTTP/RMR ports: the next one then dies
+# with "Address already in use" before subscribing. Python, because the runner
+# image (python:3.8-slim) has no pkill.
+stop_in_runner() {
+  compose exec -T python_xapp_runner python3 - "$1" <<'PY' 2>/dev/null || true
+import os, signal, sys
+pat, me = sys.argv[1], os.getpid()
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    if int(pid) in (me, os.getppid()):
+        continue
+    try:
+        argv = open(f"/proc/{pid}/cmdline", "rb").read().decode().split("\0")
+    except OSError:
+        continue
+    # An ARGUMENT that is the script or module itself (./kpm_mon_xapp.py,
+    # -m mec_cast_xapp), never a shell whose command text merely mentions it.
+    if any(os.path.basename(a) == pat for a in argv):
+        os.kill(int(pid), signal.SIGTERM)
+        print(f"    stopped a leftover {pat} (pid {pid})")
+PY
+}
 
 checkout() {
   if [ ! -d "$RIC_DIR/.git" ]; then
@@ -93,6 +153,7 @@ case "${1:-}" in
   up)
     checkout
     sctp_hint
+    [ "$ARM64" = 1 ] && amd64_hint
     compose up -d --build
     echo
     echo "RIC up at pin ${RIC_PIN:0:12}. E2 (SCTP) on ${RIC_E2_BIND:-0.0.0.0}:36421."
@@ -116,9 +177,17 @@ case "${1:-}" in
       exit 1
     fi
     echo "==> kpm_mon_xapp node=$node style=$STYLE ue_ids=$UE_IDS metrics=$METRICS"
-    echo "    -> $log (Ctrl-C to stop)"
-    compose exec python_xapp_runner ./kpm_mon_xapp.py --e2_node_id="$node" \
-      --kpm_report_style="$STYLE" --ue_ids="$UE_IDS" --metrics="$METRICS" 2>&1 | tee "$log"
+    echo "    -> $log (${KPM_SECONDS:+stops after ${KPM_SECONDS}s, }Ctrl-C to stop)"
+    stop_in_runner kpm_mon_xapp.py
+    trap 'stop_in_runner kpm_mon_xapp.py' EXIT
+    since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # -u: unbuffered, or nothing reaches tee until the buffer fills.
+    compose exec -T python_xapp_runner ${KPM_SECONDS:+timeout "$KPM_SECONDS"} \
+      python3 -u ./kpm_mon_xapp.py --e2_node_id="$node" \
+      --kpm_report_style="$STYLE" --ue_ids="$UE_IDS" --metrics="$METRICS" 2>&1 | tee "$log" || true
+    echo "--- submgr verdict for this monitor:"
+    docker logs --since "$since" ric_submgr 2>&1 | grep -o 'subscription failed.*' \
+      || echo "    no subscription failure"
     ;;
   xapp)
     : "${INFRA_HOST:?set INFRA_HOST: the admin (:8099) and logging (:8000) host, as the RIC network reaches it}"
@@ -128,7 +197,9 @@ case "${1:-}" in
     # 13.x is the last release that supports the runner's Python 3.8.
     compose exec -T python_xapp_runner python3 -c 'import websockets' 2>/dev/null \
       || compose exec -T python_xapp_runner pip install -q "websockets>=12,<14"
+    stop_in_runner mec_cast_xapp
     echo "==> mec-cast xApp (osc adapter) -> admin ws://$INFRA_HOST:8099, logging http://$INFRA_HOST:8000"
+    echo "    defaults: style=$STYLE ue_ids=$UE_IDS metrics=$METRICS (run params override)"
     compose exec $detach \
       -e PYTHONPATH=/opt/mec-cast/ran/py/src:/opt/mec-cast/ran/xapp/src:/opt/mec-cast/admin_client \
       -e E2_ADAPTER=osc \
@@ -141,6 +212,8 @@ case "${1:-}" in
       -e VCS_REF="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)" \
       -e XAPP_CAPABILITIES="${XAPP_CAPABILITIES:-kpm_monitor,rc_control}" \
       -e KPM_STYLE="${STYLE}" \
+      -e KPM_METRICS="${METRICS}" \
+      -e KPM_UE_IDS="${UE_IDS}" \
       ${E2_NODE_ID:+-e E2_NODE_ID="$E2_NODE_ID"} \
       python_xapp_runner python3 -m mec_cast_xapp
     ;;
@@ -148,7 +221,7 @@ case "${1:-}" in
     compose down
     ;;
   *)
-    sed -n '2,25p' "$0"
+    sed -n '2,27p' "$0"
     exit 2
     ;;
 esac

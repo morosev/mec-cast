@@ -38,7 +38,7 @@ import time
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-from ..core import E2Port
+from ..core import E2Port, SubscriptionRejected
 
 log = logging.getLogger("mec_cast_xapp.osc")
 
@@ -46,6 +46,9 @@ RIC_INDICATION = 12050
 RIC_CONTROL_ACK = 12041
 RIC_CONTROL_FAILURE = 12042
 CONTROL_TIMEOUT_S = 5.0
+# How long to wait for submgr's subscription notification (the REST call that
+# maps SubscriptionId -> E2EventInstanceId). Measured: a few ms locally.
+SUB_CONFIRM_S = 3.0
 
 
 def _to_ns(value: Any) -> int:
@@ -174,7 +177,7 @@ class OscPort(E2Port):
                 indication["ue_id"] = ue_ids[0]
             callback(indication)
 
-        before = {s.subscription_id for s in self.base.my_subscriptions.values()}
+        before = {id(s) for s in self.base.my_subscriptions.values()}
         granul = period_ms
         if style == 1:
             kpm.subscribe_report_service_style_1(node, period_ms, metrics, granul, on_raw)
@@ -191,9 +194,35 @@ class OscPort(E2Port):
             kpm.subscribe_report_service_style_5(node, period_ms, ids, metrics, granul, on_raw)
         else:
             raise ValueError(f"KPM report style {style} is not wired in the osc adapter (1, 2, 5)")
-        after = {s.subscription_id for s in self.base.my_subscriptions.values()}
-        new = after - before
-        return str(next(iter(new))) if new else ""
+        new = [s for s in self.base.my_subscriptions.values() if id(s) not in before]
+        if not new:
+            return ""
+        sub = new[0]
+        handle = str(sub.subscription_id)
+        # The REST Subscribe call returns success as soon as submgr ACCEPTS the
+        # request; whether the E2 node accepted it arrives afterwards, as a
+        # notification mapping the SubscriptionId to the E2EventInstanceId.
+        # A refused subscription maps to 0 -- seen against OCUDU 26.10 for an
+        # unsupported metric ("Action not supported" in the gNB log,
+        # RICSubscriptionFailure at submgr). Without this check the xApp
+        # reported kpm_subscribed=true and the only symptom was WF_KPM_SILENT.
+        deadline = time.monotonic() + SUB_CONFIRM_S
+        while sub.e2_event_instance_id is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if sub.e2_event_instance_id == 0:
+            self.unsubscribe(handle)
+            raise SubscriptionRejected(
+                f"E2 node {node} rejected the KPM subscription (style {style}, "
+                f"metrics {metrics}): an unsupported metric, style or UE id. "
+                "See submgr's log and the gNB's E2 log ('Action not supported')"
+            )
+        if sub.e2_event_instance_id is None:
+            log.warning(
+                "kpm: no subscription notification from submgr within %.0f s; "
+                "indications cannot be matched until it arrives",
+                SUB_CONFIRM_S,
+            )
+        return handle
 
     def unsubscribe(self, handle: str) -> None:
         if not handle:

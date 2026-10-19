@@ -70,7 +70,7 @@ add a vector for it.
 | `ue.max_pusch_distance` / `ue.max_pdsch_distance` | "" | same | — | **unit** |
 | `ue.dl_rlc_sdu_volume_bits` / `ue.ul_rlc_sdu_volume_bits` | bit | — | `DRB.RlcSduTransmittedVolumeDL/UL` × 1000 (kbit) | KPM scale |
 | `ue.dl_rlc_drop_rate` | "" | — | `DRB.RlcPacketDropRateDl` | **unit** |
-| `ue.ul_packet_success_rate` | "" | — | `DRB.PacketSuccessRateUlgNBUu` | **unit** |
+| `ue.ul_packet_success_rate` | "" | — | `DRB.PacketSuccessRateUlgNBUu` (not served by OCUDU 26.10: requesting it refuses the whole subscription) | **unit** |
 | `ue.kpm_dummy.{cqi,rsrp,rsrq}` | "" | — | `CQI`, `RSRP`, `RSRQ` | srsRAN documents these as dummies |
 | `event.ue_create` / `event.ue_rem` / `event.ue_reconf` | count | `event_list` | — | |
 

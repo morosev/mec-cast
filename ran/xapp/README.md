@@ -58,8 +58,8 @@ Logging service: `service=mec-cast-ran-kpm`, `trace_id=run_id`, raw as
 
 | Param | Default | Meaning |
 |---|---|---|
-| `kpm_style` | 5 | E2SM-KPM report style (1, 2 and 5 wired in `osc`) |
-| `kpm_metrics` | the six non-dummy DRB metrics srsRAN exposes | KPM measurement names |
+| `kpm_style` | 2 | E2SM-KPM report style (1, 2 and 5 wired in `osc`). Style 5 needs at least two UE ids |
+| `kpm_metrics` | the five non-dummy DRB metrics OCUDU 26.10 serves | KPM measurement names. One the agent does not serve refuses the whole subscription |
 | `kpm_ue_ids` | `[0]` | E2 UE ids for styles 2 and 5 |
 | `kpm_period_ms` | 1000 | srsRAN's minimum |
 | `e2_node_id` | first connected | which E2 node |
@@ -95,9 +95,15 @@ The environment sets defaults: `KPM_STYLE`, `KPM_METRICS`, `KPM_UE_IDS`,
 - The node's `policy_state` says whether it is actually in force.
   `WF_POLICY_NOT_APPLIED` is an error.
 
-**Lab constraint (from oran-sc-ric @621ade2).** Its PRB-quota encoder
-hard-codes PLMN `00101`, SST 1, SD 1. If the lab slice differs, controls are
-refused: `controls_failed` rises and the finding fires.
+**Slice constraint (from oran-sc-ric @621ade2).** Its PRB-quota encoder
+hard-codes PLMN `00101`, SST 1, SD 1. OCUDU matches that S-NSSAI **exactly**
+against a slice in the gNB's `cell_cfg.slicing`, SD included, and the UE's
+traffic must be in it. So SD 1 goes on the gNB, the core and the subscriber
+([deploy manual, "The slice"](../../docs/operations/deploy-manual.md#the-slice-ran-control-acts-on)).
+Otherwise every control is refused (`RIC_CONTROL_FAILURE` in `control.csv`,
+`controls_failed` rises, `WF_POLICY_NOT_APPLIED`). The acknowledged control
+used `dedicated_prb_ratio: 0`. The default of 100 has not been tried since
+the slice was fixed.
 
 **Open question: which direction the quota limits.** oran-sc-ric describes
 its example as limiting the *downlink* PRBs available to a UE. The LiDAR
@@ -117,9 +123,14 @@ gNB before any campaign relies on it.
 
 **What is verified, and what is not yet.**
 - Everything above the adapter runs in tests and in the end-to-end test.
-- The `osc` adapter has been brought up inside the real oran-sc-ric runner,
-  locally under emulation. It imports the RIC's library, initialises RMR,
-  queries e2mgr and reports to the admin.
-- Not yet verified: subscription, indications and control against a real
-  srsRAN E2 agent. That is the lab's first job, and the reason it starts with
-  `ric.sh kpm`, the stock monitor.
+- **Against a real E2 agent (OCUDU 26.10, October 2026)**, on the single-host
+  testbed ([guides/local-5g-ocudu.md](../../docs/guides/local-5g-ocudu.md),
+  Part 3): KPM subscription and indications with style 2 and the five default
+  metrics. `kpi.csv` joined to 3147 of 3154 frames. A PRB-quota control,
+  stepped at 30 s and reverted at stop, was ACKed by the gNB.
+- **Rejected subscriptions are detected.** The REST subscribe succeeds before
+  the E2 node answers, and a refusal comes back as E2EventInstanceId 0. The
+  adapter raises `SubscriptionRejected`, the node's `kpm_error` says so, and
+  it retries after 60 s instead of claiming to be subscribed.
+- Not yet verified: which direction the PRB quota limits (calibration step
+  0.1), and the lab gNB itself. Run `ric.sh kpm` there first.

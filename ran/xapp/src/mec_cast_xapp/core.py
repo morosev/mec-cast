@@ -27,6 +27,14 @@ IndicationCallback = Callable[[Dict[str, Any]], None]
 ControlCallback = Callable[[bool, str], None]
 
 
+class SubscriptionRejected(RuntimeError):
+    """The E2 node refused a subscription (RIC_SUBSCRIPTION_FAILURE).
+
+    Distinct from a transport error: the same request will be refused again,
+    so callers back off instead of retrying at once, and say so in status.
+    """
+
+
 class E2Port:
     """What a capability may ask of the RIC. Adapters implement all of it."""
 
@@ -45,7 +53,10 @@ class E2Port:
         period_ms: int,
         callback: IndicationCallback,
     ) -> str:
-        """Subscribe to E2SM-KPM; returns a subscription handle."""
+        """Subscribe to E2SM-KPM; returns a subscription handle.
+
+        Raises SubscriptionRejected when the E2 node refuses the request.
+        """
         raise NotImplementedError
 
     def unsubscribe(self, handle: str) -> None:

@@ -474,9 +474,19 @@ setup is [deploy/lab/ptp/](../../deploy/lab/ptp/README.md).
 
 ### The gNB — metrics tap, E2 and the RIC
 
-Do this once when bringing up the RAN side, and again after **every srsRAN
-upgrade**: the metrics schema and the transport both change between releases
+Do this once when bringing up the RAN side, and again after **every gNB
+software upgrade**: the metrics schema, the transport and the E2 behaviour
+all change between releases
 ([ADR-0010](../architecture/adr/0010-two-ran-sources.md)).
+
+The gNB software is **OCUDU**, the successor of srsRAN Project, whose GitHub
+repository was archived on 2026-06-01 (development moved to
+`gitlab.com/ocudu/ocudu` in December 2025). The keys below are the same in
+srsRAN 25.04+ and OCUDU 26.10. Every step was verified end to end on an
+OCUDU 26.10-line build on the single-host testbed
+([guides/local-5g-ocudu.md](../guides/local-5g-ocudu.md), which also lists
+where OCUDU differs from srsRAN, in its §3.7). Rehearse an upgrade there
+before taking it to the lab.
 
 **1. Configure the gNB.** Merge the sections of
 [`deploy/lab/srsran/gnb.mec-cast.yml`](../../deploy/lab/srsran/gnb.mec-cast.yml)
@@ -485,7 +495,10 @@ into the lab's `gnb.yml`:
 - `metrics.enable_json` and `remote_control` for 25.04+, or the commented
   UDP block for 24.x and older;
 - `e2:` pointing at the infra host;
-- `pcap.e2ap_enable` for the capture.
+- `pcap.e2ap_enable` for the capture;
+- the slice: `sd: 1` in `tai_slice_support_list` and a `cell_cfg.slicing`
+  entry for SST 1 / SD 1. RAN control (step 8) needs it, and the core must
+  match it ([The slice](#the-slice-ran-control-acts-on)).
 
 Restart the gNB.
 
@@ -531,11 +544,28 @@ beside the repo at a pinned commit, never inside it (AGPL):
 sudo modprobe sctp                    # once per host: E2 is SCTP
 bash deploy/lab/ric/ric.sh up         # clones ~/oran-sc-ric at the pin, publishes SCTP 36421
 bash deploy/lab/ric/ric.sh status     # the gNB should appear as CONNECTED
-bash deploy/lab/ric/ric.sh kpm        # stock KPM monitor, style 5, logged under runs/ric/
+KPM_SECONDS=30 bash deploy/lab/ric/ric.sh kpm   # stock KPM monitor, style 2, under runs/ric/
 ```
 
 If the gNB connects and then drops, the RIC refuses a reconnect for 60 s, so
-restart the gNB *after* the RIC. When `kpm` prints indications, copy the gNB's
+restart the gNB *after* the RIC.
+
+The defaults are the ones OCUDU 26.10 accepts: report style 2 for E2 UE id 0,
+and five metrics (`DRB.UEThpDl`, `DRB.UEThpUl`,
+`DRB.RlcSduTransmittedVolumeDL`, `DRB.RlcSduTransmittedVolumeUL`,
+`DRB.RlcPacketDropRateDl`). Style 5 needs at least two UE ids. A single
+unsupported metric refuses the **whole** subscription:
+`DRB.PacketSuccessRateUlgNBUu`, which srsRAN listed, did exactly that. `kpm`
+ends with submgr's verdict. A refusal reads
+`RICSubscriptionFailure … Cause:6, Value 0`, and the gNB log says
+`Action not supported`. Test a list before relying on it:
+
+```bash
+METRICS=DRB.UEThpDl,DRB.UEThpUl KPM_SECONDS=20 bash deploy/lab/ric/ric.sh kpm
+```
+
+`ric.sh` writes `runs/ric/` as you. If the containers created `runs/` as
+root, it says so: `sudo chown $USER: runs` once. When `kpm` prints indications, copy the gNB's
 `/tmp/gnb_du_e2ap.pcap` and the `runs/ric/kpm-*.log` beside the run. Those are
 the E2 fixtures the xApp phase starts from.
 
@@ -548,8 +578,16 @@ then run the xApp inside the RIC's runner with the `osc` adapter
 INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # foreground; -d to detach
 ```
 
+`ric.sh` passes the same `STYLE`, `METRICS` and `UE_IDS` to the xApp as its
+defaults; the run params `kpm_style`, `kpm_metrics` and `kpm_ue_ids` override
+them per run.
+
 - **The admin page** shows the node `xapp-<host>-0` with `e2_connected=true`.
   Without it you get `WF_XAPP_NO_E2`, whose remedy is the gNB's `e2:` block.
+- **A refused subscription** shows in the node's `kpm_error` ("rejected"),
+  together with `WF_KPM_SILENT`. The xApp retries after 60 s, since the same
+  request would be refused again. The cause is the metric list or the style,
+  as in step 6.
 - **Start a 2-minute run.** Expect `runs/<id>/ran-kpm/kpi.csv` and
   `indications.jsonl`. `WF_KPM_SILENT` means subscribed but nothing arriving:
   check the UE is attached and carrying traffic.
@@ -569,15 +607,21 @@ INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # foreground; -d to de
 
 ```bash
 curl -s -X POST http://$INFRA_HOST:8099/api/v1/runs -H 'Content-Type: application/json' \
-  -d '{"label":"rc-smoke","params":{"ran_policy":{"ue":0,"max_prb_ratio":30,"schedule":[{"t_s":30,"max_prb_ratio":100}]}}}'
+  -d '{"label":"rc-smoke","params":{"ran_policy":{"ue":0,"max_prb_ratio":30,"dedicated_prb_ratio":0,"schedule":[{"t_s":30,"max_prb_ratio":100}]}}}'
 ```
 
 Start it on the admin page, with the LiDAR UE streaming.
 
 - **`ran-kpm/control.csv`** must read `apply:sent, apply:ack, step@30s:…,
-  revert-run-stop:…`. `failed` with no ack usually means the slice does not
-  match oran-sc-ric's hard-coded PLMN 00101 / SST 1 / SD 1, and the admin
-  raises `WF_POLICY_NOT_APPLIED`.
+  revert-run-stop:…`. `failed,RIC_CONTROL_FAILURE` means the gNB has no
+  slice matching oran-sc-ric's hard-coded PLMN 00101 / SST 1 / SD 1, and the
+  admin raises `WF_POLICY_NOT_APPLIED`. The gNB log shows
+  `Slice-level PRB quota Control Request … SST:1, SD:1` followed by
+  `Sending E2 RIC Control Failure`. Fix it as in
+  [The slice](#the-slice-ran-control-acts-on).
+- **`dedicated_prb_ratio`.** The control OCUDU acknowledged used 0. The
+  default of 100 was only tried before the slice was fixed, so it has not
+  been tested since. Pass 0 until it has.
 - **The JSON tap's** `ue.dl_throughput_bps` in `runs/<id>/ran/kpi.csv` should drop under
   the cap and recover at 30 s. That is the effect, seen by the source that did
   not cause it.
@@ -587,6 +631,25 @@ Start it on the admin page, with the LiDAR UE streaming.
   *downlink* limit, and the LiDAR traffic is uplink. Which direction it really
   limits is calibration step 0.1 of the
   [research protocol](../research/protocol.md); record what you see.
+
+#### The slice RAN control acts on
+
+oran-sc-ric's PRB-quota encoder names one slice: PLMN 00101, SST 1, SD 1
+(`0x000001`). It cannot be configured. OCUDU applies the quota to a scheduler
+slice in `cell_cfg.slicing` whose S-NSSAI matches **exactly**, SD included.
+srsRAN matched on SST alone, so oran-sc-ric's own reference config has no SD,
+and copying it fails on OCUDU. The UE's traffic must also belong to that
+slice, or the cap applies to an empty one. That means three places:
+
+| Where | What |
+|---|---|
+| gNB `gnb.yml` | `cu_cp.amf.supported_tracking_areas[].plmn_list[].tai_slice_support_list: [{sst: 1, sd: 1}]`, and `cell_cfg.slicing: [{sst: 1, sd: 1, sched_cfg: {min_prb_policy_ratio: 0, max_prb_policy_ratio: 100}}]` ([`gnb.mec-cast.yml`](../../deploy/lab/srsran/gnb.mec-cast.yml)) |
+| Core (Open5GS) | `sd: 000001` under every `sst: 1`: the AMF's `plmn_support.s_nssai`, and the NSSF and SMF slice entries if present (`/etc/open5gs/*.yaml` on a package install). Restart the core |
+| Subscriber | WebUI → the UE's IMSI → slice SST 1, SD `000001` |
+
+After the change the UE must register and get its PDU session as before. If
+it does not, the three places disagree. Adding `slicing:` without the SD was
+tried and is not enough.
 
 ## Starting and stopping a role
 

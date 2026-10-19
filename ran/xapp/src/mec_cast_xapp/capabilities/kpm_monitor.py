@@ -2,14 +2,19 @@
 
 Run parameters (all optional, carried by run.start):
 
-  kpm_style      report style 1-5               (5: per UE, the useful one)
-  kpm_metrics    list of KPM measurement names  (every non-dummy one srsRAN exposes)
+  kpm_style      report style 1-5               (2: one UE, the LiDAR UE)
+  kpm_metrics    list of KPM measurement names  (every non-dummy one OCUDU serves)
   kpm_ue_ids     E2 UE ids for styles 2 and 5   ([0])
   kpm_period_ms  report period                  (1000: srsRAN's minimum)
   e2_node_id     which E2 node                  (the first connected)
 
 srsRAN's agent reports nothing below 1 s. That is the granularity of this
 source, and why the JSON tap stays (ADR-0010).
+
+Defaults verified against OCUDU 26.10 (docs/guides/local-5g-ocudu.md):
+style 5 needs at least two UE ids, so a single-UE cell uses style 2; and one
+metric the agent does not serve rejects the WHOLE subscription, which is why
+DRB.PacketSuccessRateUlgNBUu is not a default.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from ..core import Capability, XappContext
+from ..core import Capability, SubscriptionRejected, XappContext
 
 log = logging.getLogger("mec_cast_xapp.kpm")
 
@@ -28,9 +33,12 @@ DEFAULT_METRICS: List[str] = [
     "DRB.RlcSduTransmittedVolumeDL",
     "DRB.RlcSduTransmittedVolumeUL",
     "DRB.RlcPacketDropRateDl",
-    "DRB.PacketSuccessRateUlgNBUu",
 ]
+DEFAULT_STYLE = 2
 RETRY_S = 5.0
+# A subscription the E2 node REJECTED will be rejected again for the same
+# request; retrying every 5 s only fills the gNB and submgr logs.
+REJECTED_RETRY_S = 60.0
 
 
 class KpmMonitor(Capability):
@@ -39,7 +47,7 @@ class KpmMonitor(Capability):
     def __init__(self) -> None:
         self.handle: Optional[str] = None
         self.node: Optional[str] = None
-        self.style = 5
+        self.style = DEFAULT_STYLE
         self.last_error: Optional[str] = None
         self._next_try = 0.0
         self._ctx: Optional[XappContext] = None
@@ -54,7 +62,7 @@ class KpmMonitor(Capability):
         if self.handle is not None or time.monotonic() < self._next_try:
             return
         p = ctx.params
-        self.style = int(p.get("kpm_style") or 5)
+        self.style = int(p.get("kpm_style") or DEFAULT_STYLE)
         metrics = list(p.get("kpm_metrics") or DEFAULT_METRICS)
         ue_ids = [int(u) for u in (p.get("kpm_ue_ids") or [0])]
         period = max(1000, int(p.get("kpm_period_ms") or 1000))
@@ -72,7 +80,8 @@ class KpmMonitor(Capability):
             log.info("kpm: subscribed node=%s style=%d metrics=%s", node, self.style, metrics)
         except Exception as e:  # noqa: BLE001 - retried; the reason is in status
             self.last_error = f"subscribe failed: {e}"
-            self._next_try = time.monotonic() + RETRY_S
+            rejected = isinstance(e, SubscriptionRejected)
+            self._next_try = time.monotonic() + (REJECTED_RETRY_S if rejected else RETRY_S)
             log.warning("kpm: %s", self.last_error)
 
     def _on_indication(self, indication: Dict[str, Any]) -> None:

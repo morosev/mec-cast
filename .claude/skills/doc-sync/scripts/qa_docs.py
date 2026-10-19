@@ -35,6 +35,8 @@ KNOWN_CONTEXT_PATHS = {
     ("docs/architecture/adr/0010-two-ran-sources.md", "ran/xapp"):
         "where the decision puts the xApp; created by the xApp phase, and an "
         "accepted ADR is never edited to chase it",
+    ("docs/guides/local-5g-ocudu.md", "scripts/ocudu_performance"):
+        "a script in OCUDU's checkout (~/src/ocudu), not in this repo",
 }
 
 problems: list[str] = []
