@@ -84,6 +84,19 @@ const JSON_UE: &[(&str, &str, &str)] = &[
     ("pucch_harq_delay", "ue.pucch_harq_delay", ""),
     ("crc_delay", "ue.crc_delay", ""),
     ("ce_delay", "ue.ce_delay", ""),
+    // OCUDU 26.10 sends the same delays flat, avg_<x> / max_<x>, not as an
+    // {avg, max} object. Same canonical names either way, so a campaign can
+    // span both layouts (testdata/srsran_26.10.0.lab.jsonl).
+    ("avg_sr_to_pusch_delay", "ue.sr_to_pusch_delay_avg", ""),
+    ("max_sr_to_pusch_delay", "ue.sr_to_pusch_delay_max", ""),
+    ("avg_pusch_harq_delay", "ue.pusch_harq_delay_avg", ""),
+    ("max_pusch_harq_delay", "ue.pusch_harq_delay_max", ""),
+    ("avg_pucch_harq_delay", "ue.pucch_harq_delay_avg", ""),
+    ("max_pucch_harq_delay", "ue.pucch_harq_delay_max", ""),
+    ("avg_crc_delay", "ue.crc_delay_avg", ""),
+    ("max_crc_delay", "ue.crc_delay_max", ""),
+    ("avg_ce_delay", "ue.ce_delay_avg", ""),
+    ("max_ce_delay", "ue.ce_delay_max", ""),
     ("max_pusch_distance", "ue.max_pusch_distance", ""),
     ("max_pdsch_distance", "ue.max_pdsch_distance", ""),
 ];
@@ -99,6 +112,25 @@ const JSON_CELL: &[(&str, &str, &str)] = &[
         "count",
     ),
     ("nof_failed_uci_allocs", "cell.failed_uci_allocs", "count"),
+    // OCUDU 26.10 splits nof_failed_pdcch_allocs by direction and search space.
+    ("failed_dl_pdcch", "cell.failed_dl_pdcch_allocs", "count"),
+    ("failed_ul_pdcch", "cell.failed_ul_pdcch_allocs", "count"),
+    (
+        "failed_common_dl_pdcch",
+        "cell.failed_common_dl_pdcch_allocs",
+        "count",
+    ),
+    (
+        "failed_common_ul_pdcch",
+        "cell.failed_common_ul_pdcch_allocs",
+        "count",
+    ),
+    (
+        "failed_fallback_uci_allocs",
+        "cell.failed_fallback_uci_allocs",
+        "count",
+    ),
+    ("msg3_nof_dtx", "cell.msg3_dtx", "count"),
     ("late_dl_harqs", "cell.late_dl_harqs", "count"),
     ("late_ul_harqs", "cell.late_ul_harqs", "count"),
     ("msg3_nof_ok", "cell.msg3_ok", "count"),

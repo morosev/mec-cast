@@ -63,3 +63,26 @@ def test_every_fixture_normalises_to_ue_rows():
         ]
         assert ue_rows, f"{path.name}: no per-UE rows"
         assert any(r.metric == "ue.dl_throughput_bps" for r in ue_rows), path.name
+
+
+def test_the_ocudu_capture_reaches_canonical_delay_names():
+    """OCUDU 26.10 sends the scheduling delays flat (avg_<x>, max_<x>). On the
+    real capture every one of them must land under its canonical name, the
+    ones Campaign 1 reads, and none may fall through to ue.raw."""
+    path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "collector"
+        / "testdata"
+        / "srsran_26.10.0.lab.jsonl"
+    )
+    metrics = {
+        r.metric
+        for line in path.read_text().splitlines()
+        if line.strip()
+        for r in normalise_json(json.loads(line))
+    }
+    for delay in ("sr_to_pusch", "pusch_harq", "pucch_harq", "crc", "ce"):
+        for stat in ("avg", "max"):
+            assert f"ue.{delay}_delay_{stat}" in metrics, (delay, stat)
+            assert f"ue.raw.{stat}_{delay}_delay" not in metrics, (delay, stat)
+    assert "cell.failed_ul_pdcch_allocs" in metrics

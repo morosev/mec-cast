@@ -64,6 +64,19 @@ JSON_UE: dict[str, tuple[str, str, float]] = {
     "pucch_harq_delay": ("ue.pucch_harq_delay", "", 1.0),
     "crc_delay": ("ue.crc_delay", "", 1.0),
     "ce_delay": ("ue.ce_delay", "", 1.0),
+    # OCUDU 26.10 sends the same delays flat, avg_<x> / max_<x>, not as an
+    # {avg, max} object. Same canonical names either way, so a campaign can
+    # span both layouts (testdata/srsran_26.10.0.lab.jsonl).
+    "avg_sr_to_pusch_delay": ("ue.sr_to_pusch_delay_avg", "", 1.0),
+    "max_sr_to_pusch_delay": ("ue.sr_to_pusch_delay_max", "", 1.0),
+    "avg_pusch_harq_delay": ("ue.pusch_harq_delay_avg", "", 1.0),
+    "max_pusch_harq_delay": ("ue.pusch_harq_delay_max", "", 1.0),
+    "avg_pucch_harq_delay": ("ue.pucch_harq_delay_avg", "", 1.0),
+    "max_pucch_harq_delay": ("ue.pucch_harq_delay_max", "", 1.0),
+    "avg_crc_delay": ("ue.crc_delay_avg", "", 1.0),
+    "max_crc_delay": ("ue.crc_delay_max", "", 1.0),
+    "avg_ce_delay": ("ue.ce_delay_avg", "", 1.0),
+    "max_ce_delay": ("ue.ce_delay_max", "", 1.0),
     "max_pusch_distance": ("ue.max_pusch_distance", "", 1.0),
     "max_pdsch_distance": ("ue.max_pdsch_distance", "", 1.0),
 }
@@ -75,6 +88,13 @@ JSON_CELL: dict[str, tuple[str, str, float]] = {
     "error_indication_count": ("cell.error_indications", "count", 1.0),
     "nof_failed_pdcch_allocs": ("cell.failed_pdcch_allocs", "count", 1.0),
     "nof_failed_uci_allocs": ("cell.failed_uci_allocs", "count", 1.0),
+    # OCUDU 26.10 splits nof_failed_pdcch_allocs by direction and search space.
+    "failed_dl_pdcch": ("cell.failed_dl_pdcch_allocs", "count", 1.0),
+    "failed_ul_pdcch": ("cell.failed_ul_pdcch_allocs", "count", 1.0),
+    "failed_common_dl_pdcch": ("cell.failed_common_dl_pdcch_allocs", "count", 1.0),
+    "failed_common_ul_pdcch": ("cell.failed_common_ul_pdcch_allocs", "count", 1.0),
+    "failed_fallback_uci_allocs": ("cell.failed_fallback_uci_allocs", "count", 1.0),
+    "msg3_nof_dtx": ("cell.msg3_dtx", "count", 1.0),
     "late_dl_harqs": ("cell.late_dl_harqs", "count", 1.0),
     "late_ul_harqs": ("cell.late_ul_harqs", "count", 1.0),
     "msg3_nof_ok": ("cell.msg3_ok", "count", 1.0),

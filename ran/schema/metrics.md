@@ -63,10 +63,10 @@ add a vector for it.
 | `ue.pusch_snr_db` / `ue.pucch_snr_db` | dB | `pusch_snr_db` / `pucch_snr_db` | — | |
 | `ue.pusch_rsrp_db` | dB | `pusch_rsrp_db` | — (KPM RSRP is a dummy) | |
 | `ue.ta_ns`, `ue.{pusch,pucch,srs}_ta_ns` | ns | `ta_ns`, `pusch_ta_ns`, … | — | |
-| `ue.sr_to_pusch_delay_{avg,max}` | "" | `sr_to_pusch_delay` | — | **unit** |
-| `ue.pusch_harq_delay_{avg,max}` | "" | `pusch_harq_delay` | — | **unit** |
-| `ue.pucch_harq_delay_{avg,max}` | "" | `pucch_harq_delay` | — | **unit** |
-| `ue.crc_delay_{avg,max}`, `ue.ce_delay_{avg,max}` | "" | `crc_delay`, `ce_delay` | — | **unit** |
+| `ue.sr_to_pusch_delay_{avg,max}` | "" | `sr_to_pusch_delay` `{avg, max}`; OCUDU 26.10: flat `avg_sr_to_pusch_delay` / `max_sr_to_pusch_delay` | — | **unit** |
+| `ue.pusch_harq_delay_{avg,max}` | "" | `pusch_harq_delay`; OCUDU: `avg_`/`max_pusch_harq_delay` | — | **unit** |
+| `ue.pucch_harq_delay_{avg,max}` | "" | `pucch_harq_delay`; OCUDU: `avg_`/`max_pucch_harq_delay` | — | **unit** |
+| `ue.crc_delay_{avg,max}`, `ue.ce_delay_{avg,max}` | "" | `crc_delay`, `ce_delay`; OCUDU: `avg_`/`max_crc_delay`, `avg_`/`max_ce_delay` | — | **unit** |
 | `ue.max_pusch_distance` / `ue.max_pdsch_distance` | "" | same | — | **unit** |
 | `ue.dl_rlc_sdu_volume_bits` / `ue.ul_rlc_sdu_volume_bits` | bit | — | `DRB.RlcSduTransmittedVolumeDL/UL` × 1000 (kbit) | KPM scale |
 | `ue.dl_rlc_drop_rate` | "" | — | `DRB.RlcPacketDropRateDl` | **unit** |
@@ -81,9 +81,10 @@ add a vector for it.
 | `cell.dl_throughput_bps` / `cell.ul_throughput_bps` | bit/s | `cell_metrics.dl_brate` / `ul_brate` (≤ 24.x) | `DRB.UEThpDl/Ul` × 1000, report styles 1–2 (node level) | KPM scale |
 | `cell.error_indications` | count | `error_indication_count` | — | |
 | `cell.failed_pdcch_allocs` / `cell.failed_uci_allocs` | count | `nof_failed_pdcch_allocs` / `nof_failed_uci_allocs` | — | |
+| `cell.failed_{dl,ul}_pdcch_allocs`, `cell.failed_common_{dl,ul}_pdcch_allocs`, `cell.failed_fallback_uci_allocs` | count | OCUDU 26.10, which splits `nof_failed_pdcch_allocs`: `failed_dl_pdcch`, `failed_ul_pdcch`, `failed_common_dl_pdcch`, `failed_common_ul_pdcch`, `failed_fallback_uci_allocs` | — | |
 | `cell.late_dl_harqs` / `cell.late_ul_harqs` | count | `late_dl_harqs` / `late_ul_harqs` | — | |
-| `cell.msg3_ok` / `cell.msg3_nok` | count | `msg3_nof_ok` / `msg3_nof_nok` | — | |
-| `cell.pusch_prbs_used_mean` / `cell.pdsch_prbs_used_mean` | prb | `p{u,d}sch_prbs_used_per_tdd_slot_idx` (mean over slots) | — | |
+| `cell.msg3_ok` / `cell.msg3_nok` / `cell.msg3_dtx` | count | `msg3_nof_ok` / `msg3_nof_nok` / `msg3_nof_dtx` (OCUDU) | — | |
+| `cell.pusch_prbs_used_mean` / `cell.pdsch_prbs_used_mean` | prb | `p{u,d}sch_prbs_used_per_tdd_slot_idx` (mean over slots). **TDD only:** an FDD cell reports no PRB use at all on OCUDU 26.10, per cell or per UE, so these rows are absent there | — | |
 | `cell.avg_latency`, `cell.max_latency` | "" | `average_latency`, `max_latency` | — | **unit** |
 | `cell.avg_prach_delay`, `cell.pucch_rb_usage_avg` | "" | same | — | **unit** |
 

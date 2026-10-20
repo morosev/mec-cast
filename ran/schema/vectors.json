@@ -722,6 +722,219 @@
      "unit": "index"
     }
    ]
+  },
+  {
+   "name": "ocudu_2610_flat_delays",
+   "input": {
+    "timestamp": "2026-10-20T21:21:36.500",
+    "cells": [
+     {
+      "cell_metrics": {
+       "pci": 1,
+       "failed_dl_pdcch": 0,
+       "failed_ul_pdcch": 3,
+       "failed_common_dl_pdcch": 1,
+       "failed_common_ul_pdcch": 2,
+       "failed_fallback_uci_allocs": 0,
+       "msg3_nof_dtx": 4,
+       "pucch_tot_rb_usage_avg": 0.05
+      },
+      "event_list": [],
+      "ue_list": [
+       {
+        "ue": 0,
+        "pci": 1,
+        "rnti": 17921,
+        "ul_brate": 5908736.0,
+        "avg_sr_to_pusch_delay": 2.5,
+        "max_sr_to_pusch_delay": 7.0,
+        "avg_pusch_harq_delay": 3.25,
+        "max_pusch_harq_delay": 9.0,
+        "avg_pucch_harq_delay": 1.5,
+        "max_pucch_harq_delay": 4.0,
+        "avg_crc_delay": 0.75,
+        "max_crc_delay": 2.0,
+        "avg_ce_delay": 0.5,
+        "max_ce_delay": 1.0,
+        "max_dl_lcid0_flush_delay": 11.0
+       }
+      ]
+     }
+    ]
+   },
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_common_dl_pdcch_allocs",
+     "value": 1.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_common_ul_pdcch_allocs",
+     "value": 2.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_dl_pdcch_allocs",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_fallback_uci_allocs",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.failed_ul_pdcch_allocs",
+     "value": 3.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.msg3_dtx",
+     "value": 4.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.pucch_rb_usage_avg",
+     "value": 0.05,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ce_delay_avg",
+     "value": 0.5,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ce_delay_max",
+     "value": 1.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.crc_delay_avg",
+     "value": 0.75,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.crc_delay_max",
+     "value": 2.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pucch_harq_delay_avg",
+     "value": 1.5,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pucch_harq_delay_max",
+     "value": 4.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_harq_delay_avg",
+     "value": 3.25,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.pusch_harq_delay_max",
+     "value": 9.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.raw.max_dl_lcid0_flush_delay",
+     "value": 11.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.sr_to_pusch_delay_avg",
+     "value": 2.5,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.sr_to_pusch_delay_max",
+     "value": 7.0,
+     "unit": ""
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531296500000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_throughput_bps",
+     "value": 5908736.0,
+     "unit": "bit/s"
+    }
+   ]
   }
  ],
  "kpm": [
