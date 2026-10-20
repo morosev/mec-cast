@@ -1,0 +1,10 @@
+{
+  "srsran_version": "26.10.0",
+  "transport": "ws",
+  "run_id": "01a15b30-ed57-7000-947e-f8fc38b313f3",
+  "captured_utc": "2026-10-20T21:28:02Z",
+  "host": "lima-ran",
+  "reports": 120,
+  "skipped_malformed": 0,
+  "source": "runs/01a15b30-ed57-7000-947e-f8fc38b313f3/ran/reports.jsonl"
+}
