@@ -329,6 +329,8 @@ pub struct RunSession {
     /// Latest per-report UE throughput sum, `(dl, ul)` bit/s, for the admin's
     /// cross-source parity check.
     last_throughput: Option<(f64, f64)>,
+    /// OCUDU's DU UE index -> (cell, RNTI), so its RLC rows name the RNTI.
+    ue_index: normalise::UeIndex,
     report: RunReport,
 }
 
@@ -398,6 +400,7 @@ impl RunSession {
             raw,
             kpi,
             last_throughput: None,
+            ue_index: normalise::UeIndex::new(),
             sender,
             handle,
             batcher: Batcher::new(cfg),
@@ -466,7 +469,8 @@ impl RunSession {
         });
         match entry {
             Some(mut entry) => {
-                let rows = normalise::normalise_json(&entry["context"]["kpi"]);
+                let rows =
+                    normalise::normalise_json_with(&entry["context"]["kpi"], &mut self.ue_index);
                 {
                     use std::io::Write;
                     for row in &rows {

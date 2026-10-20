@@ -6,7 +6,7 @@ import pathlib
 
 import pytest
 
-from mec_cast_ran import normalise_json, normalise_kpm
+from mec_cast_ran import UeIndex, normalise_json, normalise_kpm
 
 VECTORS = json.loads(
     (pathlib.Path(__file__).resolve().parents[2] / "schema" / "vectors.json").read_text()
@@ -37,7 +37,13 @@ def check(actual, expected):
 
 @pytest.mark.parametrize("case", VECTORS["json"], ids=lambda c: c["name"])
 def test_json_vectors(case):
-    check(normalise_json(case["input"]), case["expected"])
+    index = UeIndex()
+    rows = [
+        r
+        for report in case.get("inputs", [case.get("input")])
+        for r in normalise_json(report, index)
+    ]
+    check(rows, case["expected"])
 
 
 @pytest.mark.parametrize("case", VECTORS["kpm"], ids=lambda c: c["name"])
@@ -86,3 +92,28 @@ def test_the_ocudu_capture_reaches_canonical_delay_names():
             assert f"ue.{delay}_delay_{stat}" in metrics, (delay, stat)
             assert f"ue.raw.{stat}_{delay}_delay" not in metrics, (delay, stat)
     assert "cell.failed_ul_pdcch_allocs" in metrics
+
+
+def test_the_ocudu_capture_yields_rlc_and_mac_rows_under_the_rnti():
+    """As the collector reads it: one UE index across the stream."""
+    path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "collector"
+        / "testdata"
+        / "srsran_26.10.0.lab.jsonl"
+    )
+    index, seen_scheduler, rlc, mac = UeIndex(), False, 0, 0
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        report = json.loads(line)
+        seen_scheduler |= "cells" in report
+        for r in normalise_json(report, index):
+            if r.metric.startswith("ue.rlc."):
+                rlc += 1
+                if seen_scheduler:
+                    assert r.ue == "17921", r.metric
+            if r.metric.startswith("cell.mac."):
+                mac += 1
+                assert r.cell == "1"
+    assert rlc and mac

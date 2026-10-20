@@ -40,7 +40,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "ran" / "py" / "src"))
 
-from mec_cast_ran import normalise_json  # noqa: E402
+from mec_cast_ran import UeIndex, normalise_json  # noqa: E402
 
 
 def load_ran(run: Path, source: str) -> list[dict]:
@@ -56,13 +56,13 @@ def load_ran(run: Path, source: str) -> list[dict]:
     raw = run / leaf / "reports.jsonl"
     if source == "json" and raw.exists():
         print(f"note: no {kpi.relative_to(run)}; re-normalising {raw.relative_to(run)}", file=sys.stderr)
-        rows = []
+        rows, index = [], UeIndex()  # one index across the stream, as the collector keeps
         for line in raw.open():
             try:
                 report = json.loads(line)
             except ValueError:
                 continue
-            for s in normalise_json(report):
+            for s in normalise_json(report, index):
                 rows.append({**s.as_dict(), "recv_ns": 0})
         return rows
     raise SystemExit(f"no RAN data for source={source} under {run}/{leaf}/")

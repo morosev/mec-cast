@@ -88,6 +88,42 @@ add a vector for it.
 | `cell.avg_latency`, `cell.max_latency` | "" | `average_latency`, `max_latency` | — | **unit** |
 | `cell.avg_prach_delay`, `cell.pucch_rb_usage_avg` | "" | same | — | **unit** |
 
+## OCUDU's other layers: RLC and DU-MAC
+
+OCUDU 26.10 sends these as messages of their own beside the scheduler's
+`cells[]` report. The JSON tap only; KPM has its own RLC volume and drop rate
+(above).
+
+**RLC, per UE and DRB.** One `rlc_metrics` message per UE and DRB. `rx` is
+what the gNB received (the uplink, the LiDAR's direction), `tx` what it sent.
+The message names its UE by the DU's UE index (`ue_id`), not the RNTI. The
+scheduler message carries both (`ue`, `rnti`), so the normaliser keeps that
+mapping across a gNB's stream (`UeIndex`) and labels the rows with the RNTI.
+Until the first scheduler message the UE is `du-ue:<index>` and the cell "".
+The mapping assumes `rlc_metrics.ue_id` is the same index as the scheduler's
+`ue`, which holds in the single-UE capture: **verify** with two UEs.
+
+| Metric (`ue.rlc.drb<id>.`…) | Unit | OCUDU JSON | Verify |
+|---|---|---|---|
+| `ul_sdus` / `ul_sdu_bytes` | count / byte | `rx.num_sdus` / `rx.num_sdu_bytes` | |
+| `ul_pdus` / `ul_pdu_bytes` | count / byte | `rx.num_pdus` / `rx.num_pdu_bytes` | |
+| `ul_lost_pdus` / `ul_malformed_pdus` | count | `rx.num_lost_pdus` / `rx.num_malformed_pdus` | |
+| `dl_sdus` / `dl_sdu_bytes` | count / byte | `tx.num_sdus` / `tx.num_sdu_bytes` | |
+| `dl_dropped_sdus` / `dl_discarded_sdus` / `dl_discard_failures` | count | `tx.num_dropped_sdus` / `tx.num_discarded_sdus` / `tx.num_discard_failures` | |
+| `dl_sdu_latency_avg_ns` | ns | `tx.sum_sdu_latency_us` × 1000 / `tx.num_sdus` (absent when no SDUs) | |
+| `dl_pdu_latency_avg_ns` | ns | `tx.sum_pdu_latency_ns` / `tx.num_pdus`, when OCUDU sends a PDU count (26.10 does not) | |
+| `dl_pdu_latency_max_ns` | ns | `tx.max_pdu_latency_ns` | |
+| `<ul\|dl>_raw.<field>` | "" | any other numeric `rx` / `tx` field; `pull_latency_histogram` is not normalised | |
+
+**DU-high MAC processing, per cell.** `du.du_high.mac.<dl|ul>[]`, one entry
+per cell (`pci`): the MAC's own processing time, not radio latency.
+
+| Metric (`cell.mac.`…) | Unit | OCUDU JSON | Verify |
+|---|---|---|---|
+| `dl_latency_avg_ns` / `_max_ns` / `_min_ns` | ns | `average_latency_us` / `max_latency_us` / `min_latency_us` × 1000 | |
+| `dl_cpu_usage` | "" | `cpu_usage_percent` (26.10 reports ~0.001 under load: percent or fraction?) | **unit** |
+| `<dl\|ul>_raw.<field>` | "" | any other numeric field | |
+
 ## Identity: which UE is the LiDAR?
 
 The two sources name UEs differently: JSON uses the RNTI, KPM uses the E2 UE

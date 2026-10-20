@@ -15,8 +15,17 @@ JSON (srsRAN metrics, both layouts — ``ue_list[].ue_container`` up to 24.x,
 * each ``event_list`` entry becomes ``event.<event_type>`` = 1 for its RNTI;
 * booleans, strings, ``null`` and identity fields (rnti, pci, ue) are not
   measurements and produce no row;
-* a report with no cells and no UEs (another metrics layer) produces nothing —
-  its raw form is still kept by whoever recorded it.
+* OCUDU sends two more layers as messages of their own (26.10):
+  ``rlc_metrics`` becomes per-UE rows ``ue.rlc.drb<id>.<ul|dl>_<field>`` (rx is
+  the uplink, tx the downlink), with the SDU and PDU latency sums turned into
+  averages in ns; ``du.du_high.mac.<dl|ul>[]`` becomes per-cell rows
+  ``cell.mac.<dl|ul>_<field>``. An RLC message names its UE by the DU's UE
+  index, not the RNTI. The scheduler message carries both (``ue`` and
+  ``rnti``), so a :class:`UeIndex` passed across one gNB's stream of reports
+  maps the index to that RNTI and cell; without one the UE is ``du-ue:<index>``
+  and the cell "";
+* a report with none of these (another metrics layer) produces nothing — its
+  raw form is still kept by whoever recorded it.
 
 Nothing is guessed: a field whose unit srsRAN does not document gets unit "".
 Rows are returned sorted by (cell, ue, metric) so both implementations agree
@@ -174,6 +183,75 @@ def _fields(
             yield f"{name}_mean", sum(float(x) for x in raw) / len(raw) * scale, unit
 
 
+#: RLC counters, per direction: field -> (suffix, unit). rx is what the gNB
+#: received (uplink), tx what it sent (downlink).
+RLC_FIELDS: dict[str, tuple[str, str]] = {
+    "num_sdus": ("sdus", "count"),
+    "num_sdu_bytes": ("sdu_bytes", "byte"),
+    "num_pdus": ("pdus", "count"),
+    "num_pdu_bytes": ("pdu_bytes", "byte"),
+    "num_lost_pdus": ("lost_pdus", "count"),
+    "num_malformed_pdus": ("malformed_pdus", "count"),
+    "num_dropped_sdus": ("dropped_sdus", "count"),
+    "num_discarded_sdus": ("discarded_sdus", "count"),
+    "num_discard_failures": ("discard_failures", "count"),
+    "max_pdu_latency_ns": ("pdu_latency_max_ns", "ns"),
+}
+
+#: DU-high MAC processing, per direction: field -> (suffix, unit, scale).
+MAC_FIELDS: dict[str, tuple[str, str, float]] = {
+    "average_latency_us": ("latency_avg_ns", "ns", 1000.0),
+    "max_latency_us": ("latency_max_ns", "ns", 1000.0),
+    "min_latency_us": ("latency_min_ns", "ns", 1000.0),
+    # The name says percent; 26.10 reports values like 0.001. Verify.
+    "cpu_usage_percent": ("cpu_usage", "", 1.0),
+}
+
+
+class UeIndex(dict):
+    """DU UE index -> (cell, rnti), learnt from scheduler reports.
+
+    Keep one per gNB report stream and pass it to every
+    :func:`normalise_json` call, in arrival order.
+    """
+
+
+def _rlc_rows(rlc: dict, ue_index: UeIndex | None) -> Iterable[tuple[str, str, str, float, str]]:
+    """(cell, ue, metric, value, unit) for one OCUDU ``rlc_metrics`` object."""
+    idx = _number(rlc.get("ue_id"))
+    if idx is None:
+        return
+    cell, ue = (ue_index or {}).get(int(idx), ("", f"du-ue:{int(idx)}"))
+    drb = _number(rlc.get("drb_id"))
+    prefix = f"ue.rlc.drb{int(drb) if drb is not None else 0}"
+    for side, direction in (("rx", "ul"), ("tx", "dl")):
+        block = rlc.get(side)
+        if not isinstance(block, dict):
+            continue
+        for key, raw in block.items():
+            n = _number(raw)
+            if n is None:
+                continue
+            if key in ("sum_sdu_latency_us", "sum_pdu_latency_ns"):
+                continue
+            suffix, unit = RLC_FIELDS.get(key, (f"raw.{key}", ""))
+            yield cell, ue, f"{prefix}.{direction}_{suffix}", n, unit
+        # Latency sums only mean something per SDU / PDU.
+        sdus, pdus = _number(block.get("num_sdus")), _number(block.get("num_pdus"))
+        total_us = _number(block.get("sum_sdu_latency_us"))
+        if total_us is not None and sdus:
+            yield (
+                cell,
+                ue,
+                f"{prefix}.{direction}_sdu_latency_avg_ns",
+                total_us * 1000.0 / sdus,
+                "ns",
+            )
+        total_ns = _number(block.get("sum_pdu_latency_ns"))
+        if total_ns is not None and pdus:
+            yield cell, ue, f"{prefix}.{direction}_pdu_latency_avg_ns", total_ns / pdus, "ns"
+
+
 def _rnti(ue: dict) -> str:
     r = ue.get("rnti")
     return str(int(r)) if _number(r) is not None else ""
@@ -184,8 +262,12 @@ def _pci(obj: dict, default: str = "") -> str:
     return str(int(p)) if _number(p) is not None else default
 
 
-def normalise_json(report: dict) -> list[RanSample]:
-    """One srsRAN JSON metrics report -> rows. ``recv_ns`` is left 0."""
+def normalise_json(report: dict, ue_index: UeIndex | None = None) -> list[RanSample]:
+    """One srsRAN JSON metrics report -> rows. ``recv_ns`` is left 0.
+
+    ``ue_index`` carries the DU UE index -> RNTI mapping from one report to the
+    next (OCUDU's RLC messages name only the index); it is updated in place.
+    """
     if not isinstance(report, dict):
         return []
     ts = report_timestamp_ns(report) or 0
@@ -202,6 +284,9 @@ def normalise_json(report: dict) -> list[RanSample]:
             if not isinstance(ue, dict):
                 continue
             cell, rnti = _pci(ue, cell_default), _rnti(ue)
+            idx = _number(ue.get("ue"))
+            if ue_index is not None and idx is not None and rnti:
+                ue_index[int(idx)] = (cell, rnti)
             for metric, value, unit in _fields(ue, JSON_UE, "ue"):
                 add(cell, rnti, metric, value, unit, t)
 
@@ -230,6 +315,28 @@ def normalise_json(report: dict) -> list[RanSample]:
             _pci(report["cell_metrics"]) if isinstance(report.get("cell_metrics"), dict) else ""
         )
         ue_rows(report["ue_list"], default, ts)
+
+    # OCUDU: RLC, one message per UE and DRB (an object; a list is accepted).
+    rlc = report.get("rlc_metrics")
+    for entry in rlc if isinstance(rlc, list) else [rlc]:
+        if isinstance(entry, dict):
+            for cell, ue, metric, value, unit in _rlc_rows(entry, ue_index):
+                add(cell, ue, metric, value, unit, ts)
+
+    # OCUDU: DU-high MAC processing, per cell and direction.
+    du = report.get("du")
+    mac = (((du or {}).get("du_high") or {}).get("mac") or {}) if isinstance(du, dict) else {}
+    for direction in ("dl", "ul"):
+        for entry in mac.get(direction) or [] if isinstance(mac, dict) else []:
+            if not isinstance(entry, dict):
+                continue
+            cell = _pci(entry)
+            for key, raw in entry.items():
+                n = _number(raw)
+                if key in _IDENTITY or n is None:
+                    continue
+                suffix, unit, scale = MAC_FIELDS.get(key, (f"raw.{key}", "", 1.0))
+                add(cell, "", f"cell.mac.{direction}_{suffix}", n * scale, unit, ts)
 
     rows.sort(key=lambda r: (r.cell, r.ue, r.metric))
     return rows

@@ -2,7 +2,8 @@
  "_comment": [
   "The contract between the two RAN normalisers: ran/py (Python: json + kpm) and ran/collector/src/normalise.rs (Rust: json).",
   "Each case: input -> expected rows. Compared as sets of (cell, ue, metric, gnb_ts_ns) with values equal to 1e-9 relative.",
-  "Change this file and both implementations together; regenerate nothing from code without checking the values by hand."
+  "Change this file and both implementations together; regenerate nothing from code without checking the values by hand.",
+  "A case gives `input` (one report) or `inputs` (a stream normalised in order through one shared UE index: OCUDU's RLC messages name the DU UE index, which an earlier scheduler message maps to the RNTI)."
  ],
  "json": [
   {
@@ -696,7 +697,17 @@
      }
     }
    },
-   "expected": []
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1762271486845000000,
+     "cell": "1",
+     "ue": "",
+     "metric": "cell.mac.dl_latency_avg_ns",
+     "value": 10000.0,
+     "unit": "ns"
+    }
+   ]
   },
   {
    "name": "no_timestamp",
@@ -933,6 +944,346 @@
      "metric": "ue.ul_throughput_bps",
      "value": 5908736.0,
      "unit": "bit/s"
+    }
+   ]
+  },
+  {
+   "name": "ocudu_rlc_after_scheduler",
+   "inputs": [
+    {
+     "timestamp": "2026-10-20T21:21:35.000",
+     "cells": [
+      {
+       "cell_metrics": {
+        "pci": 1
+       },
+       "event_list": [],
+       "ue_list": [
+        {
+         "ue": 0,
+         "pci": 1,
+         "rnti": 17921,
+         "ul_mcs": 22
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "timestamp": "2026-10-20T21:21:35.842",
+     "rlc_metrics": {
+      "drb_id": 1,
+      "du_id": 0,
+      "ue_id": 0,
+      "rx": {
+       "num_lost_pdus": 0,
+       "num_malformed_pdus": 0,
+       "num_pdu_bytes": 38005,
+       "num_pdus": 112,
+       "num_sdu_bytes": 36588,
+       "num_sdus": 28
+      },
+      "tx": {
+       "max_pdu_latency_ns": 7125,
+       "num_discard_failures": 0,
+       "num_discarded_sdus": 0,
+       "num_dropped_sdus": 0,
+       "num_sdu_bytes": 1079,
+       "num_sdus": 15,
+       "pull_latency_histogram": [
+        {
+         "pull_latency_bin_count": 1,
+         "pull_latency_bin_start_usec": 0
+        }
+       ],
+       "sum_pdu_latency_ns": 42917,
+       "sum_sdu_latency_us": 14375
+      }
+     }
+    }
+   ],
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295000000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.ul_mcs",
+     "value": 22.0,
+     "unit": "index"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_discard_failures",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_discarded_sdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_dropped_sdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_pdu_latency_max_ns",
+     "value": 7125.0,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_sdu_bytes",
+     "value": 1079.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_sdu_latency_avg_ns",
+     "value": 958333.3333333334,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.dl_sdus",
+     "value": 15.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_lost_pdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_malformed_pdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_pdu_bytes",
+     "value": 38005.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_pdus",
+     "value": 112.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_sdu_bytes",
+     "value": 36588.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "1",
+     "ue": "17921",
+     "metric": "ue.rlc.drb1.ul_sdus",
+     "value": 28.0,
+     "unit": "count"
+    }
+   ]
+  },
+  {
+   "name": "ocudu_rlc_before_any_scheduler_report",
+   "inputs": [
+    {
+     "timestamp": "2026-10-20T21:21:35.842",
+     "rlc_metrics": {
+      "drb_id": 1,
+      "du_id": 0,
+      "ue_id": 0,
+      "rx": {
+       "num_lost_pdus": 0,
+       "num_malformed_pdus": 0,
+       "num_pdu_bytes": 38005,
+       "num_pdus": 112,
+       "num_sdu_bytes": 36588,
+       "num_sdus": 28
+      },
+      "tx": {
+       "max_pdu_latency_ns": 7125,
+       "num_discard_failures": 0,
+       "num_discarded_sdus": 0,
+       "num_dropped_sdus": 0,
+       "num_sdu_bytes": 1079,
+       "num_sdus": 15,
+       "pull_latency_histogram": [
+        {
+         "pull_latency_bin_count": 1,
+         "pull_latency_bin_start_usec": 0
+        }
+       ],
+       "sum_pdu_latency_ns": 42917,
+       "sum_sdu_latency_us": 14375
+      }
+     }
+    }
+   ],
+   "expected": [
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_discard_failures",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_discarded_sdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_dropped_sdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_pdu_latency_max_ns",
+     "value": 7125.0,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_sdu_bytes",
+     "value": 1079.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_sdu_latency_avg_ns",
+     "value": 958333.3333333334,
+     "unit": "ns"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.dl_sdus",
+     "value": 15.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_lost_pdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_malformed_pdus",
+     "value": 0.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_pdu_bytes",
+     "value": 38005.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_pdus",
+     "value": 112.0,
+     "unit": "count"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_sdu_bytes",
+     "value": 36588.0,
+     "unit": "byte"
+    },
+    {
+     "source": "json",
+     "gnb_ts_ns": 1792531295842000000,
+     "cell": "",
+     "ue": "du-ue:0",
+     "metric": "ue.rlc.drb1.ul_sdus",
+     "value": 28.0,
+     "unit": "count"
     }
    ]
   }

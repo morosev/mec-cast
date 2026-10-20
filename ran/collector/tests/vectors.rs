@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use ran_collector::normalise::normalise_json;
+use ran_collector::normalise::{normalise_json_with, UeIndex};
 use serde_json::Value;
 
 fn vectors() -> Value {
@@ -28,7 +28,17 @@ fn every_json_vector_matches() {
     assert!(!cases.is_empty());
     for case in cases {
         let name = case["name"].as_str().unwrap();
-        let got = keyed(normalise_json(&case["input"]).into_iter().map(|r| {
+        // `inputs` is a stream through one UE index; `input` a single report.
+        let reports: Vec<Value> = match case.get("inputs") {
+            Some(Value::Array(items)) => items.clone(),
+            _ => vec![case["input"].clone()],
+        };
+        let mut index = UeIndex::new();
+        let rows: Vec<_> = reports
+            .iter()
+            .flat_map(|r| normalise_json_with(r, &mut index))
+            .collect();
+        let got = keyed(rows.into_iter().map(|r| {
             (
                 (r.cell, r.ue, r.metric, r.gnb_ts_ns),
                 (r.value, r.unit.to_string()),

@@ -11,6 +11,15 @@
 //! per key, a numeric array its `_mean`; cells likewise under `cell.`; each
 //! `event_list` entry `event.<type>` = 1. Identity fields, booleans, strings
 //! and nulls are not measurements. A unit srsRAN does not document is "".
+//!
+//! OCUDU (26.10) sends two more layers as messages of their own: `rlc_metrics`
+//! becomes `ue.rlc.drb<id>.<ul|dl>_<field>` (rx is the uplink, tx the
+//! downlink; latency sums become averages in ns), and `du.du_high.mac.<dl|ul>`
+//! becomes `cell.mac.<dl|ul>_<field>`. An RLC message names its UE by the DU's
+//! UE index; a [`UeIndex`] carried across one gNB's reports maps it to the
+//! RNTI and cell the scheduler message gave, else the UE is `du-ue:<index>`.
+
+use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
@@ -153,6 +162,33 @@ const JSON_CELL: &[(&str, &str, &str)] = &[
 
 const IDENTITY: &[&str] = &["rnti", "pci", "ue", "timestamp"];
 
+/// OCUDU RLC counters, per direction: field -> (suffix, unit).
+const RLC_FIELDS: &[(&str, &str, &str)] = &[
+    ("num_sdus", "sdus", "count"),
+    ("num_sdu_bytes", "sdu_bytes", "byte"),
+    ("num_pdus", "pdus", "count"),
+    ("num_pdu_bytes", "pdu_bytes", "byte"),
+    ("num_lost_pdus", "lost_pdus", "count"),
+    ("num_malformed_pdus", "malformed_pdus", "count"),
+    ("num_dropped_sdus", "dropped_sdus", "count"),
+    ("num_discarded_sdus", "discarded_sdus", "count"),
+    ("num_discard_failures", "discard_failures", "count"),
+    ("max_pdu_latency_ns", "pdu_latency_max_ns", "ns"),
+];
+
+/// OCUDU DU-high MAC processing, per direction: field -> (suffix, unit, scale).
+const MAC_FIELDS: &[(&str, &str, &str, f64)] = &[
+    ("average_latency_us", "latency_avg_ns", "ns", 1000.0),
+    ("max_latency_us", "latency_max_ns", "ns", 1000.0),
+    ("min_latency_us", "latency_min_ns", "ns", 1000.0),
+    // The name says percent; 26.10 reports values like 0.001. Verify.
+    ("cpu_usage_percent", "cpu_usage", "", 1.0),
+];
+
+/// DU UE index -> (cell, rnti), learnt from scheduler reports. Keep one per
+/// gNB report stream and pass it to every [`normalise_json_with`] call.
+pub type UeIndex = HashMap<i64, (String, String)>;
+
 /// Row sink: (cell, ue, metric, value, unit, gnb_ts_ns).
 type Push<'a> = dyn FnMut(&str, &str, String, f64, &'static str, i64) + 'a;
 
@@ -216,6 +252,12 @@ fn cell_timestamp(cell: &Value) -> Option<i64> {
 
 /// One srsRAN JSON metrics report -> rows, sorted by (cell, ue, metric).
 pub fn normalise_json(report: &Value) -> Vec<RanSample> {
+    normalise_json_with(report, &mut UeIndex::new())
+}
+
+/// [`normalise_json`] across a stream: `index` maps OCUDU's DU UE index to
+/// the RNTI for RLC messages, and is updated from every scheduler message.
+pub fn normalise_json_with(report: &Value, index: &mut UeIndex) -> Vec<RanSample> {
     let Some(obj) = report.as_object() else {
         return Vec::new();
     };
@@ -305,8 +347,131 @@ pub fn normalise_json(report: &Value) -> Vec<RanSample> {
         ue_rows(obj.get("ue_list"), &default, ts, &mut push);
     }
 
+    // Learn DU UE index -> (cell, rnti) from this message's scheduler UEs.
+    let cells = obj.get("cells").and_then(Value::as_array);
+    for c in cells.into_iter().flatten() {
+        let cell = c
+            .get("cell_metrics")
+            .map(|cm| int_string(cm.get("pci")))
+            .unwrap_or_default();
+        learn(c.get("ue_list"), &cell, index);
+    }
+    learn(obj.get("ue_list"), "", index);
+
+    // OCUDU: RLC, one message per UE and DRB (an object; a list is accepted).
+    let rlc: Vec<&Value> = match obj.get("rlc_metrics") {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(v @ Value::Object(_)) => vec![v],
+        _ => Vec::new(),
+    };
+    for entry in rlc {
+        rlc_rows(entry, index, ts, &mut push);
+    }
+
+    // OCUDU: DU-high MAC processing, per cell and direction.
+    let mac = obj
+        .get("du")
+        .and_then(|d| d.get("du_high"))
+        .and_then(|d| d.get("mac"));
+    for direction in ["dl", "ul"] {
+        for entry in mac
+            .and_then(|m| m.get(direction))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(e) = entry.as_object() else { continue };
+            let cell = int_string(e.get("pci"));
+            for (key, raw) in e {
+                let Some(n) = number(raw) else { continue };
+                if IDENTITY.contains(&key.as_str()) {
+                    continue;
+                }
+                let (metric, unit, scale) = MAC_FIELDS
+                    .iter()
+                    .find(|(f, ..)| f == key)
+                    .map(|(_, suffix, unit, scale)| {
+                        (format!("cell.mac.{direction}_{suffix}"), *unit, *scale)
+                    })
+                    .unwrap_or_else(|| (format!("cell.mac.{direction}_raw.{key}"), "", 1.0));
+                push(&cell, "", metric, n * scale, unit, ts);
+            }
+        }
+    }
+
     rows.sort_by(|a, b| (&a.cell, &a.ue, &a.metric).cmp(&(&b.cell, &b.ue, &b.metric)));
     rows
+}
+
+fn learn(entries: Option<&Value>, cell_default: &str, index: &mut UeIndex) {
+    for entry in entries.and_then(Value::as_array).into_iter().flatten() {
+        let ue = entry.get("ue_container").unwrap_or(entry);
+        let (Some(idx), rnti) = (ue.get("ue").and_then(number), int_string(ue.get("rnti"))) else {
+            continue;
+        };
+        if rnti.is_empty() {
+            continue;
+        }
+        let cell = match int_string(ue.get("pci")) {
+            s if s.is_empty() => cell_default.to_string(),
+            s => s,
+        };
+        index.insert(idx as i64, (cell, rnti));
+    }
+}
+
+fn rlc_rows(rlc: &Value, index: &UeIndex, ts: i64, push: &mut Push<'_>) {
+    let Some(idx) = rlc.get("ue_id").and_then(number).map(|f| f as i64) else {
+        return;
+    };
+    let (cell, ue) = index
+        .get(&idx)
+        .cloned()
+        .unwrap_or_else(|| (String::new(), format!("du-ue:{idx}")));
+    let drb = rlc
+        .get("drb_id")
+        .and_then(number)
+        .map(|f| f as i64)
+        .unwrap_or(0);
+    let prefix = format!("ue.rlc.drb{drb}");
+    for (side, direction) in [("rx", "ul"), ("tx", "dl")] {
+        let Some(block) = rlc.get(side).and_then(Value::as_object) else {
+            continue;
+        };
+        for (key, raw) in block {
+            let Some(n) = number(raw) else { continue };
+            // Latency sums only mean something per SDU / PDU: averaged below.
+            if key == "sum_sdu_latency_us" || key == "sum_pdu_latency_ns" {
+                continue;
+            }
+            let (suffix, unit) = RLC_FIELDS
+                .iter()
+                .find(|(f, ..)| f == key)
+                .map(|(_, suffix, unit)| (suffix.to_string(), *unit))
+                .unwrap_or_else(|| (format!("raw.{key}"), ""));
+            push(
+                &cell,
+                &ue,
+                format!("{prefix}.{direction}_{suffix}"),
+                n,
+                unit,
+                ts,
+            );
+        }
+        let get = |k: &str| block.get(k).and_then(number);
+        if let (Some(total), Some(sdus)) = (get("sum_sdu_latency_us"), get("num_sdus")) {
+            if sdus > 0.0 {
+                let metric = format!("{prefix}.{direction}_sdu_latency_avg_ns");
+                push(&cell, &ue, metric, total * 1000.0 / sdus, "ns", ts);
+            }
+        }
+        if let (Some(total), Some(pdus)) = (get("sum_pdu_latency_ns"), get("num_pdus")) {
+            if pdus > 0.0 {
+                let metric = format!("{prefix}.{direction}_pdu_latency_avg_ns");
+                push(&cell, &ue, metric, total / pdus, "ns", ts);
+            }
+        }
+    }
 }
 
 /// Total UE throughput in one report, `(dl, ul)` bit/s — what the admin

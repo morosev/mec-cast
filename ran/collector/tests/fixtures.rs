@@ -112,3 +112,33 @@ fn every_lab_capture_says_where_it_came_from() {
         }
     }
 }
+
+/// The real OCUDU 26.10 capture, normalised as the collector does it: one UE
+/// index across the stream. RLC and DU-MAC rows appear, and once a scheduler
+/// message has named the UE, every RLC row carries its RNTI.
+#[test]
+fn the_ocudu_capture_yields_rlc_and_mac_rows_under_the_rnti() {
+    use ran_collector::normalise::{normalise_json_with, UeIndex};
+
+    let text = std::fs::read_to_string(testdata().join("srsran_26.10.0.lab.jsonl")).unwrap();
+    let mut index = UeIndex::new();
+    let mut seen_scheduler = false;
+    let (mut rlc, mut mac) = (0, 0);
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let report: Value = serde_json::from_str(line).unwrap();
+        seen_scheduler |= report.get("cells").is_some();
+        for row in normalise_json_with(&report, &mut index) {
+            if row.metric.starts_with("ue.rlc.") {
+                rlc += 1;
+                if seen_scheduler {
+                    assert_eq!(row.ue, "17921", "{}", row.metric);
+                }
+            }
+            if row.metric.starts_with("cell.mac.") {
+                mac += 1;
+                assert_eq!(row.cell, "1");
+            }
+        }
+    }
+    assert!(rlc > 0 && mac > 0, "rlc={rlc} mac={mac}");
+}

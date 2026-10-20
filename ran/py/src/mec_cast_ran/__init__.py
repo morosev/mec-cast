@@ -11,11 +11,12 @@ between this implementation and the Rust one in ``ran/collector`` is
 """
 
 from .model import KPI_CSV_HEADER, RanSample
-from .normalise import normalise_json, normalise_kpm, report_timestamp_ns
+from .normalise import UeIndex, normalise_json, normalise_kpm, report_timestamp_ns
 
 __all__ = [
     "KPI_CSV_HEADER",
     "RanSample",
+    "UeIndex",
     "normalise_json",
     "normalise_kpm",
     "report_timestamp_ns",
