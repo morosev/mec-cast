@@ -41,6 +41,7 @@ services:
       ADMIN_URL: ${ADMIN_URL-ws://${INFRA_HOST:?set INFRA_HOST}:8099/ws/node}
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
+      RAN_LOGGING: ${RAN_LOGGING:-1}   # 0: run directory only, nothing sent
       # Which radio cell this node reports. Empty unless the deployment
       # declares a topology; see docs/operations/admin-service.md.
       CELL: ${CELL:-}

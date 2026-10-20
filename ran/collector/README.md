@@ -83,6 +83,7 @@ cargo run --release -p ran-collector
 | `RUNS_DIR` | `runs` | Base directory; each run writes `<RUNS_DIR>/<run_id>/ran/` |
 | `RAN_RAW_REPORTS` | `1` | Keep every report verbatim in `<run>/ran/reports.jsonl` |
 | `LOGGING_URL` | — | Logging service; omit to write CSV only |
+| `RAN_LOGGING` | `1` | `0` stops sending reports to the logging service; the run directory is written as before. Independent of the xApp's `KPM_LOGGING`, so the tap alone feeds the dashboard's radio panel on a deployment with no RIC. The admin's gNB node shows it as `logging`: `on`, `off` or `no-url` |
 | `ADMIN_URL` | — | Admin control plane; with it, the admin names and scopes the runs |
 
 **Build features**

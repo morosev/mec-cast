@@ -53,6 +53,10 @@ for an `xapp` node.
 
 Logging service: `service=mec-cast-ran-kpm`, `trace_id=run_id`, raw as
 `context.kpi`, rows as `context.norm`, controls as `context.control`.
+`KPM_LOGGING=0` stops that and leaves `ran-kpm/` as it is; the node's
+`logging` param says `on`, `off` or `no-url`. It is separate from the JSON
+tap's `RAN_LOGGING`: either source can feed the logging dashboard's radio
+panel alone (`ric.sh xapp` and `ran.yml` pass it through).
 
 ## Run parameters
 

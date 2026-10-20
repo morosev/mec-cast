@@ -185,3 +185,42 @@ def test_a_rejected_subscription_is_reported_and_backed_off(tmp_path, monkeypatc
     assert len(port.requests) == 1
     assert kpm._next_try - time.monotonic() > REJECTED_RETRY_S - 5
     app.stop_run()
+
+
+def test_kpm_logging_off_keeps_the_files_and_sends_nothing(tmp_path, monkeypatch):
+    """KPM_LOGGING=0: ran-kpm/ is written in full, nothing is queued for the
+    logging service, and the node says why."""
+    from mec_cast_xapp.app import env_flag
+
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    app = Xapp(
+        FakePort(),
+        load_capabilities(["kpm_monitor"]),
+        runs_dir=str(tmp_path),
+        logging_url="http://logging:8000",
+        log_metrics=False,
+    )
+    app.start_run("run-quiet")
+    rec = app.ctx.recorder
+    rec.record_indication(
+        {
+            "e2_node_id": "gnb-1",
+            "collect_start_ns": 1,
+            "ue_id": 0,
+            "meas": {"measData": {"DRB.UEThpUl": [5000]}, "granulPeriod": 1000},
+        }
+    )
+    assert rec._logging.url is None, "nothing may be sent"
+    assert app.status()["params"]["logging"] == "off"
+    app.stop_run()
+    assert "ue.ul_throughput_bps" in (tmp_path / "run-quiet" / "ran-kpm" / "kpi.csv").read_text()
+
+    for raw, want in (("", True), ("1", True), ("0", False), ("false", False), ("off", False)):
+        monkeypatch.setenv("KPM_LOGGING", raw)
+        assert env_flag("KPM_LOGGING") is want, raw
+
+
+def test_logging_state_says_on_or_no_url(tmp_path):
+    base = dict(runs_dir=str(tmp_path), defaults=None)
+    assert Xapp(FakePort(), [], logging_url=None, **base).logging_state == "no-url"
+    assert Xapp(FakePort(), [], logging_url="http://l:8000", **base).logging_state == "on"

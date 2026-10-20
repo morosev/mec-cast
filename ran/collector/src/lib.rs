@@ -56,6 +56,12 @@ pub struct CollectorConfig {
     /// directory should be whole without it — and it is how a lab capture
     /// becomes a test fixture: copy the file.
     pub raw_reports: bool,
+    /// Send each report to the logging service (`RAN_LOGGING`, on by
+    /// default). Off, the run directory is still written in full; only the
+    /// upload stops. Independent of the xApp's own switch (`KPM_LOGGING`):
+    /// either source can feed the logging service alone, so the database
+    /// keeps radio data on a deployment with no RIC at all.
+    pub log_metrics: bool,
     /// Flush the KPI batch at this interval (or at `max_batch`).
     pub flush_interval: Duration,
     pub max_batch: usize,
@@ -69,6 +75,7 @@ impl CollectorConfig {
             runs_dir: runs_dir.into(),
             ptp_device: None,
             raw_reports: true,
+            log_metrics: true,
             flush_interval: Duration::from_secs(1),
             max_batch: 100,
         }
@@ -77,6 +84,18 @@ impl CollectorConfig {
 
 /// Where one run's RAN output lands: `<runs_dir>/<run_id>/ran/`. The leaf is
 /// the one the admin's manifest already names for a gNB (`orchestrator.py`).
+impl CollectorConfig {
+    /// What the admin shows as the node's `logging`: `on`, `off` (switched
+    /// off with RAN_LOGGING=0) or `no-url` (no LOGGING_URL to send to).
+    pub fn logging_state(&self) -> &'static str {
+        match (self.log_metrics, &self.logging_url) {
+            (false, _) => "off",
+            (true, None) => "no-url",
+            (true, Some(_)) => "on",
+        }
+    }
+}
+
 pub fn run_dir(runs_dir: &Path, run_id: &str) -> PathBuf {
     runs_dir.join(run_id).join("ran")
 }
@@ -239,6 +258,7 @@ impl Batcher {
             url: cfg
                 .logging_url
                 .as_ref()
+                .filter(|_| cfg.log_metrics)
                 .map(|base| format!("{}/api/v1/logs", base.trim_end_matches('/'))),
             agent: ureq::AgentBuilder::new()
                 .timeout_connect(Duration::from_millis(500))
@@ -565,6 +585,7 @@ pub fn run_with_admin(
                     &handle,
                     &session,
                     source.as_ref(),
+                    cfg.logging_state(),
                     idle_datagrams,
                     serde_json::json!({}),
                 );
@@ -583,6 +604,7 @@ pub fn run_with_admin(
                     &handle,
                     &session,
                     source.as_ref(),
+                    cfg.logging_state(),
                     idle_datagrams,
                     report_json(&report),
                 );
@@ -607,6 +629,7 @@ pub fn run_with_admin(
                 &handle,
                 &session,
                 source.as_ref(),
+                cfg.logging_state(),
                 idle_datagrams,
                 serde_json::json!({}),
             );
@@ -659,6 +682,7 @@ fn send_status(
     handle: &admin::AdminHandle,
     session: &Option<RunSession>,
     source: &dyn MetricsSource,
+    logging: &str,
     idle_datagrams: u64,
     report: Value,
 ) {
@@ -679,6 +703,7 @@ fn send_status(
         (None, None, _) => String::new(),
     };
     params["bind"] = json!(bind);
+    params["logging"] = json!(logging);
     if let Some(active) = session {
         let (enabled, error) = active.ptp_status();
         params["ptp_enabled"] = json!(enabled);

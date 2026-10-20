@@ -9,6 +9,9 @@
 //!                       ws:// URL (default 127.0.0.1:8001, 25.04+)
 //!   PTP_DEVICE          PHC for ptp.reliable, e.g. /dev/ptp0 (optional)
 //!   RAN_RAW_REPORTS     keep every report in <run>/ran/reports.jsonl (default 1)
+//!   RAN_LOGGING         send every report to the logging service (default 1;
+//!                       0 keeps the run directory only). Independent of the
+//!                       xApp's KPM_LOGGING: the tap alone can feed it.
 //!   RUN_ID              experiment run id (default "dev-run")
 //!   LOGGING_URL       mec-cast-logging-service base URL (optional)
 //!   RUNS_DIR          base output directory (default "runs")
@@ -47,11 +50,13 @@ fn main() -> std::io::Result<()> {
         env("RAN_RAW_REPORTS").as_deref(),
         Some("0" | "false" | "no")
     );
+    cfg.log_metrics = !matches!(env("RAN_LOGGING").as_deref(), Some("0" | "false" | "no"));
 
     let metrics = source::open(kind, &udp, &ws)?;
     eprintln!(
-        "[ran-collector] source={} udp={udp} ws={ws} (run_id={run_id})",
-        kind.as_str()
+        "[ran-collector] source={} udp={udp} ws={ws} (run_id={run_id}) logging={}",
+        kind.as_str(),
+        cfg.logging_state()
     );
 
     let stop = Arc::new(AtomicBool::new(false));

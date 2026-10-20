@@ -167,3 +167,61 @@ fn replay_fixture_end_to_end() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// RAN_LOGGING=0: the run directory is written exactly as before, and
+/// nothing reaches the logging service, even with a LOGGING_URL configured.
+#[test]
+fn logging_switched_off_keeps_the_run_directory_and_posts_nothing() {
+    let (url, bodies) = start_stub_http();
+    let dir = std::env::temp_dir().join(format!("ran-collector-nolog-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind collector socket");
+    let collector_addr = socket.local_addr().unwrap();
+
+    let mut cfg = CollectorConfig::new("nolog-run", &dir);
+    cfg.logging_url = Some(url);
+    cfg.log_metrics = false;
+    cfg.flush_interval = Duration::from_millis(100);
+    assert_eq!(cfg.logging_state(), "off");
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let source = Box::new(UdpSource::from_socket(socket, Duration::from_millis(50)).unwrap());
+    let collector = {
+        let stop = Arc::clone(&stop);
+        thread::spawn(move || run(source, cfg, &stop).expect("collector run"))
+    };
+
+    let fixture = include_str!("../testdata/srsran_metrics.jsonl");
+    let tx = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut sent = 0u64;
+    for line in fixture.lines().filter(|l| !l.trim().is_empty()) {
+        tx.send_to(line.as_bytes(), collector_addr).unwrap();
+        sent += 1;
+    }
+
+    thread::sleep(Duration::from_millis(400));
+    stop.store(true, Ordering::SeqCst);
+    let report = collector.join().expect("collector thread");
+
+    assert_eq!(
+        report.samples_written, sent,
+        "the run directory is still whole"
+    );
+    assert_eq!(report.batches_posted, 0);
+    assert_eq!(report.post_failures, 0);
+    assert!(bodies.lock().unwrap().is_empty(), "nothing was posted");
+    let kpi = std::fs::read_to_string(dir.join("nolog-run/ran/kpi.csv")).expect("kpi.csv");
+    assert!(kpi.lines().count() > 1, "normalised rows still written");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn logging_state_names_why_nothing_is_sent() {
+    let mut cfg = CollectorConfig::new("r", "runs");
+    assert_eq!(cfg.logging_state(), "no-url");
+    cfg.logging_url = Some("http://logging:8000".into());
+    assert_eq!(cfg.logging_state(), "on");
+    cfg.log_metrics = false;
+    assert_eq!(cfg.logging_state(), "off");
+}

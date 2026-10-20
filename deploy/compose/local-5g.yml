@@ -131,6 +131,7 @@ services:
       ADMIN_URL: ws://127.0.0.1:8099/ws/node
       RUNS_DIR: /runs
       LOGGING_URL: http://127.0.0.1:8000
+      RAN_LOGGING: ${RAN_LOGGING:-1}   # 0: run directory only, nothing sent
       CELL: ${CELL:-}
       PTP_DEVICE: ""
       GNB_METRICS_SOURCE: ${GNB_METRICS_SOURCE:-ws}

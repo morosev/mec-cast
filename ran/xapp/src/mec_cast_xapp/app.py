@@ -11,6 +11,9 @@ Environment:
   RUN_ID             standalone run id               (dev-run)
   RUNS_DIR           output base                     (runs)
   LOGGING_URL        logging service                 (none: files only)
+  KPM_LOGGING        send KPM rows and controls to it (1; 0 = files only).
+                     Independent of the collector's RAN_LOGGING: the JSON
+                     tap feeds the logging service with or without this xApp
   CELL               radio cell, as the other nodes report it
   XAPP_HOST          node identity host              (hostname)
   KPM_STYLE, KPM_METRICS, KPM_UE_IDS, E2_NODE_ID     defaults for run params
@@ -53,6 +56,14 @@ def make_port(name: str) -> E2Port:
     raise SystemExit(f"E2_ADAPTER={name!r}: expected osc or sim")
 
 
+def env_flag(name: str, default: bool = True) -> bool:
+    """An on/off variable: 0, false, no or off is off; unset or empty is the default."""
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in ("0", "false", "no", "off")
+
+
 def env_params() -> Dict[str, Any]:
     """Run-parameter defaults from the environment; run.start args win."""
     out: Dict[str, Any] = {}
@@ -77,17 +88,27 @@ class Xapp:
         logging_url: Optional[str],
         defaults: Optional[Dict[str, Any]] = None,
         admin: Any = None,
+        log_metrics: bool = True,
     ):
         self.port = port
         self.capabilities = capabilities
         self.runs_dir = runs_dir
         self.logging_url = logging_url
+        #: KPM_LOGGING. Off, every run still writes ran-kpm/ in full.
+        self.log_metrics = log_metrics
         self.defaults = defaults or {}
         self.admin = admin
         self.ctx: Optional[XappContext] = None
         self._lock = threading.RLock()
         self._booted = {c.name: False for c in capabilities}
         self._admin_seen = time.monotonic()
+
+    @property
+    def logging_state(self) -> str:
+        """`on`, `off` (KPM_LOGGING=0) or `no-url`, as the admin shows it."""
+        if not self.log_metrics:
+            return "off"
+        return "on" if self.logging_url else "no-url"
 
     # --- run lifecycle ------------------------------------------------------
 
@@ -102,7 +123,9 @@ class Xapp:
             if self.ctx is not None:
                 self.stop_run()
             params = dict(self.defaults, **(args or {}))
-            recorder = RunRecorder(self.runs_dir, run_id, self.logging_url)
+            recorder = RunRecorder(
+                self.runs_dir, run_id, self.logging_url if self.log_metrics else None
+            )
             self.ctx = XappContext(self.port, run_id, params, recorder, time.time_ns)
             self.ctx.admin_lost_s = self.admin_lost_s
             log.info(
@@ -196,6 +219,7 @@ class Xapp:
                 "adapter": self.port.name,
                 "capabilities": [c.name for c in self.capabilities],
                 "version": __version__,
+                "logging": self.logging_state,
             }
             try:
                 nodes = self.port.connected_nodes()
@@ -294,6 +318,7 @@ def main() -> int:
         logging_url=os.environ.get("LOGGING_URL") or None,
         defaults=env_params(),
         admin=admin,
+        log_metrics=env_flag("KPM_LOGGING"),
     )
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

@@ -25,6 +25,8 @@
 # (kpm only: stop after this long; default until Ctrl-C). STYLE, METRICS and
 # UE_IDS reach the xApp too, as its KPM_STYLE / KPM_METRICS / KPM_UE_IDS
 # defaults; run params still override them per run.
+# KPM_LOGGING=0 keeps the xApp's KPM rows and controls out of the logging
+# service (ran-kpm/ is still written); the JSON tap's RAN_LOGGING is separate.
 set -euo pipefail
 
 RIC_REPO=https://github.com/srsran/oran-sc-ric.git
@@ -206,6 +208,7 @@ case "${1:-}" in
       -e OSC_XAPPS_DIR=/opt/xApps \
       -e ADMIN_URL="${ADMIN_URL-ws://$INFRA_HOST:8099/ws/node}" \
       -e LOGGING_URL="http://$INFRA_HOST:8000" \
+      -e KPM_LOGGING="${KPM_LOGGING:-1}" \
       -e RUNS_DIR=/runs \
       -e XAPP_HOST="${XAPP_HOST:-$(hostname -s)}" \
       -e CELL="${CELL:-}" \
