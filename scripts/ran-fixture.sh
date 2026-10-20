@@ -12,7 +12,7 @@
 #
 # <srsran-version> is what `gnb --version` prints on the lab gNB, e.g. 25.04.
 # <udp|ws> is the transport the collector used: the admin's gNB node shows it
-# as `transport`, and the collector logs "auto: srsRAN is sending over ...".
+# as `metrics_transport`, and the collector logs "auto: srsRAN is sending over ...".
 #
 # Run it from the repo on whichever machine holds the run: the gNB host
 # itself, or wherever scripts/collect-runs.sh gathered runs to.

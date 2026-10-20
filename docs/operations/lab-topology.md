@@ -267,6 +267,6 @@ where you will be when you need it:
 3. Confirm the gNB exports metrics where the collector reads them: up to
    srsRAN 24.x, `gnb.yml` `metrics.addr/port` → the gNB host, port 55555; from
    25.04, `metrics.enable_json` plus `remote_control` (port 8001). The admin's
-   gNB node shows `source`, `transport` and `ws_last_error` in its status.
+   gNB node shows `source`, `metrics_transport` and `ws_last_error` in its status.
 4. One short smoke run; confirm `runs/<id>/{pub-0,edge-0,ran}/samples.csv` all
    appear and `context.ptp.reliable` is `true` in the snapshots.
