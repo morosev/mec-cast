@@ -85,7 +85,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 in_ns() { ip netns exec "$NS" "$@"; }
-has_ip() { in_ns ip -4 -o addr show dev "$TUN" 2>/dev/null | grep -q inet; }
+# No `cmd | grep -q` anywhere: under pipefail, grep -q exits at the first match,
+# the writer dies of SIGPIPE, and the pipeline reports failure for a match.
+has_ip() { [ -n "$(in_ns ip -4 -o addr show dev "$TUN" 2>/dev/null)" ]; }
+host_has_n6() { [ -n "$(ip -4 -o addr show | awk 'index($4, "10.53.1.1/") == 1')" ]; }
 
 # --- the radio processes ---------------------------------------------------
 # SIGINT, as Ctrl-C would: the gNB writes its E2AP pcap only on a clean exit.
@@ -165,13 +168,13 @@ fi
 
 # --- 1. the host ------------------------------------------------------------
 modprobe sctp
-if ! ip addr | grep -q "10.53.1.1/"; then
+if ! host_has_n6; then
   echo "==> starting the Open5GS core ($OCUDU_DOCKER)"
   (cd "$OCUDU_DOCKER" && docker compose up -d 5gc)
-  for _ in $(seq 1 30); do ip addr | grep -q "10.53.1.1/" && break; sleep 1; done
-  ip addr | grep -q "10.53.1.1/" || { echo "ERROR: the core's bridge 10.53.1.1 never came up." >&2; exit 1; }
+  for _ in $(seq 1 30); do host_has_n6 && break; sleep 1; done
+  host_has_n6 || { echo "ERROR: the core's bridge 10.53.1.1 never came up." >&2; exit 1; }
 fi
-ip route | grep -q "^10.45.0.0/16" || ip route add 10.45.0.0/16 via 10.53.1.2   # downlink return path
+[ -n "$(ip route show 10.45.0.0/16)" ] || ip route add 10.45.0.0/16 via 10.53.1.2   # downlink return path
 
 # --- 2. the namespace -------------------------------------------------------
 PID=$(docker inspect -f '{{if .State.Running}}{{.State.Pid}}{{end}}' "$CONTAINER" 2>/dev/null || true)
