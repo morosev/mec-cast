@@ -332,15 +332,19 @@ up-ran-admin: build-ros2 ## Simulated gNB + collector, driven by the control pla
 up-local-5g: build-ros2 ## Pipeline over a local OCUDU + srsUE + Open5GS link (Ubuntu)
 	$(COMPOSE_5G) $(if $(RAN),--profile ran) up -d --build
 	@echo "admin page: http://localhost:8099/admin   (the UE appears once it is attached)"
-	@echo "  next: make attach-local-5g   (restart gNB, then srsUE, while it waits)"
+	@echo "  next: make attach-local-5g   (starts the gNB and srsUE, then routes the UE)"
 
-# Re-run after EVERY srsUE or gNB restart and every client-container recreate:
-# the route over tun_srsue and the ue1 -> container netns link do not persist.
-attach-local-5g: ## Put the local-5G UE container behind srsUE and route the edge over 5G
-	bash scripts/ocudu-attach-ue.sh
+# Brings the radio up behind the UE container: host setup, ue1 -> the client's
+# netns, gNB then srsUE (in root tmux sessions `gnb` and `srsue`), the route.
+# Re-run after every client-container recreate. RESTART=1 restarts the radio
+# even when the link is up (a changed gnb_zmq.yaml, an E2 retry); MANUAL=1
+# leaves the radio to you and only waits for it.
+attach-local-5g: ## Start the local-5G radio behind the UE container and route the edge over 5G
+	bash scripts/ocudu-attach-ue.sh $(if $(RESTART),-R) $(if $(MANUAL),-n)
 
-down-local-5g: ## Stop the local-5G stack, keeping the database
+down-local-5g: ## Stop the local-5G stack and its radio, keeping the database
 	$(COMPOSE_5G) --profile ran down
+	bash scripts/ocudu-attach-ue.sh -S
 
 up-logging: ## Logging service + postgres only
 	docker compose -f deploy/compose/logging.yml up -d --build

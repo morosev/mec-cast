@@ -21,8 +21,8 @@
 # The UE waits until N6_ADDR routes via tun_srsue before it opens its Zenoh
 # session, so it can never silently take the bridge shortcut instead of 5G.
 # Until then the admin shows no UE node. `make attach-local-5g`
-# (scripts/ocudu-attach-ue.sh) creates that route, and must be re-run after
-# every srsUE/gNB restart and every recreate of lidar-client.
+# (scripts/ocudu-attach-ue.sh) starts the gNB and srsUE behind this container
+# and creates that route; re-run it after every recreate of lidar-client.
 #
 # Knobs: NUM_POINTS (5000), RATE_HZ (10.0), SEED (42), PATTERN, RELIABILITY,
 #        QOS_DEPTH, LIDAR_INSTANCES, N6_ADDR (10.53.1.1 = this host on the

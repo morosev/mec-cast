@@ -329,15 +329,21 @@ For 20 MHz: sample rate 23.04 / 23.04e6 in all four places, `coreset0_index: 12`
 
 ### 1.6 Per-boot script
 
-Namespaces, routes and the SCTP module do not survive a reboot.
-`~/ran-configs/up.sh`:
+Namespaces, routes and the SCTP module do not survive a reboot, and `ue1`
+also goes stale whenever the LiDAR client container is removed
+(`make down-local-5g`). This script is for Part 1, the radio on its own.
+From Part 2 on, `make attach-local-5g` does the same setup itself, every time
+it runs. It is safe to run any number of times. `~/ran-configs/up.sh`:
 
 ```bash
 #!/bin/bash
 # Per-boot setup for the local 5G testbed. Run before starting the gNB.
 set -e
 sudo modprobe sctp                                            # NGAP transport
-sudo ip netns list | grep -q '^ue1' || sudo ip netns add ue1  # UE namespace
+# UE namespace. `make attach-local-5g` turns ue1 into a link to the client
+# container's namespace; once that container is gone the link dangles, still
+# shows in `ip netns list`, and every `ip netns exec ue1` fails. Test it, not the name.
+sudo ip netns exec ue1 true 2>/dev/null || { sudo rm -f /run/netns/ue1; sudo ip netns add ue1; }
 sudo ip netns exec ue1 sysctl -qw net.ipv6.conf.all.disable_ipv6=1   # no IPv6 RS spam at the UPF
 cd ~/src/ocudu/docker && docker compose up -d 5gc             # core + bridge 10.53.1.0/24
 for _ in $(seq 1 30); do ip addr | grep -q 10.53.1.1 && break; sleep 1; done
@@ -349,6 +355,9 @@ chmod +x ~/ran-configs/up.sh && ~/ran-configs/up.sh
 ```
 
 ### 1.7 Bring up and verify
+
+A one-time check that the radio works on its own, before mec-cast is involved.
+From Part 2 on, `make attach-local-5g` starts and stops the radio for you.
 
 Order: **core → gNB → UE**. Restart the gNB whenever you restart srsUE — the
 ZMQ sample stream has no resynchronisation. Use three terminals (or tmux).
@@ -379,8 +388,9 @@ Type `t` in the srsUE console for per-second MCS, BLER and bitrate. To confirm
 traffic really crosses the RAN, `sudo tcpdump -ni any udp port 2152` shows
 every ping as GTP-U between 10.53.1.1 and 10.53.1.2.
 
-Stop with Ctrl-C on srsUE, then the gNB; `docker compose down` in
-`~/src/ocudu/docker` stops the core.
+Stop with Ctrl-C on srsUE, then the gNB, before Part 2: the attach script
+starts its own. Leave the core running; `docker compose down` in
+`~/src/ocudu/docker` stops it.
 
 ## Part 2 — mec-cast over the 5G link
 
@@ -409,12 +419,13 @@ make build-ros2
 
 ### 2.2 Start the stack
 
-With the core running (`~/ran-configs/up.sh`):
+Nothing else needs to be running; the next step brings up the core and the
+radio.
 
 ```bash
 cd ~/mec-cast
 make up-local-5g
-docker logs -f mec5g-lidar-client-1
+docker logs mec5g-lidar-client-1
 # waiting for the 5G link: 10.53.1.1 does not route via tun_srsue yet
 ```
 
@@ -431,24 +442,33 @@ mec5g() { docker compose -p mec5g -f deploy/compose/logging.yml \
 That message is expected. The admin page (http://localhost:8099/admin) shows
 the edge (and the gNB, with the tap on) but not the UE until step 2.3 is done.
 
-### 2.3 Attach the UE to the 5G link
+### 2.3 Bring the radio up behind the UE
 
 ```bash
-make attach-local-5g          # = bash scripts/ocudu-attach-ue.sh
+make attach-local-5g          # = bash scripts/ocudu-attach-ue.sh; asks for sudo
 ```
 
-It does three things, and is safe to run at any time:
+It does four things, and is safe to run at any time:
 
-1. Points the `ue1` namespace name at the LiDAR client container's
-   namespace. srsUE's `[gw] netns = ue1` opens that name when srsUE starts,
+1. **Host setup**, as `up.sh` does: SCTP, the Open5GS core if it is not up,
+   and the return route to the UE pool.
+2. **Points the `ue1` namespace name at the LiDAR client container's
+   namespace.** srsUE's `[gw] netns = ue1` opens that name when srsUE starts,
    which is how `tun_srsue` ends up inside the container.
-2. Waits for `tun_srsue` with an address in that namespace, i.e. for srsUE to
-   have a PDU session. **While it waits, restart the radio in order:** Ctrl-C
-   srsUE and the gNB, start the gNB and wait for `==== gNB started ===`, then
-   start srsUE and wait for `PDU Session Establishment successful`. The script
-   prints the same instructions.
-3. Sets the MTU to 1400 (room for GTP-U), disables IPv6, routes
-   `10.53.1.1/32` via `tun_srsue`, and pings the edge across the link.
+3. **Starts the radio**, if the link is not already up: stops any running
+   srsUE and gNB, starts the gNB and waits for `gNB started`, then starts
+   srsUE and waits for the PDU session. They run in two root tmux sessions,
+   so the consoles stay usable:
+   ```bash
+   sudo tmux attach -t srsue     # type t for the per-second trace; Ctrl-b d to leave
+   sudo tmux attach -t gnb
+   ```
+   Copies of both consoles go to `/tmp/gnb.console` and `/tmp/srsue.console`.
+4. **Routes the edge over 5G:** MTU 1400 (room for GTP-U), IPv6 off,
+   `10.53.1.1/32` via `tun_srsue`, then a ping across the link.
+
+The binaries and configs are found at the paths of Part 1. If yours differ,
+set `GNB_BIN`, `GNB_CONF`, `SRSUE_BIN`, `UE_CONF` or `OCUDU_DOCKER`.
 
 Only the edge address goes over 5G. The container's default route stays on the
 compose bridge, so `logging` and `admin` still resolve. **Never** add a
@@ -458,16 +478,20 @@ Within two seconds the client log prints
 `5G link up: 10.53.1.1 dev tun_srsue src 10.45.1.2` and the UE node
 `client-ue-local-0` registers in the admin.
 
-### 2.4 When to attach again
+### 2.4 When to run it again
 
-Neither the route nor the namespace link persists. Each of these breaks them,
-and in each case the fix is `make attach-local-5g`:
+Neither the route nor the namespace link persists. In every case below the
+fix is one command:
 
-| What happened | What it broke | What the script does |
+| What happened | What it broke | Run |
 |---|---|---|
-| srsUE restarted, **including after every gNB restart** (e.g. to load the RAN-tap config) | The new `tun_srsue` has no route and the default MTU | Finds the interface and sets route and MTU |
-| The client container was recreated: `make up-local-5g` after a new commit, `RAN=1`, a changed knob, `down`/`up` | The container has a new namespace; `ue1` names the dead one | Repoints `ue1`, then waits while you restart gNB and srsUE |
-| Host reboot | Everything | Run `~/ran-configs/up.sh`, `make up-local-5g`, then attach |
+| The client container was recreated: `make up-local-5g` after a new commit, `RAN=1`, a changed knob, `down`/`up` | The container has a new namespace; `ue1` names the dead one | `make attach-local-5g`: it sees the move and restarts the radio |
+| You changed `gnb_zmq.yaml` or `ue_zmq.conf` | Nothing yet: the radio still runs the old config | `make attach-local-5g RESTART=1` |
+| The gNB or srsUE stopped, or was restarted by hand | The new `tun_srsue` has no route and the default MTU | `make attach-local-5g` |
+| Host or VM reboot | Everything | `make up-local-5g`, then `make attach-local-5g` |
+
+With the link already up, `make attach-local-5g` leaves the radio alone and
+only re-checks the route.
 
 `make up-local-5g` rebuilds the image, and a new commit changes it, so any
 re-run of that target can recreate the client. To change only one service,
@@ -476,6 +500,9 @@ use the `mec5g` function with `--no-deps`, e.g.
 
 <details>
 <summary>What the script runs, by hand</summary>
+
+To drive the radio yourself instead, `make attach-local-5g MANUAL=1` does
+everything except start it, and waits while you do. Or, entirely by hand:
 
 ```bash
 PID=$(docker inspect -f '{{.State.Pid}}' mec5g-lidar-client-1)
@@ -518,13 +545,13 @@ into `gnb_zmq.yaml` (`metrics.enable_json`, the `layers`, and `remote_control`
 on 127.0.0.1:8001). Those keys work unchanged on OCUDU 26.10. Then:
 
 ```bash
-make up-local-5g RAN=1        # adds ran-collector; may recreate the client
-make attach-local-5g          # restart gNB (new config) and srsUE while it waits
+make up-local-5g RAN=1                # adds ran-collector; may recreate the client
+make attach-local-5g RESTART=1        # the gNB loads the new config; srsUE follows
 ```
 
-Loading the new gNB config means a gNB restart, which forces an srsUE restart,
-which drops the UE's route. That is why the attach step follows. The admin
-then shows three nodes: the gNB, the edge and `client-ue-local-0`.
+`RESTART=1` because the gNB config changed: the radio must restart even if
+the link was up. The admin then shows three nodes: the gNB, the edge and
+`client-ue-local-0`.
 
 KPIs land in `runs/<run_id>/ran/` (`kpi.csv`, `samples.csv`, `reports.jsonl`),
 joined to the application data by run id. Check the join:
@@ -546,10 +573,12 @@ bash scripts/ran-fixture.sh <run_id> 26.10.0 ws
 ### 2.7 Tear down
 
 ```bash
-make down-local-5g                # keeps the database — never add -v
-# then Ctrl-C srsUE and the gNB; core: cd ~/src/ocudu/docker && docker compose down
-sudo rm -f /run/netns/ue1 && sudo ip netns add ue1   # back to a plain UE namespace
+make down-local-5g                # stack, then srsUE and the gNB; keeps the database (never add -v)
+cd ~/src/ocudu/docker && docker compose down        # the core, if you want it gone too
 ```
+
+`make down-local-5g` also turns `ue1` back into a plain namespace, so Part 1's
+manual check works again afterwards.
 
 ## Part 3 — E2: the RIC, the xApp and RAN control
 
@@ -586,7 +615,7 @@ of `rtmgr_sim` dies first, and the RIC's Go services would follow at runtime.
   ls /proc/sys/fs/binfmt_misc/                           # rosetta, no qemu-x86_64
   docker run --rm --platform linux/amd64 alpine uname -m # x86_64
   ```
-  A VM restart drops namespaces and routes: run `up.sh` and attach again.
+  A VM restart drops namespaces and routes: `make attach-local-5g` redoes them.
 - **arm64 Ubuntu on bare metal:** QEMU 8.1.x, from before the regression:
   ```bash
   docker run --privileged --rm tonistiigi/binfmt --uninstall qemu-x86_64
@@ -633,16 +662,21 @@ pcap:
   e2ap_du_filename: /tmp/gnb_du_e2ap.pcap
 ```
 
-Restart the radio the usual way: `make attach-local-5g`, and while it waits
-restart the gNB, then srsUE. Then:
+Load it:
+
+```bash
+make attach-local-5g RESTART=1
+```
+
+Then:
 
 ```bash
 bash deploy/lab/ric/ric.sh status     # "gnbd_001_001_00019b_0 CONNECTED"
 ```
 
 The RIC refuses an E2 reconnect within 60 s of a disconnect. If the node is
-missing after a quick gNB restart, wait a minute, restart only the gNB, and
-run `make attach-local-5g` once more: every gNB restart costs the UE its route.
+missing after a quick gNB restart, wait a minute and restart the radio:
+`sleep 60 && make attach-local-5g RESTART=1`.
 
 OCUDU logs E2 at debug level as `[E2-DU]`, `[E2SM-KPM]`, `[E2SM-RC]`,
 `[E2-SUBSCRIBER]`. Search for `\[E2`: a plain `grep ric` matches "metric" on
@@ -807,25 +841,22 @@ leaves a cap behind in the gNB (ADR-0011).
 
 After a host or VM boot, with everything built:
 
-1. `~/ran-configs/up.sh`: SCTP, the `ue1` namespace, the core, the UE-pool route.
-2. `bash deploy/lab/ric/ric.sh up`, then wait for `RMR is ready now`. Only if you use E2.
-3. `make up-local-5g RAN=1`: mec-cast, with the metrics tap.
-4. `make attach-local-5g`. While it waits: start the gNB, wait for
-   `==== gNB started ===`, then start srsUE.
-5. `bash deploy/lab/ric/ric.sh status`: the node is CONNECTED. If not, wait
-   60 s, restart the gNB, and run step 4 again.
-6. `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d`.
-7. The admin page shows four nodes: gNB, edge, `client-ue-local-0` and
+1. `bash deploy/lab/ric/ric.sh up`, then wait for `RMR is ready now`. Only if
+   you use E2; it must come before the gNB.
+2. `make up-local-5g RAN=1`: mec-cast, with the metrics tap.
+3. `make attach-local-5g`: host setup and the core, `ue1`, the gNB, srsUE,
+   the route.
+4. `bash deploy/lab/ric/ric.sh status`: the node is CONNECTED. If not:
+   `sleep 60 && make attach-local-5g RESTART=1`.
+5. `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d`.
+6. The admin page shows four nodes: gNB, edge, `client-ue-local-0` and
    `xapp-<host>-0`. Start runs.
 
-Two rules cover every later restart:
-
-- **Any gNB or srsUE restart:** run `make attach-local-5g` again. ZMQ needs
-  the gNB and srsUE restarted together, gNB first.
-- **srsUE must start after `ue1` points at the client container.** Otherwise
-  `tun_srsue` lands in the wrong namespace: srsUE is attached (its log shows
-  `PUCCH … cqi=15`), but the container has no `tun_srsue`. Run the attach
-  script, then restart the radio.
+Every later restart is `make attach-local-5g`: plain after the client
+container was recreated or the radio stopped, `RESTART=1` after a radio
+config change. It restarts the gNB and srsUE together, gNB first, because
+ZMQ cannot resynchronise, and always after `ue1` points at the client
+container, because srsUE opens the namespace only when it starts.
 
 ## Troubleshooting
 
@@ -842,14 +873,16 @@ Read the symptom column first.
 | `Decoding Failed (5GS tracking area identity list): Length (19) does not equal expected length 7` | The AMF advertises several TACs; srsUE handles one | Reduce the AMF `tai:` list to `tac: 7` ([1.4](#14-start-the-open5gs-core)) |
 | Core: `RRC Release` right after attach, `Cannot find IMSI in DB` | Subscriber missing or credentials differ | Fix `SUBSCRIBER_DB` or add the IMSI in the WebUI |
 | UPF: `Invalid packet [IP version:6 …]` | IPv6 router solicitations from `tun_srsue`; the session is IPv4 | Harmless; disable IPv6 in `ue1` (in `up.sh`) |
+| `Cannot open network namespace "ue1": No such file or directory` | `ue1` still links to a client container that was removed without `make down-local-5g` | `make attach-local-5g` relinks it; for Part 1 on its own, `up.sh` resets it |
 | UE pings UPF but iperf3 / the edge times out | Host has no route back to the UE pool | `sudo ip route add 10.45.0.0/16 via 10.53.1.2` |
 | iperf3: `Address already in use` | A server is already running | Use it, or `pkill iperf3` |
 | Late / underflow messages, attach unstable | CPU cannot keep up with real time | Stay at 10 MHz, close other load, run OCUDU's `scripts/ocudu_performance` |
-| Admin shows the edge (and gNB) but no UE; client log `waiting for the 5G link` | srsUE or the gNB restarted, or the client container was recreated; the route or the namespace link is gone | `make attach-local-5g` ([2.4](#24-when-to-attach-again)) |
+| Admin shows the edge (and gNB) but no UE; client log `waiting for the 5G link` | srsUE or the gNB restarted, or the client container was recreated; the route or the namespace link is gone | `make attach-local-5g` ([2.4](#24-when-to-run-it-again)) |
+| `make attach-local-5g`: `gNB did not print 'gNB started'` or no PDU session | The gNB or srsUE failed to start: core down, a config error, a stale process holding the ZMQ ports | The script prints the console tail; more in `sudo tmux attach -t gnb` / `-t srsue` and `/tmp/*.console` |
 | `5G link up` printed but no UE node or no frames | Router unreachable through the tunnel | `sudo ip netns exec ue1 ping 10.53.1.1`; check the return route |
 | Large clouds stall while pings work | GTP-U overhead exceeds the MTU | `make attach-local-5g` (sets MTU 1400) |
 | Heavy frame loss, latency climbing during a run | Offered load above cell capacity | Lower `NUM_POINTS`/`RATE_HZ`, or use a 20 MHz cell |
-| srsUE attached (`PUCCH … cqi=15` in its log) but `Device "tun_srsue" does not exist` in the client container | srsUE started before `ue1` pointed at the container | `make attach-local-5g`, then restart gNB and srsUE |
+| srsUE attached (`PUCCH … cqi=15` in its log) but `Device "tun_srsue" does not exist` in the client container | srsUE was started by hand before `ue1` pointed at the container | `make attach-local-5g RESTART=1` |
 | UE stops registering after a core rebuild | `--force-recreate` re-provisioned the subscriber without SD 1 | Set SST 1 / SD `000001` again in the WebUI ([1.4](#14-start-the-open5gs-core)) |
 | `ric.sh up`: `fatal error: lfstack.push` while building `rtmgr_sim` | QEMU ≥ 9.0.1 runs the amd64 Go build and crashes | Rosetta or QEMU 8.1.x ([3.1](#31-arm64-hosts-only-run-amd64-correctly)) |
 | `ric.sh`: `cannot write …/runs` | The containers created `runs/` as root | `sudo chown $USER: runs` |
