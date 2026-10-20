@@ -17,7 +17,7 @@ Two layers, deliberately separate:
 **Roles** (``RoleSpec``) — the cardinality rules, which are a property of the
 architecture, not of a deployment. They ship as ``DEFAULT_ROLES`` and are what
 makes a spec useful with no file present at all: local development, CI, and
-every existing single-cell deployment keep working untouched.
+every existing single-zone deployment keep working untouched.
 
 **Nodes** (``NodeSpec``) — the declared fleet, which *is* deployment-specific
 and lives in ``deploy/lab/topology.yml``. Optional. Declaring it buys
@@ -42,10 +42,10 @@ from .protocol import NodeType
 #: to the repo root, matching the compose files it sits beside.
 DEFAULT_TOPOLOGY_PATH = "deploy/lab/topology.yml"
 
-#: The cell every node belongs to until cells are declared. One cell is the
-#: single-cell deployment the platform has always had, so nothing changes for
+#: The zone every node belongs to until zones are declared. One zone is the
+#: single-zone deployment the platform has always had, so nothing changes for
 #: an operator who never writes a topology file.
-DEFAULT_CELL = "default"
+DEFAULT_ZONE = "default"
 
 
 @dataclass(frozen=True)
@@ -66,43 +66,43 @@ class RoleSpec:
     required: bool
     #: How absence is reported: "error", "warn", or None for not at all.
     absence: str | None
-    #: Instances of this role expected per cell. `max_per_cell=None` is
+    #: Instances of this role expected per zone. `max_per_zone=None` is
     #: unbounded — several LiDARs on one UE is the normal case since M1.
-    min_per_cell: int = 0
-    max_per_cell: int | None = None
+    min_per_zone: int = 0
+    max_per_zone: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "role": str(self.role),
             "required": self.required,
             "absence": self.absence,
-            "min_per_cell": self.min_per_cell,
-            "max_per_cell": self.max_per_cell,
+            "min_per_zone": self.min_per_zone,
+            "max_per_zone": self.max_per_zone,
         }
 
 
 #: The architecture's own rules. Quorum is one client and one edge — the same
 #: rule ADR-0007 states and `_supervise_once` used to spell out inline.
 DEFAULT_ROLES: tuple[RoleSpec, ...] = (
-    RoleSpec(NodeType.CLIENT, required=True, absence="error", min_per_cell=1),
-    RoleSpec(NodeType.EDGE, required=True, absence="error", min_per_cell=1, max_per_cell=1),
-    RoleSpec(NodeType.GNB, required=False, absence="warn", max_per_cell=1),
+    RoleSpec(NodeType.CLIENT, required=True, absence="error", min_per_zone=1),
+    RoleSpec(NodeType.EDGE, required=True, absence="error", min_per_zone=1, max_per_zone=1),
+    RoleSpec(NodeType.GNB, required=False, absence="warn", max_per_zone=1),
     RoleSpec(NodeType.RENDER, required=False, absence=None),
     # The E2 xApp is a second RAN source, not a requirement: silent when
     # absent by default, since most runs are JSON-tap only. A study that needs
     # KPM declares `roles: {xapp: {required: true}}` in topology.yml.
-    RoleSpec(NodeType.XAPP, required=False, absence=None, max_per_cell=1),
+    RoleSpec(NodeType.XAPP, required=False, absence=None, max_per_zone=1),
 )
 
 
 @dataclass(frozen=True)
 class NodeSpec:
-    """One declared node: which role runs on which host, in which cell."""
+    """One declared node: which role runs on which host, in which zone."""
 
     node_id: str
     role: NodeType
     host: str
-    cell: str = DEFAULT_CELL
+    zone: str = DEFAULT_ZONE
     instance: int = 0
     #: For a client: which RAN UE it is, as observed — ``e2_ue_id`` (the
     #: E2 xApp's id) and/or ``rnti`` (the JSON tap's). Both follow attach
@@ -116,7 +116,7 @@ class NodeSpec:
             "node_id": self.node_id,
             "role": str(self.role),
             "host": self.host,
-            "cell": self.cell,
+            "zone": self.zone,
             "instance": self.instance,
         }
         if self.ue:
@@ -152,19 +152,19 @@ class TopologySpec:
         """True when an operator has said what the fleet should be."""
         return bool(self.nodes)
 
-    # --- cells ------------------------------------------------------------
+    # --- zones ------------------------------------------------------------
 
     @property
-    def cells(self) -> tuple[str, ...]:
-        """Declared cells, in declaration order, without duplicates."""
+    def zones(self) -> tuple[str, ...]:
+        """Declared zones, in declaration order, without duplicates."""
         seen: list[str] = []
         for node in self.nodes:
-            if node.cell not in seen:
-                seen.append(node.cell)
-        return tuple(seen) or (DEFAULT_CELL,)
+            if node.zone not in seen:
+                seen.append(node.zone)
+        return tuple(seen) or (DEFAULT_ZONE,)
 
-    def nodes_in(self, cell: str) -> tuple[NodeSpec, ...]:
-        return tuple(n for n in self.nodes if n.cell == cell)
+    def nodes_in(self, zone: str) -> tuple[NodeSpec, ...]:
+        return tuple(n for n in self.nodes if n.zone == zone)
 
     def find(self, node_id: str) -> NodeSpec | None:
         for node in self.nodes:
@@ -174,13 +174,13 @@ class TopologySpec:
 
     def to_dict(self) -> dict[str, Any]:
         """What the UI receives. `roleChips` reads `roles`; the topology view
-        reads `nodes` and `cells`."""
+        reads `nodes` and `zones`."""
         return {
             "source": self.source,
             "declared": self.declared,
             "roles": [r.to_dict() for r in self.roles],
             "nodes": [n.to_dict() for n in self.nodes],
-            "cells": list(self.cells),
+            "zones": list(self.zones),
         }
 
 
@@ -214,7 +214,7 @@ def _parse_nodes(raw: Any, source: str) -> tuple[NodeSpec, ...]:
         if not host:
             raise TopologyError(f"{where}: `host` is required")
         instance = int(entry.get("instance", 0))
-        cell = str(entry.get("cell", DEFAULT_CELL)).strip() or DEFAULT_CELL
+        zone = str(entry.get("zone", DEFAULT_ZONE)).strip() or DEFAULT_ZONE
         # node_id is derived exactly as protocol.node_id() derives it, so a
         # declared node and a connected one compare directly. Declaring it
         # explicitly is allowed for the rare host whose hostname differs from
@@ -232,7 +232,7 @@ def _parse_nodes(raw: Any, source: str) -> tuple[NodeSpec, ...]:
                 node_id=node_id,
                 role=NodeType(role),
                 host=host,
-                cell=cell,
+                zone=zone,
                 instance=instance,
                 ue=_parse_ue(entry.get("ue"), role, where),
             )
@@ -288,10 +288,10 @@ def _parse_roles(raw: Any, source: str) -> tuple[RoleSpec, ...]:
             role=base.role,
             required=bool(value.get("required", base.required)),
             absence=absence,
-            min_per_cell=int(value.get("min_per_cell", base.min_per_cell)),
-            # An explicit `max_per_cell: null` means unbounded, and .get
+            min_per_zone=int(value.get("min_per_zone", base.min_per_zone)),
+            # An explicit `max_per_zone: null` means unbounded, and .get
             # returns that None unchanged — same result as the longhand.
-            max_per_cell=value.get("max_per_cell", base.max_per_cell),
+            max_per_zone=value.get("max_per_zone", base.max_per_zone),
         )
     # Keep DEFAULT_ROLES' order so the UI's chips do not reshuffle per file.
     return tuple(by_role[s.role] for s in DEFAULT_ROLES)
@@ -300,7 +300,7 @@ def _parse_roles(raw: Any, source: str) -> tuple[RoleSpec, ...]:
 def load(path: str | pathlib.Path | None) -> TopologySpec:
     """Read a topology file, or return the built-in defaults.
 
-    A missing file is not an error — it is the single-cell deployment the
+    A missing file is not an error — it is the single-zone deployment the
     platform has always had. A *malformed* file is an error, because someone
     tried to say something and it did not take.
     """
@@ -329,28 +329,28 @@ def load(path: str | pathlib.Path | None) -> TopologySpec:
 def to_mermaid(spec: TopologySpec) -> str:
     """The declared topology as a mermaid flowchart, for the admin page.
 
-    Read-only and generated per snapshot. Grouped by cell, because that is
+    Read-only and generated per snapshot. Grouped by zone, because that is
     the structure the extended model adds and the thing an operator most
     needs to see at a glance.
     """
     if not spec.declared:
         return ""
     lines = ["flowchart LR"]
-    for i, cell in enumerate(spec.cells):
-        lines.append(f'  subgraph CELL{i}["{cell}"]')
+    for i, zone in enumerate(spec.zones):
+        lines.append(f'  subgraph ZONE{i}["{zone}"]')
         lines.append("    direction LR")
-        for node in spec.nodes_in(cell):
+        for node in spec.nodes_in(zone):
             ident = _mermaid_id(node.node_id)
             lines.append(f'    {ident}["{node.role}<br/>{node.host}"]')
         lines.append("  end")
-    # The data path within each cell. Fan-in, not a chain: every client
+    # The data path within each zone. Fan-in, not a chain: every client
     # reaches the gNB independently, so walking a flat list and joining
     # consecutive pairs would draw client-0 -> client-1, which is not a link
     # that exists. Renderers hang off the edge, in the downlink direction.
-    for cell in spec.cells:
-        in_cell = spec.nodes_in(cell)
+    for zone in spec.zones:
+        in_zone = spec.nodes_in(zone)
         by_role: dict[NodeType, list[str]] = {}
-        for node in in_cell:
+        for node in in_zone:
             by_role.setdefault(node.role, []).append(_mermaid_id(node.node_id))
 
         clients = by_role.get(NodeType.CLIENT, [])

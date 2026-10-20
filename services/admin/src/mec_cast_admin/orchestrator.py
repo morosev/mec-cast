@@ -36,7 +36,7 @@ from .state import (
     occupies_slot,
 )
 from .store import Run, RunStore, utc_now, uuid7
-from .topology import DEFAULT_CELL
+from .topology import DEFAULT_ZONE
 from .workflow import diagnose
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,8 @@ class Orchestrator:
         self._ui_sockets: set[Any] = set()
 
         #: run_id -> when it entered `starting`. Per-run since runs became
-        #: per-cell: one scalar would let cell A's start reset cell B's
-        #: timeout clock, so a slow cell could hold a fast one open forever.
+        #: per-zone: one scalar would let zone A's start reset zone B's
+        #: timeout clock, so a slow zone could hold a fast one open forever.
         self._starting_since: dict[str, float] = {}
         self._stopping_since: dict[str, float] = {}
         #: (node_id, run_id) pairs already sent a catch-up `run.stop` because
@@ -83,9 +83,9 @@ class Orchestrator:
         self.topology = topo.load(settings.topology_path)
         if self.topology.declared:
             logger.info(
-                "topology: %d node(s) across %d cell(s) declared in %s",
+                "topology: %d node(s) across %d zone(s) declared in %s",
                 len(self.topology.nodes),
-                len(self.topology.cells),
+                len(self.topology.zones),
                 self.topology.source,
             )
 
@@ -118,24 +118,24 @@ class Orchestrator:
 
     @property
     def active_runs(self) -> list[Run]:
-        """Every run holding a slot, at most one per cell.
+        """Every run holding a slot, at most one per zone.
 
         Derived rather than stored, as `active_run` always was — so lifting
         the single-run limit corrupts no schema and needs no migration.
         """
         return [r for r in self._runs.values() if occupies_slot(r.state)]
 
-    def active_run_in(self, cell: str) -> Run | None:
+    def active_run_in(self, zone: str) -> Run | None:
         for run in self._runs.values():
-            if occupies_slot(run.state) and run.cell == cell:
+            if occupies_slot(run.state) and run.zone == zone:
                 return run
         return None
 
     @property
     def active_run(self) -> Run | None:
-        """The first active run, for the single-cell callers and the page's
-        `active_run_id`. Kept because a deployment with one cell has exactly
-        one active run, and every one-cell caller means precisely that."""
+        """The first active run, for the single-zone callers and the page's
+        `active_run_id`. Kept because a deployment with one zone has exactly
+        one active run, and every one-zone caller means precisely that."""
         runs = self.active_runs
         return runs[0] if runs else None
 
@@ -202,26 +202,26 @@ class Orchestrator:
         self,
         label: str = "",
         params: dict[str, Any] | None = None,
-        cell: str = DEFAULT_CELL,
+        zone: str = DEFAULT_ZONE,
     ) -> Run:
-        # An unknown cell is refused rather than silently accepted: a typo
+        # An unknown zone is refused rather than silently accepted: a typo
         # would create a run that no node can ever join, which looks exactly
         # like a broken deployment. Only checked against a DECLARED topology,
         # since without one any name is as good as another.
-        if self.topology.declared and cell not in self.topology.cells:
+        if self.topology.declared and zone not in self.topology.zones:
             raise OrchestratorError(
-                f"No cell {cell!r} in {self.topology.source}. "
-                f"Declared cells: {', '.join(self.topology.cells)}."
+                f"No zone {zone!r} in {self.topology.source}. "
+                f"Declared zones: {', '.join(self.topology.zones)}."
             )
         params = dict(params or {})
         if params.get("ran_policy"):
-            params["ran_policy"] = self.resolve_ran_policy(params["ran_policy"], cell)
+            params["ran_policy"] = self.resolve_ran_policy(params["ran_policy"], zone)
         run = Run(
             run_id=uuid7(),
             seq=max((r.seq for r in self._runs.values()), default=0) + 1,
             label=label,
             params=params,
-            cell=cell or DEFAULT_CELL,
+            zone=zone or DEFAULT_ZONE,
         )
         self._runs[run.run_id] = run
         self._persist(run, "created", {"to": str(run.state)})
@@ -232,7 +232,7 @@ class Orchestrator:
                 "label": run.label,
                 "params": run.params,
                 "seq": run.seq,
-                "cell": run.cell,
+                "zone": run.zone,
             },
         )
         self.mark_dirty()
@@ -261,15 +261,15 @@ class Orchestrator:
         run = self.get_run(run_id)
 
         if action is Action.START:
-            # One active run per CELL. Two cells are independent deployments
+            # One active run per ZONE. Two zones are independent deployments
             # of the same platform, so a run in one must not block the other;
-            # within a cell the limit still holds, because it falls out of
+            # within a zone the limit still holds, because it falls out of
             # one active Recorder per node process (ADR-0007).
-            blocking = self.active_run_in(run.cell)
+            blocking = self.active_run_in(run.zone)
             if blocking is not None and blocking.run_id != run_id:
                 raise OrchestratorError(
                     f"Run {blocking.seq} ({blocking.run_id}) is still {blocking.state} "
-                    f"in cell {run.cell}. Only one run can be active per cell; "
+                    f"in zone {run.zone}. Only one run can be active per zone; "
                     "stop it first."
                 )
 
@@ -283,13 +283,13 @@ class Orchestrator:
             # The UE identities in force for this run, frozen with it.
             run.ue_map = {
                 n.node_id: dict(n.ue)
-                for n in self.topology.nodes_in(run.cell)
+                for n in self.topology.nodes_in(run.zone)
                 if n.role is p.NodeType.CLIENT and n.ue
             }
             self._check_headroom_to_start()
             run.participants = {}
             self._starting_since[run.run_id] = time.monotonic()
-            # Start recruits, so it goes to the cell rather than to members.
+            # Start recruits, so it goes to the zone rather than to members.
             await self._broadcast_command(
                 p.CommandType.RUN_START, run_id=run.run_id, args=run.params, run=run
             )
@@ -311,7 +311,7 @@ class Orchestrator:
         self.mark_dirty()
         return run
 
-    def resolve_ran_policy(self, policy: dict[str, Any], cell: str) -> dict[str, Any]:
+    def resolve_ran_policy(self, policy: dict[str, Any], zone: str) -> dict[str, Any]:
         """Turn a policy that names a client node into one the xApp can apply.
 
         ``ue`` may be a client node_id. It resolves through that node's `ue:`
@@ -331,8 +331,8 @@ class Orchestrator:
             )
         if node.role is not p.NodeType.CLIENT:
             raise OrchestratorError(f"ran_policy.ue {ue!r} is a {node.role}, not a client")
-        if node.cell != (cell or DEFAULT_CELL):
-            raise OrchestratorError(f"ran_policy.ue {ue!r} is in cell {node.cell}, not {cell}")
+        if node.zone != (zone or DEFAULT_ZONE):
+            raise OrchestratorError(f"ran_policy.ue {ue!r} is in zone {node.zone}, not {zone}")
         e2 = (node.ue or {}).get("e2_ue_id")
         if e2 is None:
             raise OrchestratorError(
@@ -353,7 +353,7 @@ class Orchestrator:
             raise OrchestratorError(
                 f"Run {run.seq} is {run.state}; a RAN policy only applies to an active run."
             )
-        policy = self.resolve_ran_policy(policy, run.cell)
+        policy = self.resolve_ran_policy(policy, run.zone)
         sent = await self._broadcast_command(
             p.CommandType.RAN_POLICY,
             run_id=run.run_id,
@@ -414,17 +414,17 @@ class Orchestrator:
 
         The two lifecycle commands need different answers, and conflating
         them is the bug this replaces — the old code shouted at every online
-        node, so with two concurrent runs a `run.stop` for one cell stopped
-        the other cell's nodes mid-measurement.
+        node, so with two concurrent runs a `run.stop` for one zone stopped
+        the other zone's nodes mid-measurement.
 
         * **stop** targets run MEMBERSHIP: exactly the nodes recording this
           run. Nothing else should hear it.
         * **start** cannot target membership — no node is in the run yet;
-          recruiting them is what start is for. It targets the run's CELL
+          recruiting them is what start is for. It targets the run's ZONE
           instead, which is the set of nodes eligible to join.
 
-        A node that reports no cell is treated as being in the default cell,
-        so an undeclared single-cell deployment keeps receiving everything
+        A node that reports no zone is treated as being in the default zone,
+        so an undeclared single-zone deployment keeps receiving everything
         exactly as before.
         """
         online = self.registry.online(node_type)
@@ -433,18 +433,18 @@ class Orchestrator:
         if run is None:
             return [r.node_id for r in online]
 
-        in_cell = [r for r in online if (r.cell or DEFAULT_CELL) == run.cell]
+        in_zone = [r for r in online if (r.zone or DEFAULT_ZONE) == run.zone]
         if not by_membership:
-            return [r.node_id for r in in_cell]
+            return [r.node_id for r in in_zone]
 
         # Membership, plus the nodes that have not said yet. A node that took
         # `run.start` a moment ago has no run_id on its record until its first
         # status lands, and missing the stop would leave it streaming into a
         # run everyone else has left. A node recording a DIFFERENT run has a
         # different non-empty run_id and is still correctly excluded, which is
-        # the property that matters — being scoped to the cell already, this
-        # can only over-reach within the run's own cell.
-        return [r.node_id for r in in_cell if r.run_id == run.run_id or not r.run_id]
+        # the property that matters — being scoped to the zone already, this
+        # can only over-reach within the run's own zone.
+        return [r.node_id for r in in_zone if r.run_id == run.run_id or not r.run_id]
 
     async def _broadcast_command(
         self,
@@ -480,13 +480,13 @@ class Orchestrator:
             record.address = str(client.host)
         await self.attach_node(record.node_id, socket)
 
-        # The run for THIS node's cell, not simply the first active one — a
-        # node joining cell B must not be told to start cell A's run.
+        # The run for THIS node's zone, not simply the first active one — a
+        # node joining zone B must not be told to start zone A's run.
         # A STOPPING run still holds the slot but is not offered: its stop
         # went out before this node existed, so nothing would ever tell it to
         # stop. A gNB collector retrying its first connect joined that window
         # and recorded a stopped run indefinitely.
-        run = self.active_run_in(record.cell or DEFAULT_CELL)
+        run = self.active_run_in(record.zone or DEFAULT_ZONE)
         active = None
         if run is not None and run.state in ACCEPTS_PARTICIPANTS:
             active = p.ActiveRun(run_id=run.run_id, label=run.label, params=run.params)
@@ -525,7 +525,7 @@ class Orchestrator:
                 reported.reports[node_id] = dict(status.report)
                 self._store.save(reported)
 
-        run = self._runs.get(record.run_id or "") or self.active_run_in(record.cell or DEFAULT_CELL)
+        run = self._runs.get(record.run_id or "") or self.active_run_in(record.zone or DEFAULT_ZONE)
         if (
             run is not None
             and record.run_id == run.run_id
@@ -626,8 +626,8 @@ class Orchestrator:
 
     def _refresh_findings(self) -> None:
         before = self._findings
-        # One pass per active run, because diagnostics are cell-scoped: with
-        # two runs, diagnosing only the first left the other cell with no
+        # One pass per active run, because diagnostics are zone-scoped: with
+        # two runs, diagnosing only the first left the other zone with no
         # diagnosis at all while reporting its nodes as being on the wrong
         # run. With no active run, one pass with None — an idle platform
         # still has version skew and reachability to report.
@@ -644,7 +644,7 @@ class Orchestrator:
             ):
                 # Fleet-wide findings (version skew, logging reachability)
                 # are produced by every pass; keep one.
-                key = (finding.code, finding.subject, finding.cell)
+                key = (finding.code, finding.subject, finding.zone)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -654,7 +654,7 @@ class Orchestrator:
             self.mark_dirty()
 
     async def _supervise_once(self) -> None:
-        # Every active run, not just the first: with runs per cell there can
+        # Every active run, not just the first: with runs per zone there can
         # be several, and supervising only one would leave the others stuck
         # in `starting` forever.
         for run in self.active_runs:
@@ -706,7 +706,7 @@ class Orchestrator:
         # and the page's role chips and the WF_*_ABSENT findings cannot drift
         # apart. Default spec = one client and one edge, exactly as before.
         # Judged among THIS run's participants, which are already scoped to
-        # the run — so a client in cell B cannot satisfy cell A's quorum.
+        # the run — so a client in zone B cannot satisfy zone A's quorum.
         has_quorum = all(
             any(r.node_type == role for r in running) for role in self.topology.required_roles
         )
@@ -770,11 +770,11 @@ class Orchestrator:
             if run.state in {RunState.STOPPED, RunState.FAILED}:
                 run.stopped_utc = utc_now()
                 # Freeze the diagnostics into the manifest: why a run ended
-                # badly is part of its provenance. Only this cell's findings —
-                # pinning another cell's problems onto this run's record would
+                # badly is part of its provenance. Only this zone's findings —
+                # pinning another zone's problems onto this run's record would
                 # misattribute them forever, and the manifest is the artefact
                 # someone reads months later.
-                run.findings = [f for f in self._findings if f.get("cell") in (None, "", run.cell)]
+                run.findings = [f for f in self._findings if f.get("zone") in (None, "", run.zone)]
             self._persist(run, "auto", {"from": str(before), "to": str(run.state)})
             if run.state is RunState.FAILED:
                 # A run the supervisor fails must still be stopped on its
@@ -829,9 +829,9 @@ class Orchestrator:
             "server_version": __version__,
             "protocol": p.PROTOCOL_VERSION,
             "active_run_id": run.run_id if run else None,
-            # Per-cell, since runs are per-cell. `active_run_id` above stays
-            # for the single-cell case and for readers that predate this.
-            "active_runs": {r.cell: r.run_id for r in self.active_runs},
+            # Per-zone, since runs are per-zone. `active_run_id` above stays
+            # for the single-zone case and for readers that predate this.
+            "active_runs": {r.zone: r.run_id for r in self.active_runs},
             "runs": [{**r.to_dict(), "allowed": allowed_actions(r.state)} for r in self.all_runs()],
             "nodes": self.registry.to_dict(),
             # The page reads `topology.roles` for its role chips (one source

@@ -46,7 +46,7 @@ async def get_state(orchestrator: OrchestratorDep) -> StateResponse:
 )
 async def create_run(body: RunCreate, orchestrator: OrchestratorDep) -> dict:
     try:
-        run = orchestrator.create_run(label=body.label, params=body.params, cell=body.cell)
+        run = orchestrator.create_run(label=body.label, params=body.params, zone=body.zone)
     except OrchestratorError as exc:
         # 409 like every other refused operator action: the request is
         # well-formed, the platform just cannot honour it.

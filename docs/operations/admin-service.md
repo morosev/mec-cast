@@ -110,12 +110,12 @@ it, since the edge's `publish_result` is off unless asked for.
 
 Two rules worth knowing:
 
-- **One non-terminal run at a time, per cell.** A second start in the same
-  cell is refused with a message naming the run in the way. This falls out of
+- **One non-terminal run at a time, per zone.** A second start in the same
+  zone is refused with a message naming the run in the way. This falls out of
   one active Recorder per node process (ADR-0007) — a per-node limit, and so
-  a per-cell one, never a global one. Two cells are independent deployments
+  a per-zone one, never a global one. Two zones are independent deployments
   of the same platform and run independently; a deployment that has not
-  declared a topology has exactly one cell and so still runs one at a time.
+  declared a topology has exactly one zone and so still runs one at a time.
 - **A stopped run never restarts.** Restarting would append a second
   experiment into the first run's CSV, since the recorder appends by design.
 
@@ -163,23 +163,23 @@ nothing.
 | `WF_RENDER_CROSS_HOST` | A renderer runs on a host with no lidar client — its `e2e_ns` is no longer the PTP-free round trip of ADR-0009, but an ordinary cross-host figure valid only under a reliable PTP lock |
 | `WF_CLOCK_SKEW` | A node recorded an impossible (negative) delay: the sending host’s clock is ahead of its own, so every cross-host figure it produced is wrong by the skew. The run still looks healthy — frames flow and CSVs grow — which is why this is an error |
 | `WF_VERSION_SKEW` | A node is on a different commit from the admin |
-| `WF_TRANSPORT_MISMATCH` | The Zenoh nodes of a cell dial the router over different links (tcp, quic, udp ?rel=1/0): a run would cross two transports. Each node reports its link; runs record it as `zenoh_link` |
+| `WF_TRANSPORT_MISMATCH` | The Zenoh nodes of a zone dial the router over different links (tcp, quic, udp ?rel=1/0): a run would cross two transports. Each node reports its link; runs record it as `zenoh_link` |
 | `WF_PARTICIPANT_LOST` | A participant stopped answering mid-run |
 | `WF_LOGGING_UNREACHABLE` | Snapshots are not reaching the logging service |
 | `WF_TOPOLOGY_UNDECLARED` | A node connected that the declared topology does not list |
 | `WF_TOPOLOGY_MISSING` | A declared node has never connected |
-| `WF_TOPOLOGY_CELL_MISMATCH` | A node reports a different cell from the one it is declared in |
+| `WF_TOPOLOGY_ZONE_MISMATCH` | A node reports a different zone from the one it is declared in |
 
 The three `WF_TOPOLOGY_*` findings only appear once a topology is declared —
 see below. Without one they are silent, which is the point: an undeclared
 fleet is not a wrong fleet.
 
-**Every finding is scoped to a cell.** Role checks, the client-to-edge
-pairing, and quorum are all judged within one cell, so a gNB in cell B cannot
-satisfy cell A's `WF_GNB_ABSENT`, and clients are never paired against edges
-they can never reach. Each finding carries the `cell` it belongs to, and a
-run freezes only its own cell's findings into its manifest — pinning another
-cell's problems onto a run's permanent record would misattribute them to
+**Every finding is scoped to a zone.** Role checks, the client-to-edge
+pairing, and quorum are all judged within one zone, so a gNB in zone B cannot
+satisfy zone A's `WF_GNB_ABSENT`, and clients are never paired against edges
+they can never reach. Each finding carries the `zone` it belongs to, and a
+run freezes only its own zone's findings into its manifest — pinning another
+zone's problems onto a run's permanent record would misattribute them to
 whoever reads it months later.
 
 `WF_QOS_MISMATCH` and `WF_NO_FRAMES` are the failure modes the node docstrings
@@ -207,8 +207,8 @@ What declaring buys:
 |---|---|
 | A node connects that is not listed | `WF_TOPOLOGY_UNDECLARED` |
 | A listed node never connects | `WF_TOPOLOGY_MISSING` |
-| A node reports a cell other than its declared one | `WF_TOPOLOGY_CELL_MISMATCH` |
-| A client declares `ue: {e2_ue_id, rnti}` | A `ran_policy` may name the client node; every run freezes the cell's hints into `run.json` as `ue_map` |
+| A node reports a zone other than its declared one | `WF_TOPOLOGY_ZONE_MISMATCH` |
+| A client declares `ue: {e2_ue_id, rnti}` | A `ran_policy` may name the client node; every run freezes the zone's hints into `run.json` as `ue_map` |
 
 The first is the one that earns the file. A leftover container from an
 earlier experiment can satisfy quorum and quietly join a run, and nothing
@@ -218,16 +218,20 @@ The file is read **once, at startup**. A topology change is a deployment
 change; re-reading it live would let the rules shift under a run that is
 already being judged against them.
 
-### Cells
+### Zones
 
-A cell is one `UE → gNB → Edge` chain. Runs are per-cell: each cell has at
-most one active run, and `run.start` recruits only that cell's nodes while
+A zone is one `UE → gNB → Edge` chain: a gNB, the UEs attached to it
+(clients, renderers) and the edge that serves them, run as one unit. It is
+not a radio cell. A gNB may serve several cells, and the edge and its router
+sit in none; in the RAN data, `cell` keeps its radio meaning (the PCI or E2
+node, `ran/schema/metrics.md`). Runs are per-zone: each zone has at
+most one active run, and `run.start` recruits only that zone's nodes while
 `run.stop` reaches only the nodes actually recording that run. Those are
 different questions and the distinction is load-bearing — start cannot target
 run membership, because recruiting the members is what start is *for*.
 
-A node names its cell with `CELL` (or `-p cell:=`). Empty means the single
-default cell, which is every deployment that has not declared a topology.
+A node names its zone with `ZONE` (or `-p zone:=`). Empty means the single
+default zone, which is every deployment that has not declared a topology.
 
 It also carries optional `roles:` overrides, merged onto the defaults, with
 `required` (counts toward quorum) and `absence` (error / warn / null)
@@ -272,8 +276,8 @@ Commands are `run.start`, `run.stop`, `stream.start`, `stream.stop`,
 `POST /api/v1/runs/<id>/ran-policy`, carrying a validated `ran_policy`
 (ADR-0011). A node that does not know a command ignores it.
 
-`hello` carries an optional `cell`, set from the node's `CELL` environment
-variable or its `cell` parameter. Empty means the node did not say, which is
+`hello` carries an optional `zone`, set from the node's `ZONE` environment
+variable or its `zone` parameter. Empty means the node did not say, which is
 every deployment that has not declared a topology. Adding it needed **no
 version bump**: payloads ignore unknown fields (`extra="ignore"`), so a node
 that predates the field talks to a newer admin and vice versa. Envelopes are

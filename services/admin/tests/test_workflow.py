@@ -280,7 +280,7 @@ class TestContract:
                 "subject",
                 "message",
                 "remedy",
-                "cell",
+                "zone",
             }
 
 
@@ -351,7 +351,7 @@ class TestRenderer:
         # ADR-0009: e2e_ns at site 2 is PTP-free only while capture and
         # process_done are stamped on the same host's clock. A renderer on a
         # UE with no lidar client silently loses that property — the split
-        # cell of the extended-model diagram.
+        # zone of the extended-model diagram.
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01", streaming=True)
         join(registry, NodeType.EDGE, "mec01", subscribed=True)

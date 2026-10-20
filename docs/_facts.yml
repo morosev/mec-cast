@@ -112,7 +112,7 @@ env:
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
   VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. LEAVE UNSET: rerun 0.36 sends access-control-allow-origin only for loopback origins, so the web viewer is reached through an ssh tunnel and localhost is correct. A routable address loads the page and is then refused the stream"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
-  CELL:            {default: "", note: "which radio cell a node reports in `hello`. Empty = undeclared; the admin treats it as the single default cell"}
+  ZONE:            {default: "", note: "which zone -- a gNB, its UEs and its edge, not a radio cell -- a node reports in `hello`. Empty = undeclared; the admin treats it as the single default zone"}
   PTP_DEVICE:      {default: "/dev/ptp0", note: "host PHC, mapped to /dev/ptp0 INSIDE the container so only this line is host-specific. Index 0 is whichever NIC the driver registered first, NOT necessarily the one ptp4l disciplines -- `ethtool -T <iface>` names the right index. Empty disables the clock monitor honestly"}
   LIDAR_INSTANCES: {default: "1", note: "ue agent; N lidar instances in one process, dirs pub-0..pub-(N-1)"}
   RENDER_INSTANCES: {default: "0", note: "ue agent; M render instances. Instance j serves web_port+2j / grpc_port+2j when sink=rerun"}
@@ -184,11 +184,11 @@ admin:
   reconnect_s: 30
   run_id_format: "UUIDv7, canonical hyphenated; minted by the admin"
   run_states: [draft, starting, running, degraded, stopping, stopped, failed]
-  # One per CELL, not one per platform. An undeclared deployment has exactly
-  # one cell, so it still runs one at a time — the limit falls out of one
+  # One per ZONE, not one per platform. An undeclared deployment has exactly
+  # one zone, so it still runs one at a time — the limit falls out of one
   # active Recorder per node process (ADR-0007), which is per-node and so
-  # per-cell, never global.
-  concurrent_runs: "1 per cell"
+  # per-zone, never global.
+  concurrent_runs: "1 per zone"
   protocol_fixture: "services/admin/tests/vectors.json (asserted by all three implementations)"
 
 # --- logging service contract ----------------------------------------------
@@ -223,7 +223,7 @@ ran:
   kpis: [MCS, "PRB utilisation", "HARQ retx", BSR, CQI, "per-UE throughput"]
   successor: "OCUDU (gitlab.com/ocudu/ocudu, BSD-3) replaced srsRAN Project, archived 2026-06-01; same config keys for the tap and E2. Verified end to end on an OCUDU 26.10-line build (docs/guides/local-5g-ocudu.md)"
   e2_kpm_defaults: "report style 2, E2 UE id 0; metrics DRB.UEThpDl, DRB.UEThpUl, DRB.RlcSduTransmittedVolumeDL, DRB.RlcSduTransmittedVolumeUL, DRB.RlcPacketDropRateDl. OCUDU 26.10 does not serve DRB.PacketSuccessRateUlgNBUu, and one unsupported metric refuses the whole subscription"
-  e2_rc_slice: "oran-sc-ric's PRB-quota control names PLMN 00101 / SST 1 / SD 1 (hard-coded); OCUDU matches it exactly against cell_cfg.slicing, so SD 1 is required on the gNB, the core and the subscriber"
+  e2_rc_slice: "oran-sc-ric's PRB-quota control names PLMN 00101 / SST 1 / SD 1 (hard-coded); OCUDU matches it exactly against zone_cfg.slicing, so SD 1 is required on the gNB, the core and the subscriber"
 
 # --- deployment -------------------------------------------------------------
 deployment:

@@ -1,7 +1,7 @@
-"""A run in `stopping` must never strand its cell.
+"""A run in `stopping` must never strand its zone.
 
 The failure this covers happened in the lab: run 8 sat in `stopping` across
-an admin restart with Start, Stop and Remove all disabled, holding its cell's
+an admin restart with Start, Stop and Remove all disabled, holding its zone's
 slot so no new run could begin. Both exits from `stopping` needed the nodes
 -- every participant offline, or every report in -- and a participant that is
 ONLINE but will never report satisfies neither. That is the normal state
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from mec_cast_admin.app import create_app
 from mec_cast_admin.config import Settings
 from mec_cast_admin.state import RunState
-from test_multicell import connect, report, start_run
+from test_multizone import connect, report, start_run
 
 
 def settings_with(tmp_path, **overrides):
@@ -56,11 +56,11 @@ def wait_for(client, run_id, want, timeout=5.0):
     return state_of(client, run_id)
 
 
-def stopping_run(client, stack, cell="default"):
+def stopping_run(client, stack, zone="default"):
     """Drive a run to `stopping` with its participants still online."""
-    run_id = start_run(client, cell=cell)
-    cn, cs = connect(client, stack, "client", "h1", cell)
-    en, es = connect(client, stack, "edge", "h2", cell)
+    run_id = start_run(client, zone=zone)
+    cn, cs = connect(client, stack, "client", "h1", zone)
+    en, es = connect(client, stack, "edge", "h2", zone)
     assert client.post(f"/api/v1/runs/{run_id}/start").status_code == 200
     report(cs, cn, "client", run_id)
     report(es, en, "edge", run_id)

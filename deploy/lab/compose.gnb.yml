@@ -42,9 +42,10 @@ services:
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
       RAN_LOGGING: ${RAN_LOGGING:-1}   # 0: run directory only, nothing sent
-      # Which radio cell this node reports. Empty unless the deployment
-      # declares a topology; see docs/operations/admin-service.md.
-      CELL: ${CELL:-}
+      # Which zone (a gNB, its UEs and its edge) this node reports. Empty
+      # unless the deployment declares a topology; see
+      # docs/operations/admin-service.md.
+      ZONE: ${ZONE:-}
       # Always the in-container path: the bind mount above maps whatever the
       # host calls its PHC onto /dev/ptp0 here. Empty would disable the
       # monitor, which is what shipped for the platform's whole life.

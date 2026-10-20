@@ -58,7 +58,7 @@ services:
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
       RAN_LOGGING: ${RAN_LOGGING:-1}   # 0: run directory only, nothing sent
-      CELL: ${CELL:-}
+      ZONE: ${ZONE:-}
       GNB_METRICS_SOURCE: ${RAN_SOURCE:-auto}
       GNB_METRICS_ADDR: 0.0.0.0:55555
       GNB_METRICS_WS: gnb-sim:8001
@@ -89,7 +89,7 @@ services:
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
       KPM_LOGGING: ${KPM_LOGGING:-1}   # 0: ran-kpm/ only, nothing sent
-      CELL: ${CELL:-}
+      ZONE: ${ZONE:-}
     volumes:
       - ../../runs:/runs
     depends_on:

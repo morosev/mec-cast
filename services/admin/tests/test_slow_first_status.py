@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from mec_cast_admin.app import create_app
 from mec_cast_admin.state import RunState
-from test_multicell import connect, report, start_run
+from test_multizone import connect, report, start_run
 from test_stranded_stopping import settings_with, state_of, wait_for
 
 

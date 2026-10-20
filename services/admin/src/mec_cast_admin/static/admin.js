@@ -154,36 +154,36 @@ function roleChips(run, nodes, topology) {
   }).join('')}</span>`;
 }
 
-// A cell chip, shown only once a deployment actually has more than one.
-// Every single-cell deployment would otherwise gain a column of identical
+// A zone chip, shown only once a deployment actually has more than one.
+// Every single-zone deployment would otherwise gain a column of identical
 // "default" labels that carry no information.
-function cellChip(cell, snapshot) {
-  const cells = new Set((snapshot.nodes || []).map((n) => n.cell || 'default'));
-  for (const r of snapshot.runs || []) cells.add(r.cell || 'default');
-  if (cells.size < 2) return '';
-  return `<span class="pill draft">${esc(cell || 'default')}</span>`;
+function zoneChip(zone, snapshot) {
+  const zones = new Set((snapshot.nodes || []).map((n) => n.zone || 'default'));
+  for (const r of snapshot.runs || []) zones.add(r.zone || 'default');
+  if (zones.size < 2) return '';
+  return `<span class="pill draft">${esc(zone || 'default')}</span>`;
 }
 
-// Populate the Add-run cell selector from whatever cells actually exist —
+// Populate the Add-run zone selector from whatever zones actually exist —
 // the declared ones, plus any a live node reports. Hidden entirely while
-// there is only one, so a single-cell deployment's form is unchanged.
-function renderCellChoices(snapshot) {
-  const cells = new Set((snapshot.topology || {}).cells || []);
-  for (const n of snapshot.nodes || []) cells.add(n.cell || 'default');
-  if (!cells.size) cells.add('default');
+// there is only one, so a single-zone deployment's form is unchanged.
+function renderZoneChoices(snapshot) {
+  const zones = new Set((snapshot.topology || {}).zones || []);
+  for (const n of snapshot.nodes || []) zones.add(n.zone || 'default');
+  if (!zones.size) zones.add('default');
 
-  const field = $('f_cell_field');
-  const select = $('f_cell');
+  const field = $('f_zone_field');
+  const select = $('f_zone');
   if (!field || !select) return;
-  field.classList.toggle('hidden', cells.size < 2);
+  field.classList.toggle('hidden', zones.size < 2);
 
-  const wanted = [...cells].sort().join('\u0000');
-  if (select.dataset.cells === wanted) return;   // no churn while typing
-  select.dataset.cells = wanted;
+  const wanted = [...zones].sort().join('\u0000');
+  if (select.dataset.zones === wanted) return;   // no churn while typing
+  select.dataset.zones = wanted;
   const previous = select.value;
-  select.innerHTML = [...cells].sort()
+  select.innerHTML = [...zones].sort()
     .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
-  if (cells.has(previous)) select.value = previous;
+  if (zones.has(previous)) select.value = previous;
 }
 
 function renderTopology(snapshot) {
@@ -203,7 +203,7 @@ function renderTopology(snapshot) {
     const up = online.has(n.node_id);
     return `<tr>
       <td><code>${esc(n.node_id)}</code></td>
-      <td>${esc(n.cell)}</td>
+      <td>${esc(n.zone)}</td>
       <td>${esc(n.role)}</td>
       <td>${esc(n.host)}</td>
       <td><span class="pill ${up ? 'running' : 'draft'}">${up ? 'online' : 'absent'}</span></td>
@@ -249,7 +249,7 @@ function renderRuns(snapshot) {
       <td class="mono dim">${run.seq}</td>
       <td class="mono"><span class="copy" title="${esc(run.run_id)} — click to copy"
           data-copy="${esc(run.run_id)}">${esc(shortId(run.run_id))}</span></td>
-      <td>${esc(run.label) || '<span class="dim">—</span>'} ${cellChip(run.cell, snapshot)}</td>
+      <td>${esc(run.label) || '<span class="dim">—</span>'} ${zoneChip(run.zone, snapshot)}</td>
       <td><span class="pill ${esc(run.state)}">${esc(run.state)}</span></td>
       <td>${roleChips(run, snapshot.nodes, snapshot.topology)}</td>
       <td class="mono dim">${when(run.started_utc)}</td>
@@ -450,7 +450,7 @@ function renderNodes(snapshot) {
       .map(([k, v]) => `${k}=${v}`).join(' ') || '—';
     return `<tr>
       <td class="mono">${esc(n.node_id)}</td>
-      <td>${esc(n.node_type)} ${cellChip(n.cell, snapshot)}</td>
+      <td>${esc(n.node_type)} ${zoneChip(n.zone, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
       <td class="mono" title="Zenoh link, as the node dials it — fixed at deployment">${esc(ZENOH_TYPES.has(n.node_type) && (n.params || {}).transport || '—')}</td>
@@ -472,7 +472,7 @@ function render(snapshot) {
   renderFindings(snapshot);
   renderNodes(snapshot);
   renderTopology(snapshot);
-  renderCellChoices(snapshot);
+  renderZoneChoices(snapshot);
   serviceLinks(snapshot);
 }
 
@@ -509,8 +509,8 @@ $('addForm').addEventListener('submit', async (event) => {
     qos_depth: Number($('f_depth').value),
   };
   try {
-    const cell = $('f_cell').value || 'default';
-    await call('POST', '/runs', { label: $('f_label').value.trim(), cell, params });
+    const zone = $('f_zone').value || 'default';
+    await call('POST', '/runs', { label: $('f_label').value.trim(), zone, params });
     $('addForm').classList.remove('open');
     $('f_label').value = '';
   } catch { /* the banner already says why */ }

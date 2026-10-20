@@ -61,7 +61,7 @@ third_party/webrtc/_bad_scm/
 .DS_Store
 
 # The declared topology is deployment-specific: it names this lab's hosts and
-# cells, so it belongs to the deployment rather than the repo. The committed
+# zones, so it belongs to the deployment rather than the repo. The committed
 # artefact is deploy/lab/topology.example.yml; operators copy it.
 deploy/lab/topology.yml
 

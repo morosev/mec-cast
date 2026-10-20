@@ -98,11 +98,11 @@ class Run:
     state: RunState = RunState.DRAFT
     source: str = "admin"
 
-    #: Which cell this run covers. Runs are per-cell: one active run per cell
-    #: rather than one for the whole platform, so two cells can measure
-    #: independently. Undeclared deployments have exactly one cell and so
+    #: Which zone this run covers. Runs are per-zone: one active run per zone
+    #: rather than one for the whole platform, so two zones can measure
+    #: independently. Undeclared deployments have exactly one zone and so
     #: behave as they always did.
-    cell: str = "default"
+    zone: str = "default"
 
     created_utc: str = field(default_factory=_utc_now)
     started_utc: str | None = None
@@ -154,7 +154,7 @@ class Run:
             # --- admin additions, all optional to older readers ---
             "seq": self.seq,
             "label": self.label,
-            "cell": self.cell,
+            "zone": self.zone,
             "source": self.source,
             "state": str(self.state),
             "created_utc": self.created_utc,
@@ -195,7 +195,7 @@ class Run:
             stopped_utc=data.get("stopped_utc"),
             params=params,
             participants=data.get("participants") or {},
-            cell=data.get("cell") or "default",
+            zone=data.get("zone") or "default",
             sites=data.get("sites") or {},
             reports=data.get("reports") or {},
             findings=data.get("findings") or [],

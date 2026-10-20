@@ -100,7 +100,7 @@ command line with nothing exported:
 | `admin_url` | `$ADMIN_URL`, else empty | Empty = standalone, unchanged behaviour |
 | `admin_autostart` | client `false`, edge/render `true` | Join the active run on connect |
 | `admin_instance` | `0` | Distinguishes several nodes of one type per host |
-| `cell` | `$CELL`, else empty | Which radio cell the node reports; empty = the single default cell |
+| `zone` | `$ZONE`, else empty | Which zone (a gNB, its UEs and its edge) the node reports; empty = the single default zone |
 
 An empty `run_id` or `runs_dir` falls back the way an absent one does. That is
 not cosmetic: compose sets `RUN_ID: ${RUN_ID:-}`, so a node reading the

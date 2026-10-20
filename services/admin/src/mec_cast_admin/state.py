@@ -83,7 +83,7 @@ _TRANSITIONS: dict[tuple[RunState, Event], RunState] = {
     # a participant ONLINE that will never report. After an admin restart the
     # nodes reconnect but hold no such run, so no report is coming and they
     # are not offline either. The run sat in `stopping` across restarts,
-    # holding its cell's slot, with every button disabled -- no timeout, and
+    # holding its zone's slot, with every button disabled -- no timeout, and
     # no operator action, because STOPPING allowed none.
     (RunState.STOPPING, Event.STOP_TIMEOUT): RunState.STOPPED,
     # A second STOP is the operator's escape hatch, and lands in the same
@@ -102,7 +102,7 @@ _ALLOWED: dict[RunState, tuple[Action, ...]] = {
     RunState.DEGRADED: (Action.STOP,),
     # Deliberately not empty. A stuck run with no legal action is
     # unrecoverable through the UI, which is exactly how one ended up blocking
-    # its cell indefinitely.
+    # its zone indefinitely.
     RunState.STOPPING: (Action.STOP,),
     RunState.STOPPED: (Action.REMOVE,),
     RunState.FAILED: (Action.REMOVE,),

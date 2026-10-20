@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # for reports and calls it stopped. Generous next to start_timeout_s
     # because a node flushing a large recorder is doing real work and must not
     # be cut off; the run is already over either way, so the only cost of
-    # waiting is the cell's slot. Without this a run whose participants are
+    # waiting is the zone's slot. Without this a run whose participants are
     # online but will never report waits forever.
     stop_timeout_s: float = Field(default=120.0, gt=0)
 

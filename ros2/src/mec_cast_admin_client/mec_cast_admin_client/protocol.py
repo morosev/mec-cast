@@ -120,7 +120,7 @@ def hello_payload(
     node_type: str,
     node_id: str,
     host: str,
-    cell: str = "",
+    zone: str = "",
     pid: int,
     version_sha: str = "",
     version_tag: str = "",
@@ -133,9 +133,9 @@ def hello_payload(
         "node_type": node_type,
         "node_id": node_id,
         "host": host,
-        # Empty unless the deployment declares cells. See the admin's
+        # Empty unless the deployment declares zones. See the admin's
         # HelloPayload for why this needs no protocol version bump.
-        "cell": cell,
+        "zone": zone,
         "pid": pid,
         "version": {"sha": version_sha, "tag": version_tag},
         "state": state,

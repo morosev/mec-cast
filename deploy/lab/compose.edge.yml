@@ -3,8 +3,8 @@
 # Hosts the Zenoh router (the rendezvous point the UE dials into) and the
 # ingest node that stamps arrival and computes latency.
 #
-# The admin service used to live here. It moved to infra: runs are per cell,
-# and a control plane on the edge means one authority PER cell rather than one
+# The admin service used to live here. It moved to infra: runs are per zone,
+# and a control plane on the edge means one authority PER zone rather than one
 # for the fleet — two registries, two runs/ directories, two halves of a
 # declared topology, and no way to start a run that spans cells.
 #
@@ -79,9 +79,10 @@ services:
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
-      # Which radio cell this node reports. Empty unless the deployment
-      # declares a topology; see docs/operations/admin-service.md.
-      CELL: ${CELL:-}
+      # Which zone (a gNB, its UEs and its edge) this node reports. Empty
+      # unless the deployment declares a topology; see
+      # docs/operations/admin-service.md.
+      ZONE: ${ZONE:-}
       # Always the in-container path: the bind mount above maps whatever the
       # host calls its PHC onto /dev/ptp0 here. Empty would disable the
       # monitor, which is what shipped for the platform's whole life.

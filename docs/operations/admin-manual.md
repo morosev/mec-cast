@@ -954,14 +954,14 @@ explicitly still wins.
 
 ### `WF_TRANSPORT_MISMATCH`
 
-The Zenoh nodes of one cell dial the router over different links, so a run
+The Zenoh nodes of one zone dial the router over different links, so a run
 there would cross two transports, and its `zenoh_link` in `run.json` would read
 `mixed`. The finding names each node that differs from the majority. The
 transport is fixed when a node process starts — one Zenoh session, one link —
 so nothing about a run can change it.
 
 Redeploy the odd role with the same scheme in `ZENOH_CONFIG_OVERRIDE` as the
-rest of the cell (the compose files use `tcp/…:7448`) and **recreate** the
+rest of the zone (the compose files use `tcp/…:7448`) and **recreate** the
 container. Compare the **Link** column in the admin's Nodes table first.
 
 ### A run stuck in `stopping`
@@ -991,7 +991,7 @@ MECADM_STOP_TIMEOUT_S=600 docker compose -f deploy/lab/compose.infra.yml up -d a
 ```
 
 The symptom worth recognising is the second-order one: a `stopping` run holds
-its cell's active-run slot, so **no new run can start in that cell** and the
+its zone's active-run slot, so **no new run can start in that zone** and the
 Start button on every draft returns 409. If starting is refused and the reason
 names a run that is `stopping`, this is why.
 

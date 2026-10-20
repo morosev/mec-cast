@@ -139,7 +139,7 @@ def test_action_values_are_events():
 class TestStoppingCannotStrand:
     """A run in `stopping` must always have a way out.
 
-    It held its cell's slot across admin restarts with every button disabled,
+    It held its zone's slot across admin restarts with every button disabled,
     because the only exits needed the nodes: all participants offline, or all
     reports in. A participant that is ONLINE and will never report -- the
     normal state after an admin restart, when nodes reconnect holding no such

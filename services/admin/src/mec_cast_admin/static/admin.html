@@ -83,9 +83,9 @@
         <label for="f_depth">QoS depth</label>
         <input id="f_depth" type="number" min="1" value="10">
       </div>
-      <div class="field hidden" id="f_cell_field">
-        <label for="f_cell">Cell</label>
-        <select id="f_cell"></select>
+      <div class="field hidden" id="f_zone_field">
+        <label for="f_zone">Zone</label>
+        <select id="f_zone"></select>
       </div>
       <button type="submit" class="primary">Create</button>
       <button type="button" id="addCancel">Cancel</button>
@@ -134,7 +134,7 @@
     <h2>Declared topology <span id="topologySource" class="dim"></span></h2>
     <table id="topologyTable">
       <thead>
-        <tr><th>Node</th><th>Cell</th><th>Role</th><th>Host</th><th>Now</th></tr>
+        <tr><th>Node</th><th>Zone</th><th>Role</th><th>Host</th><th>Now</th></tr>
       </thead>
       <tbody></tbody>
     </table>

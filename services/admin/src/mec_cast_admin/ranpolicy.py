@@ -27,7 +27,7 @@ class PolicyStep(BaseModel):
 
 
 class RanPolicy(BaseModel):
-    """E2SM-RC Control Style 2 Action 6 — percent of the cell's PRBs."""
+    """E2SM-RC Control Style 2 Action 6 — percent of the zone's PRBs."""
 
     model_config = ConfigDict(extra="forbid")
 

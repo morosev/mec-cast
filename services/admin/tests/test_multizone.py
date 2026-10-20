@@ -1,8 +1,8 @@
-"""Multi-cell: concurrent runs, and commands that reach only their own cell.
+"""Multi-zone: concurrent runs, and commands that reach only their own zone.
 
 The fan-out test is the reason this file exists. `_broadcast_command` used to
-target every online node, so a `run.stop` for one cell stopped the other
-cell's nodes mid-measurement — the one change in M3 with real behaviour risk.
+target every online node, so a `run.stop` for one zone stopped the other
+zone's nodes mid-measurement — the one change in M3 with real behaviour risk.
 """
 
 from __future__ import annotations
@@ -42,29 +42,29 @@ def recv_type(socket, wanted: p.MessageType):
     raise AssertionError(f"no {wanted} arrived")
 
 
-def start_run(client, cell: str = "default", label: str = "") -> str:
-    """Create a run in `cell` through the API and return its id.
+def start_run(client, zone: str = "default", label: str = "") -> str:
+    """Create a run in `zone` through the API and return its id.
 
     Through the API deliberately. An earlier version of these tests set the
-    cell by reaching into the orchestrator, and that hid the fact that there
+    zone by reaching into the orchestrator, and that hid the fact that there
     was no way to do it from outside the process at all — the whole feature
     was unreachable for an operator while its tests passed.
     """
-    response = client.post("/api/v1/runs", json={"label": label, "cell": cell})
+    response = client.post("/api/v1/runs", json={"label": label, "zone": zone})
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["cell"] == cell
+    assert body["zone"] == zone
     return body["run_id"]
 
 
-def connect(client, stack, node_type, host, cell, instance=0):
+def connect(client, stack, node_type, host, zone, instance=0):
     """Open a node socket inside `stack` and complete the handshake."""
     node = p.node_id(node_type, host, instance)
     socket = stack.enter_context(client.websocket_connect("/ws/node"))
     send(
         socket,
         p.MessageType.HELLO,
-        p.HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell),
+        p.HelloPayload(node_type=node_type, node_id=node, host=host, zone=zone),
         node_id=node,
     )
     recv(socket)
@@ -86,19 +86,19 @@ def report(socket, node, node_type, run_id, **extra):
 
 
 class TestCommandScope:
-    def test_a_stop_in_one_cell_does_not_stop_the_other(self, client):
+    def test_a_stop_in_one_zone_does_not_stop_the_other(self, client):
         """The bug this milestone exists to fix.
 
-        Before: `run.stop` went to every online node, so stopping cell A
-        ended cell B's measurement too — silently, mid-run, with cell B's
+        Before: `run.stop` went to every online node, so stopping zone A
+        ended zone B's measurement too — silently, mid-run, with zone B's
         CSV simply ending early.
         """
         with contextlib.ExitStack() as stack:
-            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "cell-a")
-            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "cell-b")
+            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "zone-a")
+            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "zone-b")
 
-            run_a = start_run(client, "cell-a", "A")
-            run_b = start_run(client, "cell-b", "B")
+            run_a = start_run(client, "zone-a", "A")
+            run_b = start_run(client, "zone-b", "B")
 
             client.post(f"/api/v1/runs/{run_a}/start")
             recv_type(a_sock, p.MessageType.COMMAND)  # A's start reaches A
@@ -120,17 +120,17 @@ class TestCommandScope:
             for _ in range(5):
                 frame = json.loads(b_sock.receive_text())
                 assert frame["type"] != str(p.MessageType.COMMAND), (
-                    f"cell-b received {frame}; a stop in cell-a must not reach it"
+                    f"zone-b received {frame}; a stop in zone-a must not reach it"
                 )
                 if frame["type"] == str(p.MessageType.PING):
                     break
 
-    def test_a_start_reaches_its_cell_not_the_others(self, client):
+    def test_a_start_reaches_its_zone_not_the_others(self, client):
         with contextlib.ExitStack() as stack:
-            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "cell-a")
-            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "cell-b")
+            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "zone-a")
+            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "zone-b")
 
-            run_a = start_run(client, "cell-a")
+            run_a = start_run(client, "zone-a")
             client.post(f"/api/v1/runs/{run_a}/start")
 
             envelope, payload = recv_type(a_sock, p.MessageType.COMMAND)
@@ -140,12 +140,12 @@ class TestCommandScope:
             for _ in range(5):
                 frame = json.loads(b_sock.receive_text())
                 assert frame["type"] != str(p.MessageType.COMMAND), (
-                    "a start in cell-a must not recruit cell-b's nodes"
+                    "a start in zone-a must not recruit zone-b's nodes"
                 )
                 if frame["type"] == str(p.MessageType.PING):
                     break
 
-    def test_a_node_with_no_cell_belongs_to_the_default_one(self, client):
+    def test_a_node_with_no_zone_belongs_to_the_default_one(self, client):
         # Every deployment that has not declared a topology. It must keep
         # receiving commands exactly as it always did.
         with contextlib.ExitStack() as stack:
@@ -157,53 +157,53 @@ class TestCommandScope:
 
 
 class TestConcurrentRuns:
-    def test_two_cells_can_run_at_once(self, client):
-        run_a = start_run(client, "cell-a")
-        run_b = start_run(client, "cell-b")
+    def test_two_zones_can_run_at_once(self, client):
+        run_a = start_run(client, "zone-a")
+        run_b = start_run(client, "zone-b")
         assert client.post(f"/api/v1/runs/{run_a}/start").status_code == 200
         # The old rule refused this with 409: one active run per PLATFORM.
         assert client.post(f"/api/v1/runs/{run_b}/start").status_code == 200
 
         state = client.get("/api/v1/state").json()
-        assert state["active_runs"] == {"cell-a": run_a, "cell-b": run_b}
+        assert state["active_runs"] == {"zone-a": run_a, "zone-b": run_b}
 
-    def test_one_cell_still_allows_only_one_run(self, client):
-        # The within-cell limit stands: it falls out of one active Recorder
-        # per node process (ADR-0007), which multi-cell does not change.
-        run_1 = start_run(client, "cell-a")
-        run_2 = start_run(client, "cell-a")
+    def test_one_zone_still_allows_only_one_run(self, client):
+        # The within-zone limit stands: it falls out of one active Recorder
+        # per node process (ADR-0007), which multi-zone does not change.
+        run_1 = start_run(client, "zone-a")
+        run_2 = start_run(client, "zone-a")
         assert client.post(f"/api/v1/runs/{run_1}/start").status_code == 200
         response = client.post(f"/api/v1/runs/{run_2}/start")
         assert response.status_code == 409
-        assert "cell-a" in response.json()["detail"]
+        assert "zone-a" in response.json()["detail"]
 
     def test_a_start_timeout_is_tracked_per_run(self, client):
         # One scalar `_starting_since` let a second start reset the first
         # run's timeout clock, so a stalled run could hang in `starting`
-        # indefinitely as long as another cell kept starting runs.
+        # indefinitely as long as another zone kept starting runs.
         orch = client.app.state.orchestrator
-        run_a = start_run(client, "cell-a")
-        run_b = start_run(client, "cell-b")
+        run_a = start_run(client, "zone-a")
+        run_b = start_run(client, "zone-b")
         client.post(f"/api/v1/runs/{run_a}/start")
         client.post(f"/api/v1/runs/{run_b}/start")
         assert set(orch._starting_since) == {run_a, run_b}
 
 
-class TestCellScopedDiagnostics:
-    """A fault in one cell must not be reported against another."""
+class TestZoneScopedDiagnostics:
+    """A fault in one zone must not be reported against another."""
 
-    def _registry_with_two_cells(self):
+    def _registry_with_two_zones(self):
         registry = Registry()
-        for node_type, host, cell in (
-            (p.NodeType.CLIENT, "ue-a", "cell-a"),
-            (p.NodeType.EDGE, "mec-a", "cell-a"),
-            (p.NodeType.CLIENT, "ue-b", "cell-b"),
-            (p.NodeType.EDGE, "mec-b", "cell-b"),
-            (p.NodeType.GNB, "gnb-b", "cell-b"),
+        for node_type, host, zone in (
+            (p.NodeType.CLIENT, "ue-a", "zone-a"),
+            (p.NodeType.EDGE, "mec-a", "zone-a"),
+            (p.NodeType.CLIENT, "ue-b", "zone-b"),
+            (p.NodeType.EDGE, "mec-b", "zone-b"),
+            (p.NodeType.GNB, "gnb-b", "zone-b"),
         ):
             node = p.node_id(node_type, host, 0)
             registry.on_hello(
-                p.HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell)
+                p.HelloPayload(node_type=node_type, node_id=node, host=host, zone=zone)
             )
             registry.on_status(
                 node,
@@ -218,33 +218,33 @@ class TestCellScopedDiagnostics:
             )
         return registry
 
-    def _run(self, cell: str) -> Run:
-        run = Run(run_id="0190d1f2-0000-7000-8000-000000000000", seq=1, cell=cell)
+    def _run(self, zone: str) -> Run:
+        run = Run(run_id="0190d1f2-0000-7000-8000-000000000000", seq=1, zone=zone)
         run.state = RunState.RUNNING
         return run
 
-    def test_a_gnb_in_one_cell_does_not_satisfy_the_other(self):
-        # cell-b has a gNB, cell-a does not. Diagnosing cell-a must still say
+    def test_a_gnb_in_one_zone_does_not_satisfy_the_other(self):
+        # zone-b has a gNB, zone-a does not. Diagnosing zone-a must still say
         # so — a flat partition would see "a gNB exists" and stay quiet.
-        findings = diagnose(self._registry_with_two_cells(), self._run("cell-a"))
+        findings = diagnose(self._registry_with_two_zones(), self._run("zone-a"))
         assert "WF_GNB_ABSENT" in {f.code for f in findings}
 
-    def test_clients_are_not_paired_against_other_cells_edges(self):
+    def test_clients_are_not_paired_against_other_zones_edges(self):
         from mec_cast_admin.registry import Registry
 
-        # A QoS mismatch that only exists ACROSS cells is not a mismatch: the
+        # A QoS mismatch that only exists ACROSS zones is not a mismatch: the
         # two never exchange a frame. The cross-product produced N x M of
-        # these the moment a second cell appeared.
+        # these the moment a second zone appeared.
         registry = Registry()
-        for node_type, host, cell, reliability in (
-            (p.NodeType.CLIENT, "ue-a", "cell-a", "reliable"),
-            (p.NodeType.EDGE, "mec-a", "cell-a", "reliable"),
-            (p.NodeType.CLIENT, "ue-b", "cell-b", "best_effort"),
-            (p.NodeType.EDGE, "mec-b", "cell-b", "best_effort"),
+        for node_type, host, zone, reliability in (
+            (p.NodeType.CLIENT, "ue-a", "zone-a", "reliable"),
+            (p.NodeType.EDGE, "mec-a", "zone-a", "reliable"),
+            (p.NodeType.CLIENT, "ue-b", "zone-b", "best_effort"),
+            (p.NodeType.EDGE, "mec-b", "zone-b", "best_effort"),
         ):
             node = p.node_id(node_type, host, 0)
             registry.on_hello(
-                p.HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell)
+                p.HelloPayload(node_type=node_type, node_id=node, host=host, zone=zone)
             )
             registry.on_status(
                 node,
@@ -258,65 +258,65 @@ class TestCellScopedDiagnostics:
                     params={"reliability": reliability},
                 ),
             )
-        # Each cell is internally consistent, so nothing should be reported
-        # even though a cross-cell pair would look mismatched.
-        for cell in ("cell-a", "cell-b"):
-            codes = {f.code for f in diagnose(registry, self._run(cell))}
-            assert "WF_QOS_MISMATCH" not in codes, cell
+        # Each zone is internally consistent, so nothing should be reported
+        # even though a cross-zone pair would look mismatched.
+        for zone in ("zone-a", "zone-b"):
+            codes = {f.code for f in diagnose(registry, self._run(zone))}
+            assert "WF_QOS_MISMATCH" not in codes, zone
 
-    def test_findings_carry_their_cell(self):
-        findings = diagnose(self._registry_with_two_cells(), self._run("cell-a"))
+    def test_findings_carry_their_zone(self):
+        findings = diagnose(self._registry_with_two_zones(), self._run("zone-a"))
         gnb = [f for f in findings if f.code == "WF_GNB_ABSENT"]
-        assert gnb and gnb[0].cell == "cell-a"
+        assert gnb and gnb[0].zone == "zone-a"
 
 
-class TestRunCell:
-    """A run's cell has to be reachable from outside the process."""
+class TestRunZone:
+    """A run's zone has to be reachable from outside the process."""
 
-    def test_the_cell_round_trips_through_the_api(self, client):
-        run = client.post("/api/v1/runs", json={"label": "x", "cell": "cell-a"}).json()
-        assert run["cell"] == "cell-a"
+    def test_the_zone_round_trips_through_the_api(self, client):
+        run = client.post("/api/v1/runs", json={"label": "x", "zone": "zone-a"}).json()
+        assert run["zone"] == "zone-a"
         row = [
             r for r in client.get("/api/v1/state").json()["runs"] if r["run_id"] == run["run_id"]
         ][0]
-        assert row["cell"] == "cell-a"
+        assert row["zone"] == "zone-a"
 
-    def test_omitting_the_cell_gives_the_default_one(self, client):
+    def test_omitting_the_zone_gives_the_default_one(self, client):
         # Every existing caller, and every deployment with no topology.
         run = client.post("/api/v1/runs", json={}).json()
-        assert run["cell"] == "default"
+        assert run["zone"] == "default"
 
-    def test_an_undeclared_cell_is_refused_when_a_topology_exists(self, client, tmp_path):
+    def test_an_undeclared_zone_is_refused_when_a_topology_exists(self, client, tmp_path):
         # A typo would otherwise create a run no node can ever join, which
         # looks exactly like a broken deployment rather than a typo.
         import mec_cast_admin.topology as topo
 
         orch = client.app.state.orchestrator
         path = tmp_path / "topology.yml"
-        path.write_text("nodes:\n  - {role: edge, host: mec01, cell: cell-a}\n", encoding="utf-8")
+        path.write_text("nodes:\n  - {role: edge, host: mec01, zone: zone-a}\n", encoding="utf-8")
         orch.topology = topo.load(path)
 
-        response = client.post("/api/v1/runs", json={"cell": "cell-typo"})
+        response = client.post("/api/v1/runs", json={"zone": "zone-typo"})
         assert response.status_code == 409
-        assert "cell-a" in response.json()["detail"]
+        assert "zone-a" in response.json()["detail"]
 
-    def test_any_cell_is_allowed_without_a_declared_topology(self, client):
+    def test_any_zone_is_allowed_without_a_declared_topology(self, client):
         # Nothing to check against, so nothing to refuse.
-        assert client.post("/api/v1/runs", json={"cell": "whatever"}).status_code == 201
+        assert client.post("/api/v1/runs", json={"zone": "whatever"}).status_code == 201
 
 
-class TestNoCrossCellFalsePositives:
+class TestNoCrossZoneFalsePositives:
     """Concurrent runs must not make each other look broken."""
 
-    def test_a_node_on_its_own_cells_run_is_not_a_mismatch(self, client):
+    def test_a_node_on_its_own_zones_run_is_not_a_mismatch(self, client):
         # The live-run false positive: with two runs active, every node in
-        # the cell NOT being diagnosed was reported as recording the wrong
+        # the zone NOT being diagnosed was reported as recording the wrong
         # run — two WF_RUN_MISMATCH errors for a perfectly healthy fleet.
         with contextlib.ExitStack() as stack:
-            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "cell-a")
-            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "cell-b")
-            run_a = start_run(client, "cell-a")
-            run_b = start_run(client, "cell-b")
+            a_node, a_sock = connect(client, stack, p.NodeType.CLIENT, "ue-a", "zone-a")
+            b_node, b_sock = connect(client, stack, p.NodeType.CLIENT, "ue-b", "zone-b")
+            run_a = start_run(client, "zone-a")
+            run_b = start_run(client, "zone-b")
             client.post(f"/api/v1/runs/{run_a}/start")
             client.post(f"/api/v1/runs/{run_b}/start")
             recv_type(a_sock, p.MessageType.COMMAND)
@@ -332,20 +332,20 @@ class TestNoCrossCellFalsePositives:
             codes = [f["code"] for f in orch._findings]
             assert "WF_RUN_MISMATCH" not in codes, orch._findings
 
-    def test_both_cells_are_diagnosed_not_just_the_first(self, client):
-        # Diagnosing only the first active run left the other cell with no
-        # diagnosis at all, so a genuinely broken cell-b stayed silent.
+    def test_both_zones_are_diagnosed_not_just_the_first(self, client):
+        # Diagnosing only the first active run left the other zone with no
+        # diagnosis at all, so a genuinely broken zone-b stayed silent.
         with contextlib.ExitStack() as stack:
-            connect(client, stack, p.NodeType.CLIENT, "ue-a", "cell-a")
-            connect(client, stack, p.NodeType.EDGE, "mec-a", "cell-a")
-            connect(client, stack, p.NodeType.CLIENT, "ue-b", "cell-b")
-            run_a = start_run(client, "cell-a")
-            run_b = start_run(client, "cell-b")
+            connect(client, stack, p.NodeType.CLIENT, "ue-a", "zone-a")
+            connect(client, stack, p.NodeType.EDGE, "mec-a", "zone-a")
+            connect(client, stack, p.NodeType.CLIENT, "ue-b", "zone-b")
+            run_a = start_run(client, "zone-a")
+            run_b = start_run(client, "zone-b")
             client.post(f"/api/v1/runs/{run_a}/start")
             client.post(f"/api/v1/runs/{run_b}/start")
 
             orch = client.app.state.orchestrator
             orch._refresh_findings()
-            cells = {f["cell"] for f in orch._findings if f["code"] == "WF_EDGE_ABSENT"}
-            # cell-b has no edge; cell-a does. Only cell-b should say so.
-            assert cells == {"cell-b"}, orch._findings
+            zones = {f["zone"] for f in orch._findings if f["code"] == "WF_EDGE_ABSENT"}
+            # zone-b has no edge; zone-a does. Only zone-b should say so.
+            assert zones == {"zone-b"}, orch._findings

@@ -19,11 +19,11 @@ from fastapi.testclient import TestClient
 from mec_cast_admin import protocol as p
 from mec_cast_admin.app import create_app
 from mec_cast_admin.state import RunState
-from test_multicell import recv_type, report, send, start_run
+from test_multizone import recv_type, report, send, start_run
 from test_stranded_stopping import settings_with, state_of, stopping_run
 
 
-def hello(client, stack, node_type, host, cell="default", autostart=True):
+def hello(client, stack, node_type, host, zone="default", autostart=True):
     """Handshake and return the node id, socket and WELCOME payload."""
     node = p.node_id(node_type, host, 0)
     socket = stack.enter_context(client.websocket_connect("/ws/node"))
@@ -31,7 +31,7 @@ def hello(client, stack, node_type, host, cell="default", autostart=True):
         socket,
         p.MessageType.HELLO,
         p.HelloPayload(
-            node_type=node_type, node_id=node, host=host, cell=cell, autostart=autostart
+            node_type=node_type, node_id=node, host=host, zone=zone, autostart=autostart
         ),
         node_id=node,
     )

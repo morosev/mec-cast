@@ -1,9 +1,9 @@
-"""The nodes of one cell must share a Zenoh transport, and runs record it.
+"""The nodes of one zone must share a Zenoh transport, and runs record it.
 
 The transport is fixed when a node process starts -- one Zenoh session, one
 link, from ZENOH_CONFIG_OVERRIDE -- and each node reports the scheme it
 really dials. Nothing is declared per run any more: the admin compares what
-the nodes report, raises WF_TRANSPORT_MISMATCH when a cell's nodes disagree
+the nodes report, raises WF_TRANSPORT_MISMATCH when a zone's nodes disagree
 (its data would cross two links), and writes what the participants reported
 into run.json as `zenoh_link`.
 """
@@ -19,12 +19,12 @@ from mec_cast_admin import protocol as p
 from mec_cast_admin.registry import Registry
 from mec_cast_admin.store import Run
 from mec_cast_admin.workflow import diagnose
-from test_multicell import connect, report, start_run
+from test_multizone import connect, report, start_run
 
 
-def _node(reg: Registry, node_type: str, host: str, transport: str, cell: str = "") -> str:
+def _node(reg: Registry, node_type: str, host: str, transport: str, zone: str = "") -> str:
     node = p.node_id(node_type, host, 0)
-    reg.on_hello(p.HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell))
+    reg.on_hello(p.HelloPayload(node_type=node_type, node_id=node, host=host, zone=zone))
     reg.on_status(
         node,
         p.StatusPayload(
@@ -86,13 +86,13 @@ class TestTransportMismatch:
         _node(reg, "edge", "mec01", "udp-rel1")
         assert len(mismatches(reg)) == 1
 
-    def test_cells_are_judged_separately(self):
-        """Two cells may legitimately run different links."""
+    def test_zones_are_judged_separately(self):
+        """Two zones may legitimately run different links."""
         reg = Registry()
-        _node(reg, "client", "ue-a", "tcp", cell="a")
-        _node(reg, "edge", "mec-a", "tcp", cell="a")
-        _node(reg, "client", "ue-b", "quic", cell="b")
-        _node(reg, "edge", "mec-b", "quic", cell="b")
+        _node(reg, "client", "ue-a", "tcp", zone="a")
+        _node(reg, "edge", "mec-a", "tcp", zone="a")
+        _node(reg, "client", "ue-b", "quic", zone="b")
+        _node(reg, "edge", "mec-b", "quic", zone="b")
         assert mismatches(reg) == []
 
 

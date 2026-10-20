@@ -213,11 +213,11 @@ flowchart LR
 Source: [`mec-cast-nodes.mmd`](mec-cast-nodes.mmd) — keep the two copies
 identical when editing.
 
-The target of the multi-cell migration: two cells of `UE → gNB → Edge`, the
+The target of the multi-zone migration: two zones of `UE → gNB → Edge`, the
 edges peered, one shared infra. Three planes — **data** (red), **peering**
 (black, the Zenoh router↔router session; transport plumbing, not application
-control), **control** (dashed, the admin WebSocket). `cell-a` keeps lidar and
-render on one UE while `cell-b` splits them across two: that contrast is
+control), **control** (dashed, the admin WebSocket). `zone-a` keeps lidar and
+render on one UE while `zone-b` splits them across two: that contrast is
 deliberate, because ADR-0009's round-trip `e2e_ns` is PTP-free only while both
 stamps come off one host's clock — `ue-b2` is the case the
 `WF_RENDER_CROSS_HOST` finding exists to catch.
@@ -229,14 +229,14 @@ flowchart TB
   classDef edge  fill:#EAF2EC,stroke:#4A7A5A,stroke-width:1px,color:#1A1A1A
   classDef infra fill:#F2F2F4,stroke:#6A6A72,stroke-width:1px,color:#1A1A1A
 
-  subgraph CELL_A["cell-a"]
+  subgraph ZONE_A["zone-a"]
     direction LR
     UEA["ue-a1<br/>mec-cast-lidar ×2<br/>mec-cast-render ×1"]
     GA["gnb-a<br/>mec-cast-ran"]
     EA["edge-a<br/>mec-cast-zenoh-router<br/>mec-cast-edge"]
   end
 
-  subgraph CELL_B["cell-b"]
+  subgraph ZONE_B["zone-b"]
     direction LR
     UEB1["ue-b1<br/>mec-cast-lidar ×2"]
     GB["gnb-b<br/>mec-cast-ran"]

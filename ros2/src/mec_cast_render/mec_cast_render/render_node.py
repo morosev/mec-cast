@@ -15,7 +15,7 @@ is a true round-trip glass-to-glass delay that owes nothing to PTP — the only
 such number in the system. Every other one-way metric is only as good as the
 clock discipline. Comparing the two gives an independent read on clock offset.
 **That property holds only while the paired lidar runs on this same host**;
-a renderer on a different UE (ADR-0009, the split-renderer cell) loses it,
+a renderer on a different UE (ADR-0009, the split-renderer zone) loses it,
 which the admin flags as WF_RENDER_CROSS_HOST.
 
 `network_ns` here is the downlink leg alone (edge send -> UE receive) and *is*

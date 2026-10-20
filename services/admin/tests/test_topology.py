@@ -27,10 +27,10 @@ def join(
     node_type: NodeType,
     host: str,
     instance: int = 0,
-    cell: str = "",
+    zone: str = "",
 ) -> str:
     node = f"{node_type}-{host}-{instance}"
-    registry.on_hello(HelloPayload(node_type=node_type, node_id=node, host=host, cell=cell))
+    registry.on_hello(HelloPayload(node_type=node_type, node_id=node, host=host, zone=zone))
     registry.on_status(
         node,
         StatusPayload(
@@ -80,16 +80,16 @@ class TestParsing:
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, instance: 1, cell: cell-a}
+  - {role: client, host: ue01, instance: 1, zone: zone-a}
 """,
             )
         )
         assert spec.declared
         # Exactly what protocol.node_id() builds, or comparison is pointless.
         assert spec.nodes[0].node_id == "client-ue01-1"
-        assert spec.nodes[0].cell == "cell-a"
+        assert spec.nodes[0].zone == "zone-a"
 
-    def test_cells_default_to_one(self, tmp_path):
+    def test_zones_default_to_one(self, tmp_path):
         spec = topo.load(
             write(
                 tmp_path,
@@ -99,7 +99,7 @@ nodes:
 """,
             )
         )
-        assert spec.cells == (topo.DEFAULT_CELL,)
+        assert spec.zones == (topo.DEFAULT_ZONE,)
 
     def test_role_overrides_merge_rather_than_replace(self, tmp_path):
         # A file naming only the gNB must not drop the client/edge rules and
@@ -149,7 +149,7 @@ nodes:
         # rename of a role or field breaks the build rather than an operator.
         spec = topo.load(REPO / "deploy/lab/topology.example.yml")
         assert spec.declared
-        assert set(spec.cells) == {"cell-a", "cell-b"}
+        assert set(spec.zones) == {"zone-a", "zone-b"}
         assert "client-ue-a1-1" in {n.node_id for n in spec.nodes}
 
 
@@ -160,8 +160,8 @@ class TestValidation:
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
+  - {role: client, host: ue01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
 """,
             )
         )
@@ -208,20 +208,20 @@ class TestMermaid:
     def test_nothing_declared_draws_nothing(self):
         assert topo.to_mermaid(topo.TopologySpec()) == ""
 
-    def test_cells_become_subgraphs_with_the_data_path(self, tmp_path):
+    def test_zones_become_subgraphs_with_the_data_path(self, tmp_path):
         spec = topo.load(
             write(
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01,  cell: cell-a}
-  - {role: gnb,    host: gnb01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
+  - {role: client, host: ue01,  zone: zone-a}
+  - {role: gnb,    host: gnb01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
 """,
             )
         )
         out = topo.to_mermaid(spec)
-        assert 'subgraph CELL0["cell-a"]' in out
+        assert 'subgraph ZONE0["zone-a"]' in out
         # client -> gnb -> edge, the architecture's own order.
         assert "N_client_ue01_0 --> N_gnb_gnb01_0" in out
         assert "N_gnb_gnb01_0 --> N_edge_mec01_0" in out
@@ -235,10 +235,10 @@ nodes:
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, instance: 0, cell: cell-a}
-  - {role: client, host: ue01, instance: 1, cell: cell-a}
-  - {role: gnb,    host: gnb01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
+  - {role: client, host: ue01, instance: 0, zone: zone-a}
+  - {role: client, host: ue01, instance: 1, zone: zone-a}
+  - {role: gnb,    host: gnb01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
 """,
             )
         )
@@ -247,15 +247,15 @@ nodes:
         assert "N_client_ue01_0 --> N_gnb_gnb01_0" in out
         assert "N_client_ue01_1 --> N_gnb_gnb01_0" in out
 
-    def test_a_cell_with_no_gnb_sends_clients_straight_to_the_edge(self, tmp_path):
+    def test_a_zone_with_no_gnb_sends_clients_straight_to_the_edge(self, tmp_path):
         # The local topology: no radio, so the hop must not be dropped.
         spec = topo.load(
             write(
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
+  - {role: client, host: ue01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
 """,
             )
         )
@@ -267,9 +267,9 @@ nodes:
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
-  - {role: render, host: ue01, cell: cell-a}
+  - {role: client, host: ue01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
+  - {role: render, host: ue01, zone: zone-a}
 """,
             )
         )
@@ -284,8 +284,8 @@ nodes:
         assert "edge-mec-01-0[" not in out
 
 
-class TestCellOnTheWire:
-    """`cell` is additive under the extra="ignore" rule — no version bump."""
+class TestZoneOnTheWire:
+    """`zone` is additive under the extra="ignore" rule — no version bump."""
 
     def _spec(self, tmp_path) -> topo.TopologySpec:
         return topo.load(
@@ -293,47 +293,47 @@ class TestCellOnTheWire:
                 tmp_path,
                 """
 nodes:
-  - {role: client, host: ue01, cell: cell-a}
-  - {role: edge,   host: mec01, cell: cell-a}
+  - {role: client, host: ue01, zone: zone-a}
+  - {role: edge,   host: mec01, zone: zone-a}
 """,
             )
         )
 
-    def test_a_node_in_the_wrong_cell_is_reported(self, tmp_path):
-        # CELL set wrong on the host, or the wrong compose file deployed. The
+    def test_a_node_in_the_wrong_zone_is_reported(self, tmp_path):
+        # ZONE set wrong on the host, or the wrong compose file deployed. The
         # node works perfectly; its samples just land in the wrong bucket.
         registry = Registry()
-        join(registry, NodeType.CLIENT, "ue01", cell="cell-b")
-        join(registry, NodeType.EDGE, "mec01", cell="cell-a")
+        join(registry, NodeType.CLIENT, "ue01", zone="zone-b")
+        join(registry, NodeType.EDGE, "mec01", zone="zone-a")
         found = [
             f
             for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))
-            if f.code == "WF_TOPOLOGY_CELL_MISMATCH"
+            if f.code == "WF_TOPOLOGY_ZONE_MISMATCH"
         ]
         assert [f.subject for f in found] == ["client-ue01-0"]
-        assert "CELL=cell-a" in found[0].remedy
+        assert "ZONE=zone-a" in found[0].remedy
 
-    def test_a_node_that_reports_no_cell_is_not_reported(self, tmp_path):
+    def test_a_node_that_reports_no_zone_is_not_reported(self, tmp_path):
         # Every node predating this field, and every deployment that never
-        # sets CELL. Silence is required or the finding fires fleet-wide the
+        # sets ZONE. Silence is required or the finding fires fleet-wide the
         # moment anyone writes a topology file.
         registry = Registry()
         join(registry, NodeType.CLIENT, "ue01")
         join(registry, NodeType.EDGE, "mec01")
         codes = {f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))}
-        assert "WF_TOPOLOGY_CELL_MISMATCH" not in codes
+        assert "WF_TOPOLOGY_ZONE_MISMATCH" not in codes
 
-    def test_a_matching_cell_is_silent(self, tmp_path):
+    def test_a_matching_zone_is_silent(self, tmp_path):
         registry = Registry()
-        join(registry, NodeType.CLIENT, "ue01", cell="cell-a")
-        join(registry, NodeType.EDGE, "mec01", cell="cell-a")
+        join(registry, NodeType.CLIENT, "ue01", zone="zone-a")
+        join(registry, NodeType.EDGE, "mec01", zone="zone-a")
         codes = {f.code for f in diagnose(registry, make_run(), topology=self._spec(tmp_path))}
         assert not {c for c in codes if c.startswith("WF_TOPOLOGY")}
 
     def test_the_registry_keeps_what_the_node_reported(self):
         registry = Registry()
-        node = join(registry, NodeType.EDGE, "mec01", cell="cell-b")
-        assert registry.online()[0].cell == "cell-b"
+        node = join(registry, NodeType.EDGE, "mec01", zone="zone-b")
+        assert registry.online()[0].zone == "zone-b"
         assert node in {r.node_id for r in registry.online()}
 
 
@@ -342,9 +342,9 @@ class TestUeIdentity:
 
     TEXT = """
 nodes:
-  - {role: client, host: ue-a1, cell: cell-a, ue: {e2_ue_id: 0, rnti: 17921}}
-  - {role: client, host: ue-a2, cell: cell-a}
-  - {role: edge,   host: edge-a, cell: cell-a}
+  - {role: client, host: ue-a1, zone: zone-a, ue: {e2_ue_id: 0, rnti: 17921}}
+  - {role: client, host: ue-a2, zone: zone-a}
+  - {role: edge,   host: edge-a, zone: zone-a}
 """
 
     def test_a_client_may_declare_its_ue_ids(self, tmp_path):
@@ -382,7 +382,7 @@ nodes:
     def test_a_policy_naming_a_client_resolves_to_its_e2_id(self, tmp_path):
         orch = self._orchestrator(tmp_path)
         run = orch.create_run(
-            params={"ran_policy": {"ue": "client-ue-a1-0", "max_prb_ratio": 30}}, cell="cell-a"
+            params={"ran_policy": {"ue": "client-ue-a1-0", "max_prb_ratio": 30}}, zone="zone-a"
         )
         policy = run.params["ran_policy"]
         assert policy["ue"] == 0 and policy["ue_node"] == "client-ue-a1-0"
@@ -400,7 +400,7 @@ nodes:
 
         orch = self._orchestrator(tmp_path)
         with pytest.raises(OrchestratorError, match=why):
-            orch.create_run(params={"ran_policy": {"ue": ue}}, cell="cell-a")
+            orch.create_run(params={"ran_policy": {"ue": ue}}, zone="zone-a")
 
     def test_a_run_freezes_the_ue_map_it_started_under(self, tmp_path):
         import asyncio
@@ -409,7 +409,7 @@ nodes:
         from mec_cast_admin.store import Run
 
         orch = self._orchestrator(tmp_path)
-        run = orch.create_run(cell="cell-a")
+        run = orch.create_run(zone="zone-a")
         asyncio.run(orch.act(run.run_id, Action.START))
         assert run.ue_map == {"client-ue-a1-0": {"e2_ue_id": 0, "rnti": 17921}}
         again = Run.from_manifest(run.to_manifest())

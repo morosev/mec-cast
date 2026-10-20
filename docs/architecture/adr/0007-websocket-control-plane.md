@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-19
-- **Amended:** 2026-08-30 — the one-run-at-a-time limit is per cell; see
+- **Amended:** 2026-08-30 — the one-run-at-a-time limit is per zone; see
   Consequences.
 
 ## Context
@@ -68,9 +68,9 @@ record exists to prevent.
   one active Recorder per node process. Lifting it means concurrent Recorders
   and an ambiguous `runs/<id>/<site>/` layout.
 
-  **Amended 2026-08-30: the limit is now per cell, not platform-wide.** The
+  **Amended 2026-08-30: the limit is now per zone, not platform-wide.** The
   reasoning above survives intact — this is a change of scope, not a reversal.
-  A node belongs to exactly one cell and each cell has at most one active run,
+  A node belongs to exactly one zone and each zone has at most one active run,
   so there is still one active Recorder per node process. The layout objection
   was independently removed first: directories are instance-suffixed
   (`pub-0`, `pub-1`) and `run.sites` is keyed by `node_id` rather than by a

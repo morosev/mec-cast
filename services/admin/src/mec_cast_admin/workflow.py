@@ -28,7 +28,7 @@ from .protocol import ZENOH_NODE_TYPES, NodeState, NodeType
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
-from .topology import DEFAULT_CELL, TopologySpec
+from .topology import DEFAULT_ZONE, TopologySpec
 
 #: A client may legitimately publish for a moment before the edge reports its
 #: first peer. Below this, "no peer" is startup rather than a fault.
@@ -42,10 +42,10 @@ class Finding:
     subject: str
     message: str
     remedy: str
-    #: Which cell this is about. Empty for fleet-wide findings that belong to
-    #: no single cell. Carried so a run's manifest can freeze its OWN
-    #: problems and not another cell's.
-    cell: str = ""
+    #: Which zone this is about. Empty for fleet-wide findings that belong to
+    #: no single zone. Carried so a run's manifest can freeze its OWN
+    #: problems and not another zone's.
+    zone: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,7 +54,7 @@ class Finding:
             "subject": self.subject,
             "message": self.message,
             "remedy": self.remedy,
-            "cell": self.cell,
+            "zone": self.zone,
         }
 
 
@@ -124,18 +124,18 @@ def diagnose(
     spec = topology if topology is not None else TopologySpec()
     online = registry.online()
 
-    # Everything role-shaped below is judged WITHIN a cell. A flat partition
-    # would let a gNB in cell B satisfy cell A's WF_GNB_ABSENT, and would
-    # pair every client against every edge across cells — N x M spurious
-    # WF_QOS_MISMATCH and WF_NO_PEER findings the moment a second cell
-    # exists. An undeclared deployment has exactly one cell, so this is the
+    # Everything role-shaped below is judged WITHIN a zone. A flat partition
+    # would let a gNB in zone B satisfy zone A's WF_GNB_ABSENT, and would
+    # pair every client against every edge across zones — N x M spurious
+    # WF_QOS_MISMATCH and WF_NO_PEER findings the moment a second zone
+    # exists. An undeclared deployment has exactly one zone, so this is the
     # same computation it always was.
-    cell_of = lambda r: r.cell or DEFAULT_CELL  # noqa: E731
-    cells = sorted({cell_of(r) for r in online}) or [DEFAULT_CELL]
-    if run is not None and getattr(run, "cell", None):
-        # A run is scoped to its cell: diagnosing the others while it is the
+    zone_of = lambda r: r.zone or DEFAULT_ZONE  # noqa: E731
+    zones = sorted({zone_of(r) for r in online}) or [DEFAULT_ZONE]
+    if run is not None and getattr(run, "zone", None):
+        # A run is scoped to its zone: diagnosing the others while it is the
         # subject would attribute their faults to it.
-        cells = [c for c in cells if c == run.cell] or [run.cell]
+        zones = [c for c in zones if c == run.zone] or [run.zone]
 
     clients = [r for r in online if r.node_type == NodeType.CLIENT]
     edges = [r for r in online if r.node_type == NodeType.EDGE]
@@ -154,9 +154,9 @@ def diagnose(
     # spec's business now — the same source the quorum rule and the page's
     # role chips read, so the three cannot disagree. Only the prose stays
     # here, because a remedy is operator documentation and not a rule.
-    for cell in cells:
-        in_cell = [r for r in online if cell_of(r) == cell]
-        present = {role: [r for r in in_cell if r.node_type == role] for role in NodeType}
+    for zone in zones:
+        in_zone = [r for r in online if zone_of(r) == zone]
+        present = {role: [r for r in in_zone if r.node_type == role] for role in NodeType}
         for role_spec in spec.roles:
             if role_spec.absence is None or present.get(role_spec.role):
                 continue
@@ -166,15 +166,15 @@ def diagnose(
             if detail is None:
                 continue
             message, remedy = detail
-            where = f" in cell {cell}" if len(cells) > 1 else ""
+            where = f" in zone {zone}" if len(zones) > 1 else ""
             findings.append(
                 Finding(
                     f"WF_{str(role_spec.role).upper()}_ABSENT",
                     role_spec.absence,
-                    str(role_spec.role) if len(cells) == 1 else f"{cell}/{role_spec.role}",
+                    str(role_spec.role) if len(zones) == 1 else f"{zone}/{role_spec.role}",
                     message.rstrip(".") + where + "." if where else message,
                     remedy,
-                    cell=cell,
+                    zone=zone,
                 )
             )
 
@@ -186,23 +186,23 @@ def diagnose(
         for record in online:
             declared = spec.find(record.node_id)
             if declared is not None:
-                # A node that reports a different cell from the one it is
+                # A node that reports a different zone from the one it is
                 # declared in is a deployment mistake, not a topology one:
-                # CELL was set wrong, or the wrong compose file reached the
+                # ZONE was set wrong, or the wrong compose file reached the
                 # host. Worth catching because the node still works perfectly
-                # — it just gets grouped with the wrong cell's results.
-                if record.cell and record.cell != declared.cell:
+                # — it just gets grouped with the wrong zone's results.
+                if record.zone and record.zone != declared.zone:
                     findings.append(
                         Finding(
-                            "WF_TOPOLOGY_CELL_MISMATCH",
+                            "WF_TOPOLOGY_ZONE_MISMATCH",
                             "warn",
                             record.node_id,
-                            f"{record.node_id} reports cell {record.cell!r} but "
-                            f"{spec.source} declares it in {declared.cell!r}.",
-                            f"Set CELL={declared.cell} on that host (or fix the "
+                            f"{record.node_id} reports zone {record.zone!r} but "
+                            f"{spec.source} declares it in {declared.zone!r}.",
+                            f"Set ZONE={declared.zone} on that host (or fix the "
                             f"declaration in {spec.source}) and restart the node. "
                             "Until then its samples are attributed to the wrong "
-                            "cell in any per-cell comparison.",
+                            "zone in any per-zone comparison.",
                         )
                     )
                 continue
@@ -231,7 +231,7 @@ def diagnose(
                         "warn",
                         node.node_id,
                         f"{node.node_id} is declared in {spec.source} "
-                        f"(cell {node.cell}) but has never connected.",
+                        f"(zone {node.zone}) but has never connected.",
                         f"Deploy it, or remove it from {spec.source} if the "
                         "fleet has genuinely shrunk. A declared node that never "
                         "arrives means the run covers less of the topology than "
@@ -263,23 +263,23 @@ def diagnose(
                 )
             )
 
-    # The nodes of one cell must share a Zenoh transport.
+    # The nodes of one zone must share a Zenoh transport.
     #
     # The transport is fixed when a node process starts -- one Zenoh session,
     # one link, from ZENOH_CONFIG_OVERRIDE -- and each node reports the scheme
     # it really dials (`params.transport`). Nothing is declared per run: the
     # run records what its participants reported (run.json `zenoh_link`).
-    # What can go wrong is a cell whose nodes dial the router over DIFFERENT
+    # What can go wrong is a zone whose nodes dial the router over DIFFERENT
     # links, e.g. a client redeployed on udp beside an edge still on tcp. Its
     # data crosses two links, so a transport comparison would be measuring a
     # mixture -- and nothing in the CSVs would show it. Nodes that do not use
     # Zenoh (the gNB collector, the E2 xApp) are not compared, whatever they
     # report.
-    for cell in cells:
+    for zone in zones:
         on_zenoh = {
             r.node_id: str((r.params or {}).get("transport"))
             for r in online
-            if cell_of(r) == cell
+            if zone_of(r) == zone
             and r.node_type in ZENOH_NODE_TYPES
             and (r.params or {}).get("transport")
         }
@@ -298,13 +298,13 @@ def diagnose(
                     "error",
                     node_id,
                     f"{node_id} dials the router over {scheme!r}, while {others} "
-                    f"use {majority!r}. A run in this cell would cross two links, "
+                    f"use {majority!r}. A run in this zone would cross two links, "
                     "and its data would describe neither.",
-                    "Deploy every node of the cell with the same scheme in "
+                    "Deploy every node of the zone with the same scheme in "
                     "ZENOH_CONFIG_OVERRIDE (the compose files use tcp/...:7448) and "
                     "RECREATE the odd container: the link is fixed when the "
                     "process starts, so restarting a run cannot change it.",
-                    cell=cell,
+                    zone=zone,
                 )
             )
 
@@ -352,7 +352,7 @@ def diagnose(
                     "`bash deploy/lab/ptp/verify-ptp.sh --peer <other-host>` "
                     "must agree. A host can report nanosecond accuracy while "
                     "following the wrong clock entirely.",
-                    cell=cell_of(record),
+                    zone=zone_of(record),
                 )
             )
 
@@ -386,7 +386,7 @@ def diagnose(
                     "against `ethtool -T <iface>`). Discard this run's "
                     "cross-host numbers. The renderer's own e2e_ns survives, "
                     "since both its stamps come off one host (ADR-0009).",
-                    cell=cell_of(record),
+                    zone=zone_of(record),
                 )
             )
 
@@ -432,11 +432,11 @@ def diagnose(
     # --- the silent failures ----------------------------------------------
     streaming_clients = [c for c in clients if c.streaming]
     for client in streaming_clients:
-        # Only edges in the SAME cell. Across cells this was a cross-product:
+        # Only edges in the SAME zone. Across zones this was a cross-product:
         # N clients x M edges, every pair generating findings about a link
         # that does not exist.
         for edge in edges:
-            if cell_of(edge) != cell_of(client):
+            if zone_of(edge) != zone_of(client):
                 continue
             if not edge.subscribed:
                 continue
@@ -453,7 +453,7 @@ def diagnose(
                         f"{edge_reliability!r}. That pair delivers nothing, silently.",
                         "Set the same `reliability` on both, e.g. RELIABILITY=reliable "
                         "for the whole topology, and restart the run.",
-                        cell=cell_of(client),
+                        zone=zone_of(client),
                     )
                 )
                 continue
@@ -469,7 +469,7 @@ def diagnose(
                         "The client and edge are not meeting on the Zenoh router. Check the "
                         "router is reachable from the UE at udp/<edge>:7447?rel=1 and that "
                         "ZENOH_CONFIG_OVERRIDE names the right host.",
-                        cell=cell_of(client),
+                        zone=zone_of(client),
                     )
                 )
                 continue
@@ -487,7 +487,7 @@ def diagnose(
                         "Frames are leaving the client and not arriving. Check the Zenoh "
                         "router and, if netem is active, whether the offered load exceeds "
                         "what the impaired link can carry.",
-                        cell=cell_of(client),
+                        zone=zone_of(client),
                     )
                 )
 
@@ -525,7 +525,7 @@ def diagnose(
                     "<gNB host>, port 36421 (deploy/lab/srsran/gnb.mec-cast.yml). Check "
                     "`bash deploy/lab/ric/ric.sh status`. After a gNB disconnect the RIC "
                     "refuses it for 60 s: restart the gNB after the RIC, then wait.",
-                    cell=cell_of(xapp),
+                    zone=zone_of(xapp),
                 )
             )
         elif xapp.state == NodeState.RUNNING and _rising(xapp, "indications") is False:
@@ -539,7 +539,7 @@ def diagnose(
                     "and carrying traffic: srsRAN's E2 agent reports only for active UEs. "
                     "oran-sc-ric documents that its xApps sometimes need a restart before "
                     "indications are delivered.",
-                    cell=cell_of(xapp),
+                    zone=zone_of(xapp),
                 )
             )
 
@@ -560,7 +560,7 @@ def diagnose(
                     "control.csv for the RIC's answer. oran-sc-ric's PRB-quota encoder "
                     "assumes PLMN 00101, SST 1, SD 1: the lab slice must match. Stop the "
                     "run, or re-send the policy (POST /api/v1/runs/<id>/ran-policy).",
-                    cell=cell_of(xapp),
+                    zone=zone_of(xapp),
                 )
             )
 
@@ -570,7 +570,7 @@ def diagnose(
     # catalogue's "verify" column — and either way it must not pass silently.
     for xapp in xapps:
         for gnb in gnbs:
-            if cell_of(gnb) != cell_of(xapp) or not (gnb.run_id and gnb.run_id == xapp.run_id):
+            if zone_of(gnb) != zone_of(xapp) or not (gnb.run_id and gnb.run_id == xapp.run_id):
                 continue
             for direction in ("dl", "ul"):
                 key = f"ue_{direction}_throughput_bps"
@@ -592,18 +592,18 @@ def diagnose(
                             "ran/schema/metrics.md and both normalisers. A varying gap means "
                             "the sources disagree or describe different UEs. Their windows "
                             "differ by up to one report period, so judge a sustained gap.",
-                            cell=cell_of(xapp),
+                            zone=zone_of(xapp),
                         )
                     )
 
     # --- consistency ------------------------------------------------------
     if run is not None:
         for record in online:
-            # Only within this run's own cell. A node in another cell is
-            # recording that cell's run, which is correct, not a mismatch —
-            # comparing across cells reported every other cell's nodes as
+            # Only within this run's own zone. A node in another zone is
+            # recording that zone's run, which is correct, not a mismatch —
+            # comparing across zones reported every other zone's nodes as
             # being on the wrong run the moment two ran at once.
-            if cell_of(record) != (getattr(run, "cell", None) or DEFAULT_CELL):
+            if zone_of(record) != (getattr(run, "zone", None) or DEFAULT_ZONE):
                 continue
             if record.run_id and record.run_id != run.run_id:
                 findings.append(
@@ -612,9 +612,9 @@ def diagnose(
                         "error",
                         record.node_id,
                         f"{record.node_id} is recording run {record.run_id} while the active "
-                        f"run in cell {cell_of(record)} is {run.run_id}.",
+                        f"run in zone {zone_of(record)} is {run.run_id}.",
                         "Stop that node's run from this page, then start the active run again.",
-                        cell=cell_of(record),
+                        zone=zone_of(record),
                     )
                 )
 

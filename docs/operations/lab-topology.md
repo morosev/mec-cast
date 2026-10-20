@@ -143,7 +143,7 @@ different scheme and **recreate** the containers.
   `participants`, with a summary `zenoh_link`: one scheme, `mixed`, or null
   when no Zenoh node took part. The top-level `transport: rmw_zenoh_cpp` is
   the ROS middleware, not the link.
-- **A cell's Zenoh nodes must agree.** If one dials the router over a
+- **A zone's Zenoh nodes must agree.** If one dials the router over a
   different scheme, the admin raises `WF_TRANSPORT_MISMATCH` as an error, since
   a run would cross two links:
 
@@ -229,8 +229,8 @@ that correlates UE, edge, and RAN records for one experiment.
 
 With the admin service, do not set it. Every role defaults `ADMIN_URL` to
 `ws://${INFRA_HOST}:8099/ws/node` — the admin runs on **infra**, one
-authority for the fleet, because runs are per cell and an admin per edge would
-be an authority per cell. The admin mints the run id, and the nodes
+authority for the fleet, because runs are per zone and an admin per edge would
+be an authority per zone. The admin mints the run id, and the nodes
 ignore `RUN_ID` entirely — which removes the "same value across all roles"
 requirement that is easy to get wrong by hand. See
 [admin-service.md](admin-service.md).

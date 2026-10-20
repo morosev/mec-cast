@@ -73,8 +73,8 @@ services:
     restart: unless-stopped
 
   # The control plane. It lives here rather than on the edge because runs are
-  # per cell and there must be ONE authority for the fleet: an admin per edge
-  # would give each cell its own registry, its own runs/ directory and its own
+  # per zone and there must be ONE authority for the fleet: an admin per edge
+  # would give each zone its own registry, its own runs/ directory and its own
   # half of the declared topology, with no way to start a run spanning cells.
   #
   # Ports rather than network_mode: host, matching logging and postgres on

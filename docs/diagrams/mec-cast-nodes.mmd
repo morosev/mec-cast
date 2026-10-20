@@ -2,13 +2,13 @@
 %% . A bare `%%` line is a parse error here; keep content on every one.
 %% . Three planes, and naming them is what keeps the design honest:
 %% .   data    (red)     point clouds and results: UE -> gNB -> Edge, plus
-%% .                     Edge -> Edge for anything crossing cells.
+%% .                     Edge -> Edge for anything crossing zones.
 %% .   peering (black)   Zenoh router<->router sessions. Transport plumbing
 %% .                     carrying routing declarations, NOT application
-%% .                     control. One link per edge pair: cross-cell data
+%% .                     control. One link per edge pair: cross-zone data
 %% .                     rides over that same peering session.
 %% .   control (dashed)  admin WebSocket :8099. Every node, one authority.
-%% . cell-a keeps lidar and render on one UE; cell-b splits them. That
+%% . zone-a keeps lidar and render on one UE; zone-b splits them. That
 %% . contrast is deliberate: ADR-0009's round-trip e2e_ns is PTP-free only
 %% . while both stamps come off one host's clock, so ue-b2 is exactly the
 %% . case WF_RENDER_CROSS_HOST exists to catch.
@@ -16,24 +16,24 @@
   "background":"#FFFFFF","primaryTextColor":"#1A1A1A","lineColor":"#5A6167",
   "clusterBkg":"#FBFBFC","clusterBorder":"#C6CACD",
   "fontFamily":"Arial"}} }%%
-%% . TB at the top level so the cells stack and the edge<->edge peering is a
-%% . short vertical link between them; LR inside each cell so the data path
+%% . TB at the top level so the zones stack and the edge<->edge peering is a
+%% . short vertical link between them; LR inside each zone so the data path
 %% . reads left to right. Under a top-level LR the peering link becomes a
-%% . diagonal across the whole picture and the cells stagger.
+%% . diagonal across the whole picture and the zones stagger.
 flowchart TB
   classDef ue    fill:#EEF3F8,stroke:#4A6B8A,stroke-width:1px,color:#1A1A1A
   classDef gnb   fill:#F6F1E8,stroke:#8A7A4A,stroke-width:1px,color:#1A1A1A
   classDef edge  fill:#EAF2EC,stroke:#4A7A5A,stroke-width:1px,color:#1A1A1A
   classDef infra fill:#F2F2F4,stroke:#6A6A72,stroke-width:1px,color:#1A1A1A
 
-  subgraph CELL_A["cell-a"]
+  subgraph ZONE_A["zone-a"]
     direction LR
     UEA["ue-a1<br/>mec-cast-lidar ×2<br/>mec-cast-render ×1"]
     GA["gnb-a<br/>mec-cast-ran"]
     EA["edge-a<br/>mec-cast-zenoh-router<br/>mec-cast-edge"]
   end
 
-  subgraph CELL_B["cell-b"]
+  subgraph ZONE_B["zone-b"]
     direction LR
     UEB1["ue-b1<br/>mec-cast-lidar ×2"]
     GB["gnb-b<br/>mec-cast-ran"]

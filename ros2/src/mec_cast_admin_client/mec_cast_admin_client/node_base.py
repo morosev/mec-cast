@@ -85,12 +85,13 @@ class MecCastNode(Node):
         # `runs/pub-0` — outside any run directory, quietly merging every
         # unnamed run into one. Empty is meaningless for both of these, so
         # treat it as unset. It is NOT meaningless for admin_url, logging_url
-        # or cell below, where empty is a real choice.
+        # or zone below, where empty is a real choice.
         self.declare_parameter("run_id", os.environ.get("RUN_ID") or "dev-run")
         self.declare_parameter("runs_dir", os.environ.get("RUNS_DIR") or "runs")
         self.declare_parameter("logging_url", os.environ.get("LOGGING_URL", ""))
         self.declare_parameter("admin_url", os.environ.get("ADMIN_URL", ""))
-        self.declare_parameter("cell", os.environ.get("CELL", ""))
+        # ZONE: a gNB, its UEs and its edge.
+        self.declare_parameter("zone", os.environ.get("ZONE", ""))
         # Which PHC to judge clock health against. NOT hardcoded to /dev/ptp0:
         # index 0 is whichever NIC the driver registered first, which on a
         # multi-NIC host is routinely not the one ptp4l disciplines. Empty
@@ -114,7 +115,7 @@ class MecCastNode(Node):
             node_type=self.NODE_TYPE,
             host=socket.gethostname(),
             url=str(self.get_parameter("admin_url").value),
-            cell=str(self.get_parameter("cell").value),
+            zone=str(self.get_parameter("zone").value),
             instance=self.instance,
             version_sha=os.environ.get("VCS_REF", ""),
             version_tag=os.environ.get("VERSION", ""),

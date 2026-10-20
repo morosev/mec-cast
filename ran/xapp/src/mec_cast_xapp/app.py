@@ -14,7 +14,7 @@ Environment:
   KPM_LOGGING        send KPM rows and controls to it (1; 0 = files only).
                      Independent of the collector's RAN_LOGGING: the JSON
                      tap feeds the logging service with or without this xApp
-  CELL               radio cell, as the other nodes report it
+  ZONE               zone (gNB, UEs, edge), as the other nodes report it
   XAPP_HOST          node identity host              (hostname)
   KPM_STYLE, KPM_METRICS, KPM_UE_IDS, E2_NODE_ID     defaults for run params
 
@@ -303,7 +303,7 @@ def main() -> int:
             node_type="xapp",
             host=os.environ.get("XAPP_HOST") or socket.gethostname(),
             url=admin_url,
-            cell=os.environ.get("CELL", ""),
+            zone=os.environ.get("ZONE", ""),
             version_sha=os.environ.get("VCS_REF", ""),
             version_tag=os.environ.get("VERSION", ""),
             pid=os.getpid(),

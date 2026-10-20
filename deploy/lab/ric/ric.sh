@@ -211,7 +211,7 @@ case "${1:-}" in
       -e KPM_LOGGING="${KPM_LOGGING:-1}" \
       -e RUNS_DIR=/runs \
       -e XAPP_HOST="${XAPP_HOST:-$(hostname -s)}" \
-      -e CELL="${CELL:-}" \
+      -e ZONE="${ZONE:-}" \
       -e VCS_REF="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)" \
       -e XAPP_CAPABILITIES="${XAPP_CAPABILITIES:-kpm_monitor,rc_control}" \
       -e KPM_STYLE="${STYLE}" \

@@ -21,12 +21,12 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     label: str = Field(default="", max_length=200, description="Free-text tag for the run.")
-    cell: str = Field(
+    zone: str = Field(
         default="default",
         max_length=64,
-        description="Which cell this run covers. Each cell runs at most one "
+        description="Which zone this run covers. Each zone runs at most one "
         "run at a time; a deployment that has not declared a topology has "
-        "exactly one cell and can leave this alone.",
+        "exactly one zone and can leave this alone.",
     )
     params: dict[str, Any] = Field(
         default_factory=dict,

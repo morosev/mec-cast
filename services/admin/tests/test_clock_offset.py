@@ -46,7 +46,7 @@ def connect_skewed(client, stack, node_type, host, skew_ns):
     socket = stack.enter_context(client.websocket_connect("/ws/node"))
     frame = p.build(
         p.MessageType.HELLO,
-        p.HelloPayload(node_type=node_type, node_id=node, host=host, cell=""),
+        p.HelloPayload(node_type=node_type, node_id=node, host=host, zone=""),
         node_id=node,
     )
     frame["ts_ns"] = p.now_ns() - skew_ns
