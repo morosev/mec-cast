@@ -29,6 +29,7 @@ the real testbed is [operations/lab-topology.md](../operations/lab-topology.md).
 - [Part 2 — mec-cast over the 5G link](#part-2--mec-cast-over-the-5g-link)
 - [Part 3 — E2: the RIC, the xApp and RAN control](#part-3--e2-the-ric-the-xapp-and-ran-control)
 - [Cold start: the whole order](#cold-start-the-whole-order)
+- [Stopping: the whole order](#stopping-the-whole-order)
 - [Troubleshooting](#troubleshooting)
 - [What this setup is not](#what-this-setup-is-not)
 - [References](#references)
@@ -857,6 +858,32 @@ container was recreated or the radio stopped, `RESTART=1` after a radio
 config change. It restarts the gNB and srsUE together, gNB first, because
 ZMQ cannot resynchronise, and always after `ue1` points at the client
 container, because srsUE opens the namespace only when it starts.
+
+## Stopping: the whole order
+
+From `~/mec-cast`, the reverse of the cold start. The radio goes first:
+a gNB left running keeps retrying its links to the core and the RIC and
+fills its log.
+
+1. `make down-local-5g`: the mec-cast containers, then srsUE and the gNB
+   (SIGINT, so the gNB writes its E2AP pcap), and `ue1` back to a plain
+   namespace. The database is kept; never add `-v`.
+2. `bash deploy/lab/ric/ric.sh down`: the RIC, the xApp with it. Only if you
+   used E2. A PRB cap was already reverted when its run stopped (ADR-0011).
+3. `cd ~/src/ocudu/docker && docker compose down`: the Open5GS core.
+
+Partial stops:
+
+| To stop | Run | Start it again with |
+|---|---|---|
+| Only the gNB and srsUE, mec-cast keeps running | `bash scripts/ocudu-attach-ue.sh -S` | `make attach-local-5g` |
+| Only the xApp | `docker restart python_xapp_runner` | `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d` |
+| Only mec-cast | `make down-local-5g` (takes the radio with it) | `make up-local-5g RAN=1`, then `make attach-local-5g` |
+
+The subscriber's slice lives in the core's database: `docker compose down`
+and `up` keep it, `--force-recreate` resets it to `SUBSCRIBER_DB`, which has
+no SD. Set SST 1 / SD `000001` again in the WebUI after a recreate
+([1.4](#14-start-the-open5gs-core)).
 
 ## Troubleshooting
 
