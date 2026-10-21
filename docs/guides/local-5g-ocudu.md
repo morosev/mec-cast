@@ -87,7 +87,7 @@ the client refuses to start until that route goes through `tun_srsue`.
 | Docker Engine | with the compose plugin | Docker Engine on the host, not Docker Desktop: the gNB must reach the core's bridge. |
 | Cell | band 3 FDD, 10 MHz, 15 kHz SCS, 11.52 Msps | The configuration OCUDU's srsUE tutorial uses. |
 | Slice | SST 1, SD 1 (`000001`) | RAN control needs exactly this S-NSSAI on the gNB, the AMF and the subscriber ([why](#36-ran-control-a-prb-quota)). Configured from the start in Part 1. |
-| near-RT RIC | oran-sc-ric at the pin in `deploy/lab/ric/ric.sh` | Part 3 only. Its images are amd64: an arm64 host needs Rosetta or QEMU 8.1.x ([3.1](#31-arm64-hosts-only-run-amd64-correctly)). |
+| near-RT RIC | oran-sc-ric at the pin in `deploy/lab/ric/oran-sc-ric.sh` | Part 3 only. Its images are amd64: an arm64 host needs Rosetta or QEMU 8.1.x ([3.1](#31-arm64-hosts-only-run-amd64-correctly)). |
 
 Paths used below: `~/src/ocudu`, `~/src/srsRAN_4G`, `~/ran-configs`, `~/mec-cast`.
 
@@ -585,8 +585,8 @@ manual check works again afterwards.
 
 The near-RT RIC is srsRAN's
 [oran-sc-ric](https://github.com/srsran/oran-sc-ric), cloned beside the repo
-at the pin in [`deploy/lab/ric/ric.sh`](../../deploy/lab/ric/ric.sh) and never
-modified (ADR-0010). `ric.sh` starts it, runs the stock KPM monitor, and runs
+at the pin in [`deploy/lab/ric/oran-sc-ric.sh`](../../deploy/lab/ric/oran-sc-ric.sh) and never
+modified (ADR-0010). `oran-sc-ric.sh` starts it, runs the stock KPM monitor, and runs
 the mec-cast xApp inside the RIC's xApp runner. This part is the lab's E2
 procedure
 ([deploy manual, steps 6–8](../operations/deploy-manual.md#the-gnb--metrics-tap-e2-and-the-ric))
@@ -596,9 +596,14 @@ on one host, plus what OCUDU 26.10 needs that srsRAN did not
 Do the steps in order and do not skip the stock monitor. A failure there is
 the E2 path; a failure after it is the xApp.
 
+FlexRIC is the other RIC, with the same subcommands
+([ADR-0012](../architecture/adr/0012-two-near-rt-rics.md)). On this testbed it
+follows the lab: [3.9](#39-flexric-instead-of-oran-sc-ric-after-the-lab-test)
+once the lab's first FlexRIC test (deploy manual, step 6b) has passed.
+
 ### 3.1 arm64 hosts only: run amd64 correctly
 
-The RIC images are amd64 only. `ric.sh` builds and runs them as amd64 on an
+The RIC images are amd64 only. `oran-sc-ric.sh` builds and runs them as amd64 on an
 arm64 host, so the host needs a way to execute amd64 binaries, and **which way
 matters**. QEMU user emulation 9.0.1 and later crashes Go programs in the
 garbage collector (`fatal error: lfstack.push`,
@@ -623,11 +628,11 @@ of `rtmgr_sim` dies first, and the RIC's Go services would follow at runtime.
   docker run --privileged --rm tonistiigi/binfmt:qemu-v8.1.5 --install amd64
   ```
 
-`ric.sh up` checks which handler is registered and says so.
+`oran-sc-ric.sh up` checks which handler is registered and says so.
 
 ### 3.2 Start the RIC — before the gNB
 
-`runs/` is usually created by the mec-cast containers, as root, and `ric.sh`
+`runs/` is usually created by the mec-cast containers, as root, and `oran-sc-ric.sh`
 writes `runs/ric/` as you. Hand the directory back once:
 
 ```bash
@@ -638,7 +643,7 @@ sudo chown $USER: runs                 # top level only; run folders stay the co
 Then:
 
 ```bash
-bash deploy/lab/ric/ric.sh up          # clones ~/oran-sc-ric at the pin, builds, starts
+bash deploy/lab/ric/oran-sc-ric.sh up          # clones ~/oran-sc-ric at the pin, builds, starts
 docker logs -f ric_submgr              # wait for "RMR is ready now", then Ctrl-C
 ip addr | grep 10.0.2.1                # the RIC network exists on the host
 ```
@@ -672,7 +677,7 @@ make attach-local-5g RESTART=1
 Then:
 
 ```bash
-bash deploy/lab/ric/ric.sh status     # "gnbd_001_001_00019b_0 CONNECTED"
+bash deploy/lab/ric/oran-sc-ric.sh status     # "gnbd_001_001_00019b_0 CONNECTED"
 ```
 
 The RIC refuses an E2 reconnect within 60 s of a disconnect. If the node is
@@ -689,7 +694,7 @@ Put load on the UE (a mec-cast run from the admin, or
 `sudo ip netns exec ue1 iperf3 -c 10.53.1.1 -t 300 -u -b 5M`), then:
 
 ```bash
-KPM_SECONDS=30 bash deploy/lab/ric/ric.sh kpm
+KPM_SECONDS=30 bash deploy/lab/ric/oran-sc-ric.sh kpm
 ```
 
 It subscribes with the defaults, which are style 2 (one UE, E2 UE id 0) and
@@ -717,10 +722,10 @@ cp /tmp/gnb_du_e2ap.pcap runs/ric/e2-fixtures/      # after a clean gNB stop
 ### 3.5 The mec-cast xApp
 
 ```bash
-INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d
+INFRA_HOST=10.0.2.1 bash deploy/lab/ric/oran-sc-ric.sh xapp -d
 ```
 
-`INFRA_HOST` is the host as the RIC network sees it. `ric.sh` hands the xApp
+`INFRA_HOST` is the host as the RIC network sees it. `oran-sc-ric.sh` hands the xApp
 the same style, metrics and UE ids the monitor used, as defaults; run params
 override them per run. In the foreground (no `-d`) it logs:
 
@@ -818,12 +823,12 @@ OCUDU 26.10 differs in the following, and the repo now carries each fix:
 
 | Area | srsRAN-era default | What OCUDU 26.10 does | Now |
 |---|---|---|---|
-| KPM report style | 5, one UE id | Style 5 needs at least two UE ids; a request for a UE it does not have is refused | Style 2 (one UE, E2 UE id 0) in `ric.sh` and the xApp |
+| KPM report style | 5, one UE id | Style 5 needs at least two UE ids; a request for a UE it does not have is refused | Style 2 (one UE, E2 UE id 0) in `oran-sc-ric.sh` and the xApp |
 | KPM metrics | Six, incl. `DRB.PacketSuccessRateUlgNBUu` | Does not serve `PacketSuccessRateUlgNBUu`. **One unsupported metric refuses the whole subscription**: `Action not supported` in the gNB log, `RICSubscriptionFailure … Cause:6, Value 0` at submgr | Five metrics: `DRB.UEThpDl`, `DRB.UEThpUl`, `DRB.RlcSduTransmittedVolumeDL`, `…UL`, `DRB.RlcPacketDropRateDl` |
 | Rejected subscription | Reported as subscribed | The refusal arrives after the REST call succeeds, as an E2EventInstanceId of 0 | The xApp checks for it: `kpm_error` says *rejected*, retry after 60 s |
 | PRB-quota slice | Matched on SST | Matches PLMN + SST + SD exactly, against `cell_cfg.slicing` | SD 1 on the gNB, the core and the subscriber |
 | `dedicated_prb_ratio` | 100 (mec-cast default) | The ACKed control used 0. 100 was only tried before the slice fix, so untested since | Pass 0 explicitly until 100 is tried |
-| `ric.sh kpm` | Ctrl-C ended it | Under `\| tee` Ctrl-C never reached the container. The monitor kept its ports, and the next one died with `Address already in use` before subscribing | `ric.sh` stops leftovers before and after; `KPM_SECONDS` |
+| `oran-sc-ric.sh kpm` | Ctrl-C ended it | Under `\| tee` Ctrl-C never reached the container. The monitor kept its ports, and the next one died with `Address already in use` before subscribing | `oran-sc-ric.sh` stops leftovers before and after; `KPM_SECONDS` |
 
 The same table belongs to the lab: these are properties of the gNB software,
 not of ZMQ.
@@ -831,27 +836,91 @@ not of ZMQ.
 ### 3.8 Stop the RIC
 
 ```bash
-bash deploy/lab/ric/ric.sh down
+bash deploy/lab/ric/oran-sc-ric.sh down
 ```
 
 The xApp reverts any policy in force when its run stops, when the admin is
 gone for 30 s, and at its next boot after a crash, so stopping the RIC never
 leaves a cap behind in the gNB (ADR-0011).
 
+### 3.9 FlexRIC instead of oran-sc-ric (after the lab test)
+
+**Status:** the same procedure as the lab's step 6b, collapsed onto this host.
+It has run against FlexRIC's emulated gNB, not yet against this testbed's
+OCUDU gNB. Use it after the lab's first FlexRIC test has passed, so that a
+failure here is this host's and not the bridge's.
+
+Three things differ from oran-sc-ric on this host:
+
+- **No RIC network.** FlexRIC runs with host networking, so the gNB reaches it
+  on `127.0.0.1`. The `10.0.2.0/24` network and the `10.0.2.1` / `10.0.2.10`
+  addresses are oran-sc-ric's only.
+- **No amd64 emulation.** FlexRIC builds natively, so 3.1 does not apply on an
+  arm64 VM.
+- **KPM style 4,** every UE in the slice, per UE. Style 2 is not built for
+  FlexRIC.
+
+```bash
+bash deploy/lab/ric/oran-sc-ric.sh down      # one RIC at a time: both use E2 SCTP 36421
+bash deploy/lab/ric/flexric.sh up            # builds mec-cast-flexric the first time (minutes)
+bash deploy/lab/ric/flexric.sh emu           # optional smoke test, no radio needed
+bash deploy/lab/ric/flexric.sh status        # emu_agent's node, CONNECTED
+docker rm -f mec-cast-flexric-emu            # before the real gNB connects
+```
+
+Point the gNB at it. In `~/ran-configs/gnb_zmq.yaml`, replace the `e2:` block of
+3.3 with:
+
+```yaml
+e2:
+  enable_du_e2: true
+  e2sm_kpm_enabled: true
+  e2sm_rc_enabled: true
+  addr: 127.0.0.1        # FlexRIC, host networking on this host
+  bind_addr: 127.0.0.1
+  port: 36421
+```
+
+Then load it, and prove E2 through the bridge:
+
+```bash
+make attach-local-5g RESTART=1
+bash deploy/lab/ric/flexric.sh status
+KPM_SECONDS=30 bash deploy/lab/ric/flexric.sh kpm   # verdict: subscribed, N indication(s)
+```
+
+Then the xApp. The admin and the logging service are published on this host,
+which FlexRIC's host network shares:
+
+```bash
+INFRA_HOST=127.0.0.1 bash deploy/lab/ric/flexric.sh xapp -d
+bash deploy/lab/ric/flexric.sh logs xapp     # the xApp and the bridge
+```
+
+Runs, KPM rows and the PRB quota work as in 3.5 and 3.6. The slice a quota names
+is `FLEXRIC_SLICE` (`00101:1:1`, which matches Part 1), and `control.csv` reads
+`ack` or `failed` as on oran-sc-ric. Stop it with `bash deploy/lab/ric/flexric.sh down`.
+To go back to oran-sc-ric, restore 3.3's `e2:` addresses, then
+`oran-sc-ric.sh up` and `make attach-local-5g RESTART=1`.
+
 ## Cold start: the whole order
 
 After a host or VM boot, with everything built:
 
-1. `bash deploy/lab/ric/ric.sh up`, then wait for `RMR is ready now`. Only if
+1. `bash deploy/lab/ric/oran-sc-ric.sh up`, then wait for `RMR is ready now`. Only if
    you use E2; it must come before the gNB.
 2. `make up-local-5g RAN=1`: mec-cast, with the metrics tap.
 3. `make attach-local-5g`: host setup and the core, `ue1`, the gNB, srsUE,
    the route.
-4. `bash deploy/lab/ric/ric.sh status`: the node is CONNECTED. If not:
+4. `bash deploy/lab/ric/oran-sc-ric.sh status`: the node is CONNECTED. If not:
    `sleep 60 && make attach-local-5g RESTART=1`.
-5. `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d`.
+5. `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/oran-sc-ric.sh xapp -d`.
 6. The admin page shows four nodes: gNB, edge, `client-ue-local-0` and
    `xapp-<host>-0`. Start runs.
+
+With FlexRIC ([3.9](#39-flexric-instead-of-oran-sc-ric-after-the-lab-test)),
+steps 1, 4 and 5 use `flexric.sh` instead, with `INFRA_HOST=127.0.0.1` in
+step 5.
 
 Every later restart is `make attach-local-5g`: plain after the client
 container was recreated or the radio stopped, `RESTART=1` after a radio
@@ -868,8 +937,9 @@ fills its log.
 1. `make down-local-5g`: the mec-cast containers, then srsUE and the gNB
    (SIGINT, so the gNB writes its E2AP pcap), and `ue1` back to a plain
    namespace. The database is kept; never add `-v`.
-2. `bash deploy/lab/ric/ric.sh down`: the RIC, the xApp with it. Only if you
-   used E2. A PRB cap was already reverted when its run stopped (ADR-0011).
+2. `bash deploy/lab/ric/oran-sc-ric.sh down` (or `flexric.sh down`): the RIC,
+   the xApp with it. Only if you used E2. A PRB cap was already reverted when
+   its run stopped (ADR-0011).
 3. `cd ~/src/ocudu/docker && docker compose down`: the Open5GS core.
 
 Partial stops:
@@ -877,7 +947,8 @@ Partial stops:
 | To stop | Run | Start it again with |
 |---|---|---|
 | Only the gNB and srsUE, mec-cast keeps running | `bash scripts/ocudu-attach-ue.sh -S` | `make attach-local-5g` |
-| Only the xApp | `docker restart python_xapp_runner` | `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/ric.sh xapp -d` |
+| Only the xApp | `docker restart python_xapp_runner` | `INFRA_HOST=10.0.2.1 bash deploy/lab/ric/oran-sc-ric.sh xapp -d` |
+| Only the xApp, on FlexRIC | `docker rm -f mec-cast-flexric-xapp` | `INFRA_HOST=127.0.0.1 bash deploy/lab/ric/flexric.sh xapp -d` |
 | Only mec-cast | `make down-local-5g` (takes the radio with it) | `make up-local-5g RAN=1`, then `make attach-local-5g` |
 
 The subscriber's slice lives in the core's database: `docker compose down`
@@ -911,16 +982,16 @@ Read the symptom column first.
 | Heavy frame loss, latency climbing during a run | Offered load above cell capacity | Lower `NUM_POINTS`/`RATE_HZ`, or use a 20 MHz cell |
 | srsUE attached (`PUCCH … cqi=15` in its log) but `Device "tun_srsue" does not exist` in the client container | srsUE was started by hand before `ue1` pointed at the container | `make attach-local-5g RESTART=1` |
 | UE stops registering after a core rebuild | `--force-recreate` re-provisioned the subscriber without SD 1 | Set SST 1 / SD `000001` again in the WebUI ([1.4](#14-start-the-open5gs-core)) |
-| `ric.sh up`: `fatal error: lfstack.push` while building `rtmgr_sim` | QEMU ≥ 9.0.1 runs the amd64 Go build and crashes | Rosetta or QEMU 8.1.x ([3.1](#31-arm64-hosts-only-run-amd64-correctly)) |
-| `ric.sh`: `cannot write …/runs` | The containers created `runs/` as root | `sudo chown $USER: runs` |
-| `ric.sh status` lists no node | gNB started before the RIC, the 60 s reconnect rule, or a wrong `e2:` address | Start the RIC first; wait 60 s and restart the gNB; `addr: 10.0.2.10`, `bind_addr: 10.0.2.1` |
-| Monitor or xApp: `OSError: [Errno 98] Address already in use` | A leftover monitor or xApp holds its ports in the runner | Current `ric.sh` stops leftovers; otherwise `docker restart python_xapp_runner` |
-| `WF_KPM_SILENT`; submgr `RICSubscriptionFailure … Cause:6, Value 0`; gNB `Action not supported` | A metric OCUDU does not serve, or style 5 with one UE | The defaults in [3.7](#37-what-ocudu-2610-needs-from-the-e2-path); test a list with `METRICS=… KPM_SECONDS=20 ric.sh kpm` |
+| `oran-sc-ric.sh up`: `fatal error: lfstack.push` while building `rtmgr_sim` | QEMU ≥ 9.0.1 runs the amd64 Go build and crashes | Rosetta or QEMU 8.1.x ([3.1](#31-arm64-hosts-only-run-amd64-correctly)) |
+| `oran-sc-ric.sh`: `cannot write …/runs` | The containers created `runs/` as root | `sudo chown $USER: runs` |
+| `oran-sc-ric.sh status` lists no node | gNB started before the RIC, the 60 s reconnect rule, or a wrong `e2:` address | Start the RIC first; wait 60 s and restart the gNB; `addr: 10.0.2.10`, `bind_addr: 10.0.2.1` |
+| Monitor or xApp: `OSError: [Errno 98] Address already in use` | A leftover monitor or xApp holds its ports in the runner | Current `oran-sc-ric.sh` stops leftovers; otherwise `docker restart python_xapp_runner` |
+| `WF_KPM_SILENT`; submgr `RICSubscriptionFailure … Cause:6, Value 0`; gNB `Action not supported` | A metric OCUDU does not serve, or style 5 with one UE | The defaults in [3.7](#37-what-ocudu-2610-needs-from-the-e2-path); test a list with `METRICS=… KPM_SECONDS=20 oran-sc-ric.sh kpm` |
 | `WF_POLICY_NOT_APPLIED`; `control.csv` `failed,RIC_CONTROL_FAILURE` | No gNB slice matches PLMN 00101 / SST 1 / SD 1 | SD 1 on gNB, core and subscriber ([3.6](#36-ran-control-a-prb-quota)) |
 
 Logs: gNB `/tmp/gnb.log`, srsUE `/tmp/ue.log`, core
 `docker logs -f open5gs_5gc`, mec-cast `mec5g logs -f`, RIC
-`docker logs ric_submgr` (subscriptions) and `ric.sh status`. Raise `all_level` to
+`docker logs ric_submgr` (subscriptions) and `oran-sc-ric.sh status`. Raise `all_level` to
 `info` in either radio config for one run when a log is silent.
 
 ## What this setup is not

@@ -3,7 +3,7 @@
 # Upstream ships the e2term port commented out, so a gNB on another machine
 # cannot reach the RIC. This overlay publishes it, over SCTP, on the infra
 # host's management LAN address (E2 never rides the 5G user plane — the same
-# reasoning as ADR-0003). ric.sh passes it with -f; the upstream checkout is
+# reasoning as ADR-0003). oran-sc-ric.sh passes it with -f; the upstream checkout is
 # never edited, which keeps it a clean pinned copy of an AGPL project that
 # lives beside this repo, not inside it (ADR-0010).
 services:
@@ -18,7 +18,7 @@ services:
   # runs/ is mounted so the xApp writes beside every other node's data.
   python_xapp_runner:
     volumes:
-      - ${MECCAST_ROOT:?set by ric.sh}/ran/py:/opt/mec-cast/ran/py:ro
-      - ${MECCAST_ROOT:?set by ric.sh}/ran/xapp:/opt/mec-cast/ran/xapp:ro
-      - ${MECCAST_ROOT:?set by ric.sh}/ros2/src/mec_cast_admin_client/mec_cast_admin_client:/opt/mec-cast/admin_client/mec_cast_admin_client:ro
-      - ${MECCAST_ROOT:?set by ric.sh}/runs:/runs
+      - ${MECCAST_ROOT:?set by oran-sc-ric.sh}/ran/py:/opt/mec-cast/ran/py:ro
+      - ${MECCAST_ROOT:?set by oran-sc-ric.sh}/ran/xapp:/opt/mec-cast/ran/xapp:ro
+      - ${MECCAST_ROOT:?set by oran-sc-ric.sh}/ros2/src/mec_cast_admin_client/mec_cast_admin_client:/opt/mec-cast/admin_client/mec_cast_admin_client:ro
+      - ${MECCAST_ROOT:?set by oran-sc-ric.sh}/runs:/runs

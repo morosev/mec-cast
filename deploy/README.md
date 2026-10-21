@@ -27,7 +27,9 @@ lab/             Per-role compose files for the real testbed
   deploy.sh        rsync + build + up, per role
   ran-check.sh     on the gNB host: srsRAN version, metrics transport, collector, admin view
   srsran/          gnb.yml sections mec-cast needs (metrics, remote_control, e2, pcap)
-  ric/             the O-RAN SC near-RT RIC, pinned and run beside the repo (ADR-0010)
+  ric/             the near-RT RIC, one of two, side by side (ADR-0010, ADR-0012):
+    oran-sc-ric.sh   the O-RAN SC RIC, pinned and run beside the repo
+    flexric.sh       FlexRIC, built into mec-cast-flexric (flexric/Dockerfile)
   topology.example.yml  copy to topology.yml to declare the fleet (optional)
   ptp/             PTP units, config, and cross-host verification
 ```

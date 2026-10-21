@@ -2,7 +2,7 @@
 # The mec-cast E2 xApp, for LOCAL testing against gnb-sim (E2_ADAPTER=sim).
 #
 # In the lab the xApp does not run in this image: the O-RAN SC RIC's routing
-# table sends indications to its own xApp runner container, so ric.sh runs
+# table sends indications to its own xApp runner container, so oran-sc-ric.sh runs
 # the same package there (E2_ADAPTER=osc). This image exists so everything
 # above the adapter is exercised locally on the SAME Python as that runner —
 # 3.8 — and a 3.9+ construct fails here, not in the lab.

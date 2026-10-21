@@ -4,7 +4,11 @@
 
 Environment:
 
-  E2_ADAPTER         osc | sim                       (osc)
+  E2_ADAPTER         osc | flexric | sim             (osc)
+                     osc: oran-sc-ric (deploy/lab/ric/oran-sc-ric.sh)
+                     flexric: FlexRIC (deploy/lab/ric/flexric.sh), via
+                     mec-cast-e2-bridge; FLEXRIC_BRIDGE, FLEXRIC_CONF,
+                     FLEXRIC_SLICE in adapters/flexric.py
   SIM_E2             gnb-sim's E2 feed, host:port    (gnb-sim:8002; sim adapter)
   XAPP_CAPABILITIES  comma-separated                 (kpm_monitor,rc_control)
   ADMIN_URL          ws://<infra>:8099/ws/node; empty = standalone under RUN_ID
@@ -53,7 +57,11 @@ def make_port(name: str) -> E2Port:
         from .adapters.osc import OscPort
 
         return OscPort()
-    raise SystemExit(f"E2_ADAPTER={name!r}: expected osc or sim")
+    if name == "flexric":
+        from .adapters.flexric import FlexricPort
+
+        return FlexricPort()
+    raise SystemExit(f"E2_ADAPTER={name!r}: expected osc, flexric or sim")
 
 
 def env_flag(name: str, default: bool = True) -> bool:

@@ -4,7 +4,7 @@
 
 | Role | Runs | Deploy |
 |---|---|---|
-| **infra** | Admin service (:8099) + logging service + PostgreSQL; optionally the near-RT RIC and the E2 xApp (ADR-0010) | `bash deploy/lab/deploy.sh infra user@host`; the RIC by hand: `bash deploy/lab/ric/ric.sh up`, then `ric.sh xapp` |
+| **infra** | Admin service (:8099) + logging service + PostgreSQL; optionally a near-RT RIC — oran-sc-ric or FlexRIC, one at a time — and the E2 xApp (ADR-0010, ADR-0012) | `bash deploy/lab/deploy.sh infra user@host`; the RIC by hand: `bash deploy/lab/ric/oran-sc-ric.sh up` then `oran-sc-ric.sh xapp`, or the same with `flexric.sh` |
 | **edge** | Zenoh router + ROS2 ingest node | `bash deploy/lab/deploy.sh edge user@host` |
 | **ue** | LiDAR + ROS2 client node, behind the 5G modem | `bash deploy/lab/deploy.sh ue user@host` |
 | **gnb** | srsRAN metrics collector (beside the O-DU) | `bash deploy/lab/deploy.sh gnb user@host` |

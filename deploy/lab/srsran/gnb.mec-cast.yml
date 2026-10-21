@@ -39,7 +39,7 @@ e2:
   enable_du_e2: true
   e2sm_kpm_enabled: true
   e2sm_rc_enabled: true
-  addr: 10.0.0.10             # INFRA_HOST: where ric.sh published e2term (SCTP 36421)
+  addr: 10.0.0.10             # INFRA_HOST: where the RIC listens (SCTP 36421), oran-sc-ric or FlexRIC
   bind_addr: 10.0.0.30        # THIS host's management-LAN address (needed when the RIC is remote)
   port: 36421
 
@@ -50,7 +50,9 @@ pcap:
 
 # --- The slice RAN control acts on (E2SM-RC slice-level PRB quota) ----------
 # oran-sc-ric's PRB-quota encoder HARD-CODES the slice it names: PLMN 00101,
-# SST 1, SD 0x000001 (xApps/python/lib/e2sm_rc_module.py at the ric.sh pin).
+# SST 1, SD 0x000001 (xApps/python/lib/e2sm_rc_module.py at the oran-sc-ric.sh pin).
+# On FlexRIC the slice is FLEXRIC_SLICE (deploy/lab/ric/flexric.sh), by default
+# the same one, so the sections below serve both RICs.
 # OCUDU matches that S-NSSAI exactly, against a slice configured in the
 # scheduler (cell_cfg.slicing). With no such slice -- no `slicing:` block, or a
 # slice without `sd: 1` -- every control is answered with RIC Control Failure

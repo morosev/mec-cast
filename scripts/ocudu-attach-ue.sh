@@ -44,7 +44,7 @@
 #      routes N6_ADDR/32 via tun_srsue. Only that address: the container's
 #      default route stays on the compose bridge for logging and admin.
 #
-# Start the RIC (deploy/lab/ric/ric.sh up) BEFORE this when you use E2: the gNB
+# Start the RIC (deploy/lab/ric/oran-sc-ric.sh up, or flexric.sh up) BEFORE this when you use E2: the gNB
 # sets up E2 when it starts. The UE container waits for exactly the route of
 # step 4 before it opens its Zenoh session (deploy/compose/local-5g.yml), so it
 # starts on its own. Procedure: docs/guides/local-5g-ocudu.md.

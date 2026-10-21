@@ -3,7 +3,7 @@
 **Runs inside oran-sc-ric's ``python_xapp_runner`` container.** That is not a
 convenience: the RIC's static routing table (``ric/configs/routes.rtg``)
 delivers RIC_INDICATION to 10.0.2.20:4560-4562 and RIC_CONTROL_ACK/FAILURE to
-10.0.2.20:4560 — the runner's address. ``deploy/lab/ric/ric.sh xapp`` puts
+10.0.2.20:4560 — the runner's address. ``deploy/lab/ric/oran-sc-ric.sh xapp`` puts
 this package there.
 
 What it uses, and how:
@@ -19,7 +19,7 @@ What it uses, and how:
   RIC_CONTROL_ACK/FAILURE, and a control whose outcome cannot be recorded is
   a confound (ADR-0011).
 
-Written blind against oran-sc-ric @621ade2 (ric.sh RIC_PIN); first verified in
+Written blind against oran-sc-ric @621ade2 (oran-sc-ric.sh RIC_PIN); first verified in
 the lab. Known constraint from that code: its RC PRB-quota encoder hardcodes
 PLMN 00101, SST 1, SD 1 — the lab slice must match, or RC controls are
 rejected (``controls_failed`` rises, WF_POLICY_NOT_APPLIED says so).
@@ -83,7 +83,7 @@ class OscPort(E2Port):
         except ImportError as e:
             raise SystemExit(
                 f"E2_ADAPTER=osc needs oran-sc-ric's xApp runner ({e}). Run it there: "
-                "bash deploy/lab/ric/ric.sh xapp"
+                "bash deploy/lab/ric/oran-sc-ric.sh xapp"
             ) from e
         self._rmr = rmr
         self._IndicationMsg = IndicationMsg

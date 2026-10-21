@@ -9,7 +9,7 @@
 #
 # Both RAN sources of ADR-0010 run here: ran-collector reads gnb-sim's JSON,
 # and the E2 xApp reads its E2 feed through the `sim` adapter (the lab uses
-# `osc`, inside the RIC — deploy/lab/ric/ric.sh xapp). A ran_policy on a run
+# `osc`, inside the RIC — deploy/lab/ric/oran-sc-ric.sh xapp). A ran_policy on a run
 # caps the UE in gnb-sim, so the control loop is visible in both sources.
 #
 # gnb-sim (ran/sim/gnb_sim.py) speaks BOTH of srsRAN's metrics transports at

@@ -537,14 +537,28 @@ This writes `ran/collector/testdata/srsran_<version>.lab.jsonl` and its
 provenance sidecar, then runs the fixture tests on it. Commit both, naming the
 version.
 
-**6. The E2 path — RIC on the infra host.** srsRAN's `oran-sc-ric` runs
-beside the repo at a pinned commit, never inside it (AGPL):
+**6. The E2 path — RIC on the infra host.** There are two near-RT RICs, side
+by side, with the same subcommands (`up`, `status`, `kpm`, `xapp`, `down`) and
+the same variables ([ADR-0012](../architecture/adr/0012-two-near-rt-rics.md)).
+Run **one per host at a time**: both listen on E2 SCTP 36421, and each script
+refuses to start while the other runs.
+
+| | `deploy/lab/ric/oran-sc-ric.sh` | `deploy/lab/ric/flexric.sh` |
+|---|---|---|
+| RIC | srsRAN's oran-sc-ric, pinned commit, cloned beside the repo (AGPL) | FlexRIC v3.0.0 (OAI CSSL), built into the `mec-cast-flexric` image |
+| xApp adapter | `E2_ADAPTER=osc`, inside the RIC's xApp runner | `E2_ADAPTER=flexric`, through `mec-cast-e2-bridge` |
+| KPM style | 2 (one UE, E2 UE id 0) | 4 (every UE in the slice, per UE) |
+| PRB-quota slice | hard-coded PLMN 00101 / SST 1 / SD 1 | `FLEXRIC_SLICE`, default `00101:1:1` |
+| Against OCUDU | verified end to end | verified against FlexRIC's emulated gNB only; first lab test pending |
+
+**6a. With oran-sc-ric.** It runs beside the repo at a pinned commit, never
+inside it (AGPL):
 
 ```bash
 sudo modprobe sctp                    # once per host: E2 is SCTP
-bash deploy/lab/ric/ric.sh up         # clones ~/oran-sc-ric at the pin, publishes SCTP 36421
-bash deploy/lab/ric/ric.sh status     # the gNB should appear as CONNECTED
-KPM_SECONDS=30 bash deploy/lab/ric/ric.sh kpm   # stock KPM monitor, style 2, under runs/ric/
+bash deploy/lab/ric/oran-sc-ric.sh up         # clones ~/oran-sc-ric at the pin, publishes SCTP 36421
+bash deploy/lab/ric/oran-sc-ric.sh status     # the gNB should appear as CONNECTED
+KPM_SECONDS=30 bash deploy/lab/ric/oran-sc-ric.sh kpm   # stock KPM monitor, style 2, under runs/ric/
 ```
 
 If the gNB connects and then drops, the RIC refuses a reconnect for 60 s, so
@@ -561,13 +575,53 @@ ends with submgr's verdict. A refusal reads
 `Action not supported`. Test a list before relying on it:
 
 ```bash
-METRICS=DRB.UEThpDl,DRB.UEThpUl KPM_SECONDS=20 bash deploy/lab/ric/ric.sh kpm
+METRICS=DRB.UEThpDl,DRB.UEThpUl KPM_SECONDS=20 bash deploy/lab/ric/oran-sc-ric.sh kpm
 ```
 
-`ric.sh` writes `runs/ric/` as you. If the containers created `runs/` as
+`oran-sc-ric.sh` writes `runs/ric/` as you. If the containers created `runs/` as
 root, it says so: `sudo chown $USER: runs` once. When `kpm` prints indications, copy the gNB's
 `/tmp/gnb_du_e2ap.pcap` and the `runs/ric/kpm-*.log` beside the run. Those are
 the E2 fixtures the xApp phase starts from.
+
+**6b. With FlexRIC.** Stop oran-sc-ric first if it runs
+(`oran-sc-ric.sh down`). Everything runs in the `mec-cast-flexric` image with
+host networking, so the gNB's `e2:` block is the same as for oran-sc-ric
+(`addr: <infra host>`, port 36421):
+
+```bash
+sudo modprobe sctp                              # once per host: E2 is SCTP
+bash deploy/lab/ric/flexric.sh up               # builds the image the first time (minutes), starts nearRT-RIC
+bash deploy/lab/ric/flexric.sh emu              # optional: FlexRIC's emulated gNB, a smoke test with no radio
+bash deploy/lab/ric/flexric.sh status           # the emulator or the gNB, CONNECTED
+docker rm -f mec-cast-flexric-emu               # stop the emulator before the real gNB connects
+KPM_SECONDS=30 bash deploy/lab/ric/flexric.sh kpm
+```
+
+- **`kpm` is not a stock monitor.** FlexRIC's own KPM monitor subscribes to
+  every report style the gNB offers and cannot build styles 2, 3 and 5, so it
+  is no first test against OCUDU. `flexric.sh kpm` goes through
+  `mec-cast-e2-bridge`, the code the xApp uses, with the same style and
+  metrics, and ends with a verdict: `subscribed, N indication(s) received`
+  or `subscription refused: <why>`.
+- **Style 4.** Per UE, every UE whose slice SST matches `FLEXRIC_SLICE`
+  (default SST 1). The bridge checks the metric list against what the gNB
+  advertised in its E2 setup and refuses an unsupported one by name, before
+  sending anything. FlexRIC v3.0.0 would abort on the gNB's own refusal.
+- **The first lab test, step by step.** Each step proves one part, and says
+  which when it fails:
+
+  | Step | Proves |
+  |---|---|
+  | `status` lists the gNB as CONNECTED | E2 setup: FlexRIC's E2AP v3 against OCUDU |
+  | `kpm` verdict `subscribed`, indications arrive | the bridge's style-4 subscription with its S-NSSAI condition, and its decoding of OCUDU's indications |
+  | step 7: `ran-kpm/kpi.csv` fills | the xApp through the bridge, against the admin |
+  | step 8: `control.csv` reads `ack` | the bridge's RC parameter tree for the PRB quota |
+
+  If `kpm` reports `the E2 node does not offer <metric> in report style 4`,
+  test a shorter list (`METRICS=DRB.UEThpDl,DRB.UEThpUl`). If the bridge exits
+  right after subscribing, FlexRIC aborted on the gNB's refusal: the gNB's E2
+  log (`grep '\[E2' /tmp/gnb.log`) says why.
+- **Its log:** `bash deploy/lab/ric/flexric.sh logs ric`.
 
 **7. The mec-cast xApp.** Only after the stock `kpm` worked in step 6, so that
 a failure here is ours and not the E2 path's. Stop `kpm` with Ctrl-C first,
@@ -575,10 +629,11 @@ then run the xApp inside the RIC's runner with the `osc` adapter
 ([ran/xapp](../../ran/xapp/README.md)):
 
 ```bash
-INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # foreground; -d to detach
+INFRA_HOST=10.0.0.10 bash deploy/lab/ric/oran-sc-ric.sh xapp      # foreground; -d to detach
+INFRA_HOST=10.0.0.10 bash deploy/lab/ric/flexric.sh xapp          # the same, on FlexRIC
 ```
 
-`ric.sh` passes the same `STYLE`, `METRICS` and `UE_IDS` to the xApp as its
+`oran-sc-ric.sh` passes the same `STYLE`, `METRICS` and `UE_IDS` to the xApp as its
 defaults; the run params `kpm_style`, `kpm_metrics` and `kpm_ue_ids` override
 them per run.
 
@@ -587,7 +642,11 @@ them per run.
 - **A refused subscription** shows in the node's `kpm_error` ("rejected"),
   together with `WF_KPM_SILENT`. The xApp retries after 60 s, since the same
   request would be refused again. The cause is the metric list or the style,
-  as in step 6.
+  as in step 6. On FlexRIC the reason is named, e.g. `the E2 node does not
+  offer DRB.RlcSduTransmittedVolumeDL in report style 4`.
+- **On FlexRIC** the node's `adapter` reads `flexric`, KPM rows come from
+  style 4 (every UE in the slice), and `flexric.sh logs xapp` shows the
+  xApp and the bridge together.
 - **Start a 2-minute run.** Expect `runs/<id>/ran-kpm/kpi.csv` and
   `indications.jsonl`. `WF_KPM_SILENT` means subscribed but nothing arriving:
   check the UE is attached and carrying traffic.
@@ -618,7 +677,9 @@ Start it on the admin page, with the LiDAR UE streaming.
   admin raises `WF_POLICY_NOT_APPLIED`. The gNB log shows
   `Slice-level PRB quota Control Request … SST:1, SD:1` followed by
   `Sending E2 RIC Control Failure`. Fix it as in
-  [The slice](#the-slice-ran-control-acts-on).
+  [The slice](#the-slice-ran-control-acts-on). On FlexRIC the slice is
+  `FLEXRIC_SLICE` (PLMN:SST:SD, default `00101:1:1`), so it can also be made
+  to match the gNB instead; the gNB and the subscriber must still agree.
 - **`dedicated_prb_ratio`.** The control OCUDU acknowledged used 0. The
   default of 100 was only tried before the slice was fixed, so it has not
   been tested since. Pass 0 until it has.

@@ -89,7 +89,8 @@ ports:
   postgres_debug: {port: 5433,  proto: tcp,  note: "host port only via expose-db.yml overlay; avoids colliding with a host PostgreSQL"}
   gnb_metrics:    {port: 55555, proto: udp,  note: "ran-collector binds this for srsRAN <= 24.x; set in gnb.yml metrics.addr/port"}
   gnb_remote_control: {port: 8001, proto: ws, note: "srsRAN 25.04+ remote_control WebSocket on the gNB host; ran-collector connects and sends metrics_subscribe (GNB_METRICS_WS)"}
-  ric_e2:         {port: 36421, proto: sctp, note: "O-RAN SC RIC e2term on the infra host (deploy/lab/ric); published by compose.override.yml; needs the sctp kernel module"}
+  ric_e2:         {port: 36421, proto: sctp, note: "near-RT RIC E2 on the infra host, one RIC at a time (ADR-0012): oran-sc-ric e2term, published by deploy/lab/ric/oran-sc-ric.override.yml, or FlexRIC nearRT-RIC on the host network (deploy/lab/ric/flexric.sh); needs the sctp kernel module"}
+  flexric_e42:    {port: 36422, proto: sctp, note: "FlexRIC nearRT-RIC E42, where xApps connect; host network, same host (mec-cast-e2-bridge)"}
   sim_e2:         {port: 8002, proto: ws, note: "gnb-sim's E2 feed for the xApp's sim adapter (local only; deploy/compose/ran.yml)"}
   signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}

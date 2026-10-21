@@ -1,18 +1,19 @@
 #!/bin/bash
 # The O-RAN SC near-RT RIC for the E2 path (ADR-0010), pinned and outside
-# this repository.
+# this repository. FlexRIC is the alternative, with the same subcommands:
+# deploy/lab/ric/flexric.sh. One RIC per host at a time (both use E2 SCTP 36421).
 #
-#   bash deploy/lab/ric/ric.sh up        # clone at the pin if needed, start
-#   bash deploy/lab/ric/ric.sh status    # containers, E2 port, connected E2 nodes
-#   bash deploy/lab/ric/ric.sh kpm       # stock KPM monitor xApp, logged under runs/ric/
-#   KPM_SECONDS=30 bash deploy/lab/ric/ric.sh kpm   # ...stopping by itself after 30 s
-#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp      # the mec-cast xApp
-#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/ric.sh xapp -d   # ...detached
-#   bash deploy/lab/ric/ric.sh down
+#   bash deploy/lab/ric/oran-sc-ric.sh up        # clone at the pin if needed, start
+#   bash deploy/lab/ric/oran-sc-ric.sh status    # containers, E2 port, connected E2 nodes
+#   bash deploy/lab/ric/oran-sc-ric.sh kpm       # stock KPM monitor xApp, logged under runs/ric/
+#   KPM_SECONDS=30 bash deploy/lab/ric/oran-sc-ric.sh kpm   # ...stopping by itself after 30 s
+#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/oran-sc-ric.sh xapp      # the mec-cast xApp
+#   INFRA_HOST=10.0.0.10 bash deploy/lab/ric/oran-sc-ric.sh xapp -d   # ...detached
+#   bash deploy/lab/ric/oran-sc-ric.sh down
 #
 # Runs on the infra role. The RIC is srsRAN's oran-sc-ric (AGPL-3.0): it is
 # cloned to $RIC_DIR (default ~/oran-sc-ric), checked out at RIC_PIN below and
-# never modified or vendored. compose.override.yml beside this script is our
+# never modified or vendored. oran-sc-ric.override.yml beside this script is our
 # only addition: it publishes e2term's SCTP port so the lab gNB can reach it.
 #
 # The mec-cast xApp (ran/xapp, E2_ADAPTER=osc) runs inside the RIC's xApp
@@ -85,7 +86,7 @@ if ! mkdir -p "$ROOT_DIR/runs/ric" 2>/dev/null; then
   exit 1
 fi
 
-compose() { docker compose --project-directory "$RIC_DIR" -f "$RIC_DIR/docker-compose.yml" -f "$HERE/compose.override.yml" "$@"; }
+compose() { docker compose --project-directory "$RIC_DIR" -f "$RIC_DIR/docker-compose.yml" -f "$HERE/oran-sc-ric.override.yml" "$@"; }
 
 # Stop processes in the xApp runner whose command line contains $1. `compose
 # exec` without a TTY (as under `| tee`) does not forward Ctrl-C, so a monitor
@@ -151,8 +152,18 @@ sctp_hint() {
   fi
 }
 
+# FlexRIC holds E2's port when it runs here (deploy/lab/ric/flexric.sh).
+other_ric() {
+  if [ "$(docker inspect -f '{{.State.Running}}' mec-cast-flexric-ric 2>/dev/null)" = true ]; then
+    echo "ERROR: FlexRIC is running here (it holds E2 SCTP 36421)." >&2
+    echo "  Stop it first: bash deploy/lab/ric/flexric.sh down" >&2
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   up)
+    other_ric
     checkout
     sctp_hint
     [ "$ARM64" = 1 ] && amd64_hint
@@ -175,7 +186,7 @@ case "${1:-}" in
     node=${E2_NODE_ID:-$(e2_nodes | awk '$2 == "CONNECTED" {print $1; exit}')}
     if [ -z "$node" ]; then
       echo "ERROR: no E2 node is CONNECTED to the RIC. Check the gNB's e2: block and" >&2
-      echo "  'bash deploy/lab/ric/ric.sh status'; after a gNB restart wait 60 s." >&2
+      echo "  'bash deploy/lab/ric/oran-sc-ric.sh status'; after a gNB restart wait 60 s." >&2
       exit 1
     fi
     echo "==> kpm_mon_xapp node=$node style=$STYLE ue_ids=$UE_IDS metrics=$METRICS"
@@ -224,7 +235,7 @@ case "${1:-}" in
     compose down
     ;;
   *)
-    sed -n '2,27p' "$0"
+    sed -n '2,30p' "$0"
     exit 2
     ;;
 esac

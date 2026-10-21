@@ -365,7 +365,8 @@ class Orchestrator:
         if sent == 0:
             raise OrchestratorError(
                 f"No xApp is recording run {run.seq}: nothing to apply the policy. "
-                "Lab: bash deploy/lab/ric/ric.sh xapp. Local: make up-ran-admin."
+                "Lab: bash deploy/lab/ric/oran-sc-ric.sh xapp (or flexric.sh xapp). "
+                "Local: make up-ran-admin."
             )
         run.params = dict(run.params, ran_policy=policy)
         self._persist(run, "ran-policy", {"ran_policy": policy, "sent": sent})

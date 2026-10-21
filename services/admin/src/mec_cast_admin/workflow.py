@@ -98,7 +98,8 @@ _ABSENCE_PROSE: dict[NodeType, tuple[str, str]] = {
     ),
     NodeType.XAPP: (
         "No E2 xApp is connected; this run will have no E2SM-KPM figures.",
-        "Lab: `bash deploy/lab/ric/ric.sh xapp` on the infra host. Local: "
+        "Lab: `bash deploy/lab/ric/oran-sc-ric.sh xapp` (or `flexric.sh xapp`) on the "
+        "infra host. Local: "
         "`make up-ran-admin`. The JSON tap still records RAN KPIs without it.",
     ),
     NodeType.GNB: (
@@ -107,6 +108,11 @@ _ABSENCE_PROSE: dict[NodeType, tuple[str, str]] = {
         "or accept the run without RAN metrics — it is still a valid latency run.",
     ),
 }
+
+
+def ric_script(params: dict) -> str:
+    """The script that runs the RIC this xApp's adapter talks to."""
+    return "flexric.sh" if params.get("adapter") == "flexric" else "oran-sc-ric.sh"
 
 
 def diagnose(
@@ -523,8 +529,8 @@ def diagnose(
                     f"(adapter {params.get('adapter') or '?'}).",
                     "Point the gNB at the RIC: gnb.yml e2: addr <infra host>, bind_addr "
                     "<gNB host>, port 36421 (deploy/lab/srsran/gnb.mec-cast.yml). Check "
-                    "`bash deploy/lab/ric/ric.sh status`. After a gNB disconnect the RIC "
-                    "refuses it for 60 s: restart the gNB after the RIC, then wait.",
+                    f"`bash deploy/lab/ric/{ric_script(params)} status`. Start the RIC before "
+                    "the gNB; oran-sc-ric also refuses a reconnect for 60 s after a disconnect.",
                     zone=zone_of(xapp),
                 )
             )

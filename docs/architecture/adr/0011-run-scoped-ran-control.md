@@ -70,7 +70,7 @@ Three things can go wrong, and none of them looks wrong in the data:
 - The admin can now stop nodes on its own initiative (a failed run). That was
   harmless before RAN control; after it, it was required.
 - A crash between apply and revert leaves the cap until the xApp restarts.
-  That is the residual risk. `deploy/lab/ric/ric.sh xapp` restarting the xApp
+  That is the residual risk. `deploy/lab/ric/oran-sc-ric.sh xapp` restarting the xApp
   is the mitigation, and an operator should know it.
 - Further controls (handover, other RC actions, closed loops) are new
   capabilities under the same rules, not exceptions to them.
