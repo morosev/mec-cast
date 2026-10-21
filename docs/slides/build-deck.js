@@ -125,7 +125,7 @@ function bullets(s, x, y, w, h, items, size) {
     "srsRAN O-CU / O-DU on USRP radios", "Open5GS core, UPF / N6",
     "the impairment under test"] });
   box(s, { x: c[2].x, y, w: c[2].w, h, title: "MEC edge server", lines: [
-    "Zenoh ingest node", "stamps recv_ns, process_done_ns",
+    "ROS2 ingest node", "stamps recv_ns, process_done_ns",
     "processes the cloud"] });
 
   arrow(s, c[0].x + c[0].w + 0.06, y + h / 2, c[1].x - 0.06, y + h / 2, "Uu");
@@ -162,7 +162,7 @@ function bullets(s, x, y, w, h, items, size) {
   const h = 1.15, row1 = TOP;
   box(s, { x: c[0].x, y: row1, w: c[0].w, h, title: "lidar-client", lines: ["synthetic PointCloud2", "seed · num_points · rate_hz"] });
   box(s, { x: c[1].x, y: row1, w: c[1].w, h, title: "netem sidecar", lines: ["shares the client netns", "delay · jitter · loss"] });
-  box(s, { x: c[2].x, y: row1, w: c[2].w, h, title: "zenoh-router", lines: ["the rendezvous point", "tcp :7448"] });
+  box(s, { x: c[2].x, y: row1, w: c[2].w, h, title: "middleware centre", lines: ["zenoh-router or dds-discovery", "MIDDLEWARE picks one"] });
   box(s, { x: c[3].x, y: row1, w: c[3].w, h, title: "edge", lines: ["ingest + processing", "writes CSV"] });
 
   for (let i = 0; i < 3; i++) {
@@ -179,6 +179,7 @@ function bullets(s, x, y, w, h, items, size) {
   note(s, half[0].x, 4.40, half[0].w, 2.3, [
     "Bring it all up:",
     "make up-local",
+    "MIDDLEWARE=dds make up-local",
     "make logs        make down",
     "",
     "Or one container per terminal:",
@@ -201,9 +202,9 @@ function bullets(s, x, y, w, h, items, size) {
 
   const c = cols(4, 0.42);
   const h = 1.30, y = TOP;
-  box(s, { x: c[0].x, y, w: c[0].w, h, title: "ue", lines: ["lidar-client", "behind the 5G modem", "needs EDGE_HOST"] });
+  box(s, { x: c[0].x, y, w: c[0].w, h, title: "ue", lines: ["lidar-client", "behind the 5G modem", "EDGE_HOST, MIDDLEWARE"] });
   box(s, { x: c[1].x, y, w: c[1].w, h, title: "gnb", lines: ["ran-collector", "beside the srsRAN O-DU", "UDP :55555 or WS :8001"] });
-  box(s, { x: c[2].x, y, w: c[2].w, h, title: "edge", lines: ["zenoh-router + edge", "the MEC app server", "behind the UPF"] });
+  box(s, { x: c[2].x, y, w: c[2].w, h, title: "edge", lines: ["router or DDS server + edge", "the MEC app server", "behind the UPF"] });
   box(s, { x: c[3].x, y, w: c[3].w, h, title: "infra", lines: ["logging + postgres + admin", "optional: RIC + E2 xApp", "deploy this first"] });
 
   for (let i = 0; i < 3; i++) {
@@ -303,7 +304,7 @@ function bullets(s, x, y, w, h, items, size) {
   ], fs: 11 });
 
   bullets(s, M + 6.4, 3.15, 5.83, 1.95, [
-    "The timing envelope rides in-band as a message field, because rmw_zenoh does not expose per-publish attachments to the application layer.",
+    "The timing envelope rides in-band as a message field, because rclpy exposes no per-publish attachments on either middleware.",
     "The renderer is optional and off by default, so the one-way path stays byte-for-byte comparable with campaigns recorded before it existed.",
   ], 11.5);
 
@@ -349,38 +350,41 @@ function bullets(s, x, y, w, h, items, size) {
   ], 11.5);
 }
 
-// ======================================================== 7. ZENOH
+// =================================================== 7. MIDDLEWARE
 {
   const s = slideBase(
-    "Zenoh communication layer",
-    "rmw_zenoh rather than raw DDS. The application stays vanilla ROS2; only the middleware swaps."
+    "Middleware — Zenoh or Fast DDS",
+    "Chosen at deployment, the same on every host. The application stays vanilla ROS2; only the RMW swaps."
   );
 
   const y = TOP, h = 1.20;
-  box(s, { x: M, y, w: 3.4, h, title: "UE session", lines: ["dials out to the router"] });
-  box(s, { x: M + 3.9, y, w: 4.3, h, title: "zenoh router (edge host)", lines: ["unicast rendezvous — no multicast anywhere"] });
-  box(s, { x: M + 8.7, y, w: 3.53, h, title: "edge session", lines: ["subscribes via the router"] });
+  box(s, { x: M, y, w: 3.4, h, title: "UE nodes", lines: ["dial OUT to the edge host"] });
+  box(s, { x: M + 3.9, y, w: 4.3, h, title: "centre on the edge host", lines: ["Zenoh router, or Fast DDS Discovery Server", "unicast only — no multicast anywhere"] });
+  box(s, { x: M + 8.7, y, w: 3.53, h, title: "edge node", lines: ["subscribes; same topics, same QoS"] });
   arrow(s, M + 3.46, y + h / 2, M + 3.84, y + h / 2);
   arrow(s, M + 8.26, y + h / 2, M + 8.64, y + h / 2);
 
   const ty = 3.20;
   box(s, { x: M, y: ty, w: 3.9, h: 2.35, title: "Concern on a 5G link", lines: [
-    "", "Discovery across NAT / UPF", "", "Data-path NAT traversal", "", "Large samples (~2 MB)",
+    "", "Links", "Discovery across the UPF", "Data path", "A NAT at the UPF", "Staying on the 5G link",
   ], fs: 11 });
-  box(s, { x: M + 4.15, y: ty, w: 3.9, h: 2.35, title: "DDS", lines: [
-    "", "SPDP is multicast — the cellular user plane drops it",
-    "", "announces private-IP locators the peer cannot reach",
-    "", "RTPS fragments; one lost fragment loses the sample",
+  box(s, { x: M + 4.15, y: ty, w: 3.9, h: 2.35, title: "Zenoh — MIDDLEWARE=zenoh", lines: [
+    "", "tcp :7448 (default) · quic :7449",
+    "clients of the router",
+    "the router relays every sample",
+    "traversed: the UE dials out",
+    "a client dials one address",
   ], fs: 10.5 });
-  box(s, { x: M + 8.3, y: ty, w: 3.93, h: 2.35, title: "Zenoh", lines: [
-    "", "router-based unicast dial-out, traverses NAT natively",
-    "", "the UE dials out — an outbound connection just works",
-    "", "large payloads over lossy links; here tcp/7448,",
-    "QUIC opt-in; udp ?rel=1 awaits a Zenoh fix",
+  box(s, { x: M + 8.3, y: ty, w: 3.93, h: 2.35, title: "Fast DDS — MIDDLEWARE=dds", lines: [
+    "", "udp (default) · tcp",
+    "Discovery Server :11811, never SPDP",
+    "peer to peer RTPS, udp 7400+ or tcp :7410",
+    "udp needs a routable UE; tcp dials out",
+    "DDS_INTERFACES pins the interfaces",
   ], fs: 10.5 });
 
   note(s, M, 5.75, CW, 1.2, [
-    "DDS is the more popular and more mature industrial standard — but that popularity is measured on local networks, and this path is NAT'd, lossy and uplink-constrained. Because the edge subscriber depends only on the telemetry crate, \"Zenoh versus DDS over 5G\" remains a measurable result rather than a closed door.",
+    "One knob per deployment (ADR-0013). The image's entrypoint configures the RMW; the nodes never name one. Each node reports what it runs, the admin shows it per zone and flags a mix, and run.json records it — so Zenoh versus DDS over 5G is a recorded factor of every run, not a rebuild.",
   ], 11.5);
 }
 
@@ -531,7 +535,7 @@ function bullets(s, x, y, w, h, items, size) {
   box(s, { x: M + cw + 0.31, y: y2, w: cw, h: ch, title: "Near-term platform work", lines: [
     "Draco compression as a measured variable",
     "Latency versus payload-size sweeps",
-    "Zenoh versus DDS over the same 5G link",
+    "Campaign: Zenoh versus Fast DDS over 5G",
     "Real LiDAR replacing the synthetic source",
   ], fs: 11 });
   box(s, { x: M + 2 * (cw + 0.31), y: y2, w: cw, h: ch, dark: true, title: "Research directions", lines: [

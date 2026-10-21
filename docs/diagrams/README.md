@@ -94,7 +94,7 @@ flowchart LR
   end
 
   subgraph EDGE["MEC edge server"]
-    ZR["Zenoh router"]
+    ZR["Zenoh router or Fast DDS Discovery Server<br/>the UE dials it · ADR-0013"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
     ZR --> EN
   end
@@ -154,7 +154,7 @@ flowchart LR
 
   subgraph UEH["Host 1 — role: ue"]
     direction TB
-    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST,<br/>INFRA_HOST"]
+    LC["ue-agent<br/>N lidar + M render<br/>network_mode: host<br/>needs EDGE_HOST,<br/>INFRA_HOST, MIDDLEWARE"]
     PTPU["/dev/ptp0"]
   end
 
@@ -167,7 +167,7 @@ flowchart LR
 
   subgraph EDGEH["Host 3 — role: edge"]
     direction TB
-    ZR["zenoh-router<br/>tcp/:7448 · quic/:7449 opt-in"]
+    ZR["zenoh-router or dds-discovery<br/>Zenoh tcp/:7448 · quic/:7449<br/>Fast DDS :11811 udp or tcp"]
     ED["edge<br/>ingest + processing"]
     ZR --> ED
   end
@@ -181,7 +181,7 @@ flowchart LR
     LOGS --> PG
   end
 
-  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → tcp/7448"| ZR
+  LC -->|"5G user plane: UE → O-DU/O-CU → UPF → N6 → edge host"| ZR
   LC -.->|"HTTP :8000 snapshots"| LOGS
   ED -.->|"HTTP :8000 snapshots"| LOGS
   RC -.->|"HTTP :8000 snapshots"| LOGS

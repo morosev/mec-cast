@@ -25,7 +25,7 @@ flowchart LR
   end
 
   subgraph EDGE["MEC edge server"]
-    ZR["Zenoh router"]
+    ZR["Zenoh router or Fast DDS Discovery Server<br/>the UE dials it · ADR-0013"]
     EN["Edge ingest node<br/>stamps recv_ns, process_done_ns"]
     ZR --> EN
   end

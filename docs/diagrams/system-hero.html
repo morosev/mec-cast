@@ -3,7 +3,7 @@
      Render: bash .claude/skills/doc-sync/scripts/render_hero.sh
 
      Audience: someone who already knows O-RAN and ROS2. Labels use the names
-     they expect (O-RU / O-DU / O-CU, UPF, N3/N6, MAC, PointCloud2, Zenoh) so
+     they expect (O-RU / O-DU / O-CU, UPF, N3/N6, MAC, PointCloud2, Zenoh, Fast DDS) so
      the system is recognised rather than explained.
 
      Layout: four physical sites left to right, with a real air gap at Uu, and
@@ -205,7 +205,7 @@
       <div class="chip ue">
         <div class="t">ROS 2 — lidar client</div>
         <div class="s">stamps capture_ns, then send_ns immediately before publish</div>
-        <div class="m">rclpy · rmw_zenoh_cpp · CloudWithTelemetry</div>
+        <div class="m">rclpy · rmw_zenoh or Fast DDS · CloudWithTelemetry</div>
       </div>
       <div class="chip ue">
         <div class="t">ROS 2 — render node</div>
@@ -214,7 +214,7 @@
       </div>
       <div class="chip ue">
         <div class="t">5G modem — UE</div>
-        <div class="s">dials OUT to the Zenoh router across the UPF</div>
+        <div class="s">dials OUT to the edge across the UPF</div>
         <div class="m">uplink · NAT-traversed</div>
       </div>
     </div>
@@ -306,7 +306,7 @@
       <path d="M3 23 H56" stroke="url(#gc)" stroke-width="20" stroke-linecap="round"/>
       <path d="M50 7 L89 23 L50 39 Z" fill="#5C7F5E"/>
     </svg>
-    <div class="bot">tcp/7448</div>
+    <div class="bot">tcp/7448 · udp</div>
   </div>
 
   <!-- ============ MEC EDGE SITE ============ -->
@@ -314,13 +314,13 @@
     <div class="name">MEC edge · app server</div>
     <div class="stack">
       <div class="chip edge sm">
-        <div class="t">Zenoh router</div>
+        <div class="t">Zenoh router · or DDS Discovery Server</div>
         <div class="s">unicast rendezvous — no multicast discovery survives the UPF</div>
       </div>
       <div class="chip edge">
         <div class="t">Edge ingest node</div>
         <div class="s">stamps recv_ns first, processes the cloud, then process_done_ns</div>
-        <div class="m">ROS 2 · rmw_zenoh_cpp</div>
+        <div class="m">ROS 2 · rmw_zenoh or rmw_fastrtps</div>
       </div>
       <div class="row2">
         <div class="chip edge sm">
@@ -379,7 +379,7 @@
 
 <div class="foot">
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
-  <span><span class="k">Transport:</span> rmw_zenoh over TCP :7448, QUIC :7449 opt-in — NAT traversal and ~2 MB payloads; udp ?rel=1 awaits a Zenoh fix</span>
+  <span><span class="k">Middleware:</span> chosen per deployment — Zenoh over TCP :7448 or QUIC :7449, Fast DDS over UDP or TCP via a Discovery Server; each run records which</span>
   <span><span class="k">RAN:</span> JSON tap + E2 xApp, one data model, correlated to application latency; RC control scoped to a run — E2 not yet lab-verified</span>
   <span><span class="k">Return path:</span> processed cloud back to a UE renderer — a round trip stamped on one clock, so it needs no PTP</span>
   <span class="planned">robotic arm shown as intended deployment; results return to the UE today, but no actuation is commanded</span>

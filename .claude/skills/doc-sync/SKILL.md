@@ -183,7 +183,7 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `operations/admin-manual.md`, `services/README.md` |
 | 5 | ROS2 on the UE — client and renderer | `ros2/README.md`, `adr/0009-render-return-path.md` |
 | 6 | Edge | `ros2/README.md`, `telemetry/README.md` |
-| 7 | Zenoh | `adr/0001-zenoh-over-dds.md` |
+| 7 | Middleware — Zenoh or Fast DDS | `adr/0001-zenoh-over-dds.md`, `adr/0013-two-middlewares.md`, `architecture/middleware.md` |
 | 8 | Profile B — current | `clients/webrtc_native/README.md` |
 | 9 | Profile B — planned str0m | `architecture/str0m-profile.md` |
 | 10 | RAN — two sources and run-scoped control | `ran/collector/README.md`, `ran/xapp/README.md`, `ran/schema/metrics.md`, ADR-0010, ADR-0011 |
