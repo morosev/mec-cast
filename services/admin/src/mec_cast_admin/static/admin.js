@@ -54,9 +54,36 @@ function showError(message) {
   box.classList.remove('hidden');
 }
 
-// Node types with a Zenoh session (protocol.ZENOH_NODE_TYPES). A gNB's
-// `transport` is its metrics feed, not a link, so the Link column skips it.
-const ZENOH_TYPES = new Set(['client', 'edge', 'render']);
+// Node types with a ROS middleware session (protocol.MIDDLEWARE_NODE_TYPES).
+// A gNB's `transport` is its metrics feed, not a link, so the column skips it.
+const MIDDLEWARE_TYPES = new Set(['client', 'edge', 'render']);
+
+function middlewareOf(n) {
+  const p = n.params || {};
+  if (!MIDDLEWARE_TYPES.has(n.node_type) || !p.middleware) return '';
+  return p.transport ? `${p.middleware}/${p.transport}` : p.middleware;
+}
+
+const MIDDLEWARE_NAMES = { zenoh: 'Zenoh', dds: 'Fast DDS' };
+
+// The header badge: what the deployment runs on, per zone when there are
+// several. "mixed" is WF_TRANSPORT_MISMATCH, so it is shown as a fault.
+function middlewareBadge(snapshot) {
+  const per = snapshot.middleware || {};
+  const zones = Object.keys(per).sort();
+  const badge = $('middleware');
+  if (!zones.length) { badge.hidden = true; return; }
+  const label = (kind) => {
+    if (kind === 'mixed') return 'mixed';
+    const [name, link] = kind.split('/');
+    return `${MIDDLEWARE_NAMES[name] || name}${link ? ` · ${link.toUpperCase()}` : ''}`;
+  };
+  badge.textContent = zones.length === 1
+    ? label(per[zones[0]])
+    : zones.map((z) => `${z}: ${label(per[z])}`).join('  |  ');
+  badge.className = `pill ${zones.some((z) => per[z] === 'mixed') ? 'failed' : 'running'}`;
+  badge.hidden = false;
+}
 
 /* ── transport ───────────────────────────────────────────────────────── */
 
@@ -453,7 +480,7 @@ function renderNodes(snapshot) {
       <td>${esc(n.node_type)} ${zoneChip(n.zone, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
-      <td class="mono" title="Zenoh link, as the node dials it — fixed at deployment">${esc(ZENOH_TYPES.has(n.node_type) && (n.params || {}).transport || '—')}</td>
+      <td class="mono" title="Middleware/link the node runs on — fixed at deployment">${esc(middlewareOf(n) || '—')}</td>
       <td class="mono">${(n.peers || []).length}</td>
       <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>
@@ -474,6 +501,7 @@ function render(snapshot) {
   renderTopology(snapshot);
   renderZoneChoices(snapshot);
   serviceLinks(snapshot);
+  middlewareBadge(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */

@@ -1,12 +1,16 @@
 # Lab role: edge — the MEC application server behind the UPF.
 #
-# Hosts the Zenoh router (the rendezvous point the UE dials into) and the
-# ingest node that stamps arrival and computes latency.
+# Hosts the middleware's centre -- the Zenoh router, or the Fast DDS Discovery
+# Server, per MIDDLEWARE (ADR-0013) -- and the ingest node that stamps arrival
+# and computes latency.
 #
 # The admin service used to live here. It moved to infra: runs are per zone,
 # and a control plane on the edge means one authority PER zone rather than one
 # for the fleet — two registries, two runs/ directories, two halves of a
 # declared topology, and no way to start a run that spans cells.
+#
+# Optional: MIDDLEWARE (zenoh | dds), MIDDLEWARE_LINK (zenoh: tcp | quic;
+# dds: udp | tcp) -- the same on every host. deploy.sh sets COMPOSE_PROFILES.
 #
 # Required env: INFRA_HOST — the infra host, which serves both the
 # logging service (:8000) and the admin (:8099). RUN_ID is required only
@@ -30,9 +34,34 @@ services:
         # deploy.sh builds per host, so the UE keeps its copy.
         WITH_RERUN: "0"
     network_mode: host
-    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+    profiles: [zenoh]
+    command: /middleware/middleware-server.sh zenoh
     environment:
       ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-tcp}
+    restart: unless-stopped
+
+  # The Fast DDS Discovery Server: the DDS counterpart of the router above,
+  # when MIDDLEWARE=dds. Discovery goes through it; data then flows directly
+  # between the UE's and this edge's participants, so the UE address must be
+  # routable from here (no NAT at the UPF).
+  dds-discovery:
+    image: mec-cast-ros
+    # The edge image's build, as on zenoh-router: whichever centre is active
+    # builds it.
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+        WITH_RERUN: "0"
+    network_mode: host
+    profiles: [dds]
+    command: /middleware/middleware-server.sh dds
+    environment:
+      MIDDLEWARE: dds
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-udp}
     restart: unless-stopped
 
   edge:
@@ -54,27 +83,25 @@ services:
       -p result_reliability:=${RESULT_RELIABILITY:-best_effort}
       -p result_qos_depth:=${RESULT_QOS_DEPTH:-1}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      # Star topology: every node is a CLIENT of the router, which relays.
-      # No peer mesh -- clients neither listen nor gossip, so nothing tries
-      # to dial a node that cannot be dialled (the UE is behind the UPF's
-      # NAT). Merged into rmw_zenoh's packaged config via _OVERRIDE rather
-      # than replacing it with a file, which silently dropped its listen,
-      # gossip and interest settings.
+      # Zenoh (tcp|quic) or Fast DDS (udp|tcp), the same on every host of
+      # the deployment, resolved by the image's entrypoint (ADR-0013,
+      # docs/architecture/middleware.md). Either way a star: Zenoh clients of
+      # the router beside this node, or Fast DDS clients of the Discovery
+      # Server beside it.
       #
-      # TCP, not udp/?rel=1: relayed declarations are lost over the UDP
-      # link on this build (ros2/rmw_zenoh#765), and the router then drops
-      # every sample naming a key expression it never registered.
-      # Measured: TCP relay 8/8 e2e with zero errors; the same star over
-      # UDP failed 4-8 of 8 with dozens of 'unknown scope'.
-      #
-      # Loopback, because the router runs beside this node under
-      # network_mode: host. Dialling it by service name resolves only on a
-      # compose bridge network, and this role has no compose DNS -- the node
-      # died at rclpy.init() with "failed to lookup address information" for a
-      # router on the same machine.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/127.0.0.1:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Loopback, because the centre runs beside this node under
+      # network_mode: host. A service name resolves only on a compose bridge
+      # network, and this role has no compose DNS -- the node died at
+      # rclpy.init() with "failed to lookup address information" for a router
+      # on the same machine.
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: 127.0.0.1
+      # dds/tcp: this edge listens, the UE's participants dial out to it.
+      DDS_TCP_LISTEN_PORT: "7410"
+      # dds: the N6 address only. Fast DDS announces every interface, and on
+      # a host also on the management LAN the data could bypass 5G.
+      DDS_INTERFACES: ${DDS_INTERFACES:-}
       PUBLISH_RESULT: ${PUBLISH_RESULT:-}
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
@@ -104,4 +131,6 @@ services:
       # host:host, leaving the container without the path it was told to open.
       - ${PTP_DEVICE:-/dev/ptp0}:/dev/ptp0
     depends_on:
-      - zenoh-router
+      # Only the active middleware's centre runs (compose profiles).
+      zenoh-router: {condition: service_started, required: false}
+      dds-discovery: {condition: service_started, required: false}

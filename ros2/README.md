@@ -9,7 +9,7 @@ Ubuntu 25.x and ROS2 Jazzy targets 24.04.
 |---|---|---|
 | `mec_cast_msgs` | `TimingEnvelope`, `CloudWithTelemetry` | both |
 | `mec_cast_lidar_client` | Synthetic/real point-cloud source | UE |
-| `mec_cast_edge` | Zenoh ingest, stamps arrival, computes latency | edge |
+| `mec_cast_edge` | ROS ingest, stamps arrival, computes latency | edge |
 | `mec_cast_admin_client` | WebSocket client, shared node base (`MecCastNode`), site codes | all |
 | `mec_cast_render` | Draws the edge's result, measures the round trip (ADR-0009) | UE |
 | `mec_cast_ue` | UE agent: N lidar + M render instances in one process | UE |
@@ -48,9 +48,13 @@ clever layout that breaks default tooling.
 
 ## Transport
 
-`rmw_zenoh_cpp`, not DDS — see
-[ADR-0001](../docs/architecture/adr/0001-zenoh-over-dds.md). The
-application code is vanilla ROS2; only the middleware differs.
+`rmw_zenoh_cpp` (TCP or QUIC) or Fast DDS, `rmw_fastrtps_cpp` (UDP or TCP),
+chosen at deployment with `MIDDLEWARE` and `MIDDLEWARE_LINK` — see
+[ADR-0013](../docs/architecture/adr/0013-two-middlewares.md) and
+[middleware.md](../docs/architecture/middleware.md). The application code is
+vanilla ROS2 and never names a middleware; the image's entrypoint configures
+the RMW. Each node reports what it runs to the admin (`params.middleware`,
+`params.transport`). `make test-ros2` runs the launch tests under both.
 
 The timing envelope rides **in-band** as a field of `CloudWithTelemetry`
 rather than as a Zenoh attachment, because `rmw_zenoh` does not expose

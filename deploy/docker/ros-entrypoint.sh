@@ -8,4 +8,6 @@ source /opt/ros/jazzy/setup.bash
 if [ -f /ws/install/setup.bash ]; then
   source /ws/install/setup.bash
 fi
+# Zenoh or Fast DDS, per MIDDLEWARE / MIDDLEWARE_LINK (ADR-0013).
+source /middleware/middleware-env.sh
 exec "${args[@]}"

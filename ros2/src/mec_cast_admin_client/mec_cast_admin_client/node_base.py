@@ -143,24 +143,24 @@ class MecCastNode(Node):
         return {}
 
     @staticmethod
-    def _zenoh_transport() -> str:
-        """The link scheme this node's Zenoh session actually dials.
+    def _middleware() -> dict:
+        """The middleware and link this node's session really runs on.
 
-        Read from the environment the session was built from, not from a
-        config the operator believes is in force. The transport is fixed at
-        process start and cannot change for a run, so a run that DECLARES a
-        transport can be checked against what each node really has -- getting
-        that wrong silently mislabels a whole campaign's CSVs.
+        Taken from what the image's entrypoint configured
+        (deploy/docker/middleware/middleware-env.sh: MIDDLEWARE_EFFECTIVE,
+        MIDDLEWARE_LINK_EFFECTIVE), not from a config the operator believes is
+        in force. Both are fixed at process start and cannot change for a run,
+        so the admin can check that a zone's nodes agree -- a run across two
+        middlewares, or two links, would describe neither (ADR-0013).
         """
-        override = os.environ.get("ZENOH_CONFIG_OVERRIDE", "")
-        for scheme in ("quic", "tcp", "udp"):
-            if f'"{scheme}/' in override:
-                # udp carries its reliability in the endpoint, and
-                # udp/?rel=1 vs ?rel=0 are different experiments.
-                if scheme == "udp":
-                    return "udp-rel1" if "rel=1" in override else "udp-rel0"
-                return scheme
-        return ""
+        name = os.environ.get("MIDDLEWARE_EFFECTIVE", "")
+        if not name:
+            rmw = os.environ.get("RMW_IMPLEMENTATION", "")
+            name = "zenoh" if "zenoh" in rmw else "dds" if "fastrtps" in rmw else ""
+        return {
+            "middleware": name,
+            "transport": os.environ.get("MIDDLEWARE_LINK_EFFECTIVE", "") if name else "",
+        }
 
     def _params_full(self) -> dict:
         """What actually travels to the admin: the node's own knobs plus its
@@ -171,7 +171,7 @@ class MecCastNode(Node):
         return {
             **self.params(),
             "out_leaf": self.out_leaf,
-            "transport": self._zenoh_transport(),
+            **self._middleware(),
         }
 
     # --- run lifecycle helpers -------------------------------------------

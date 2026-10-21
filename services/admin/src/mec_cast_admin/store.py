@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from .protocol import MIDDLEWARE_RMW
 from .state import RunState
 
 logger = logging.getLogger(__name__)
@@ -126,14 +127,22 @@ class Run:
     #: node to its RAN ids without trusting today's topology.yml.
     ue_map: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def zenoh_link(self) -> str | None:
-        """The Zenoh link the run's participants reported: one scheme, or
-        ``"mixed"`` when they disagreed (WF_TRANSPORT_MISMATCH), or None when
-        none reported one. Per-node values are in ``participants``."""
-        seen = {p.get("transport") for p in self.participants.values() if p.get("transport")}
+    def middleware(self) -> dict[str, Any] | None:
+        """What the run's participants ran on (ADR-0013): ``{name, rmw, link}``
+        when they agreed, ``name: "mixed"`` when they did not
+        (WF_TRANSPORT_MISMATCH), None when none reported. Per-node values are
+        in ``participants``."""
+        seen = {
+            (q["middleware"], q.get("transport") or "")
+            for q in self.participants.values()
+            if q.get("middleware")
+        }
         if not seen:
             return None
-        return seen.pop() if len(seen) == 1 else "mixed"
+        if len(seen) > 1:
+            return {"name": "mixed", "rmw": None, "link": None}
+        name, link = seen.pop()
+        return {"name": name, "rmw": MIDDLEWARE_RMW.get(name), "link": link or None}
 
     def to_manifest(self) -> dict[str, Any]:
         """The on-disk shape, compatible with the experiment script's."""
@@ -148,9 +157,6 @@ class Run:
                 "seed": self.params.get("seed"),
                 "modality": "pointcloud",
             },
-            # The ROS middleware, constant. The LINK it ran over is
-            # `zenoh_link`, below — kept apart so neither is read as the other.
-            "transport": "rmw_zenoh_cpp",
             # --- admin additions, all optional to older readers ---
             "seq": self.seq,
             "label": self.label,
@@ -166,7 +172,7 @@ class Run:
             "findings": self.findings,
             "removed": self.removed,
             "ue_map": self.ue_map,
-            "zenoh_link": self.zenoh_link(),
+            "middleware": self.middleware(),
         }
 
     @classmethod

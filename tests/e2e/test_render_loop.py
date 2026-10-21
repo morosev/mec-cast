@@ -15,6 +15,7 @@ Runs with RUN_ID in the environment and no admin service, so it also shows the
 downlink working on the standalone path.
 """
 
+from middleware import CENTRE  # also sets COMPOSE_PROFILES
 import csv
 import os
 import pathlib
@@ -50,7 +51,7 @@ def diagnostics(env) -> str:
     parts = ["", "=" * 70, "RENDER LOOP DIAGNOSTICS", "=" * 70]
     ps = compose(["ps", "-a"], env, check=False)
     parts += ["--- ps -a ---", ps.stdout or "(none)"]
-    for svc in ("zenoh-router", "lidar-client", "edge", "render"):
+    for svc in (CENTRE, "lidar-client", "edge", "render"):
         got = compose(["logs", "--tail", "30", svc], env, check=False)
         body = (got.stdout or "").strip() or (got.stderr or "").strip()
         parts += [f"--- logs: {svc} ---", body or "(no output — did it start?)"]

@@ -71,7 +71,7 @@ class TestManifest:
                         "seed": 42,
                         "modality": "pointcloud",
                     },
-                    "transport": "rmw_zenoh_cpp",
+                    "middleware": {"name": "zenoh", "rmw": "rmw_zenoh_cpp", "link": "tcp"},
                 }
             )
         )
@@ -87,7 +87,7 @@ class TestManifest:
         run = Run(run_id=uuid7(), seq=2, label="t", params={"num_points": 1, "rate_hz": 2.0})
         store.save(run)
         raw = json.loads((tmp_path / run.run_id / "run.json").read_text())
-        for key in ("run_id", "tag", "started_utc", "host", "workload", "transport"):
+        for key in ("run_id", "tag", "started_utc", "host", "workload", "middleware"):
             assert key in raw, key
         assert raw["workload"]["num_points"] == 1
 

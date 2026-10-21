@@ -1,4 +1,5 @@
-# Local topology (Profile A): zenoh router <- lidar client (+netem sidecar) -> edge.
+# Local topology (Profile A): middleware centre (Zenoh router or Fast DDS
+# Discovery Server) <- lidar client (+netem sidecar) -> edge.
 # The netem sidecar shares the client's network namespace and impairs its
 # egress — modelling the 5G uplink leg without touching host networking.
 #
@@ -10,9 +11,14 @@
 # Knobs: RUN_ID, NETEM_DELAY (20ms), NETEM_JITTER (5ms), NETEM_LOSS (0.5%),
 #        NUM_POINTS (5000), RATE_HZ (10.0), SEED (42),
 #        PATTERN (uniform_cube | rotating_plane | sphere | lidar_scan),
-#        RELIABILITY (reliable | best_effort), QOS_DEPTH (10)
+#        RELIABILITY (reliable | best_effort), QOS_DEPTH (10),
+#        MIDDLEWARE (zenoh | dds), MIDDLEWARE_LINK (zenoh: tcp | quic; dds: udp | tcp)
 services:
+  # The edge's star centre, one per deployment (ADR-0013): the Zenoh router,
+  # or the Fast DDS Discovery Server. Compose profiles pick it -- the Makefile
+  # sets COMPOSE_PROFILES=$MIDDLEWARE -- and both answer to `middleware`.
   zenoh-router:
+    profiles: [zenoh]
     image: mec-cast-ros
     build:
       context: ../..
@@ -25,13 +31,36 @@ services:
       args:
         VCS_REF: ${VCS_REF:-unknown}
         VERSION: ${VERSION:-unknown}
-    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+    command: /middleware/middleware-server.sh zenoh
     environment:
       ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-tcp}
+    networks:
+      default:
+        aliases: [middleware]
     volumes:
       # TLS material for the quic/ listener, mounted rather than baked: the
       # image must never carry a private key. scripts/gen-dev-tls.sh writes it.
       - ../docker/zenoh/tls:/zenoh/tls:ro
+
+  dds-discovery:
+    profiles: [dds]
+    image: mec-cast-ros
+    # The image's build lives on whichever centre is active, so either
+    # profile builds it with `up --build`.
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    command: /middleware/middleware-server.sh dds
+    environment:
+      MIDDLEWARE: dds
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-udp}
+    networks:
+      default:
+        aliases: [middleware]
 
   lidar-client:
     image: mec-cast-ros
@@ -56,11 +85,13 @@ services:
       -p reliability:=${RELIABILITY:-reliable}
       -p qos_depth:=${QOS_DEPTH:-10}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      # Client mode: pure star, every sample relayed by the router.
-      # batch_size fits one IP datagram so a UDP batch never IP-fragments.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh-router:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Zenoh (tcp|quic) or Fast DDS (udp|tcp), one choice per deployment,
+      # resolved by the image's entrypoint (deploy/docker/middleware/
+      # middleware-env.sh, ADR-0013). `middleware` is the edge's star centre:
+      # the zenoh-router or the dds-discovery service, whichever is up.
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: middleware
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
@@ -72,7 +103,9 @@ services:
       - ../../runs:/runs
       - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
-      - zenoh-router
+      # Only the active middleware's centre runs (compose profiles).
+      zenoh-router: {condition: service_started, required: false}
+      dds-discovery: {condition: service_started, required: false}
 
   # Impairs everything the lidar client sends (it shares its netns).
   netem:
@@ -103,11 +136,15 @@ services:
       -p reliability:=${RELIABILITY:-reliable}
       -p qos_depth:=${QOS_DEPTH:-10}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      # Client mode: pure star, every sample relayed by the router.
-      # batch_size fits one IP datagram so a UDP batch never IP-fragments.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh-router:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Zenoh (tcp|quic) or Fast DDS (udp|tcp), one choice per deployment,
+      # resolved by the image's entrypoint (deploy/docker/middleware/
+      # middleware-env.sh, ADR-0013). `middleware` is the edge's star centre:
+      # the zenoh-router or the dds-discovery service, whichever is up.
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: middleware
+      # dds/tcp: the edge listens, UE participants dial out to it.
+      DDS_TCP_LISTEN_PORT: "7410"
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
@@ -116,4 +153,6 @@ services:
       - ../../runs:/runs
       - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
-      - zenoh-router
+      # Only the active middleware's centre runs (compose profiles).
+      zenoh-router: {condition: service_started, required: false}
+      dds-discovery: {condition: service_started, required: false}

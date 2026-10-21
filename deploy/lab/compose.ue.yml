@@ -1,9 +1,9 @@
 # Lab role: UE — LiDAR + compute machine behind the 5G modem.
 #
 # Unlike the local topology there is no netem here: the impairment is the
-# real 5G uplink. The Zenoh router lives on the edge host, so this node
-# dials out to it across the UPF (which is exactly why Zenoh was chosen
-# over multicast DDS discovery — see docs/architecture/adr/0001).
+# real 5G uplink. The middleware's centre lives on the edge host -- the Zenoh
+# router, or the Fast DDS Discovery Server (ADR-0013) -- so this node dials out
+# to it across the UPF; multicast DDS discovery would not cross it (ADR-0001).
 #
 # Required env: EDGE_HOST, INFRA_HOST (RUN_ID only without the admin)
 # Optional: LIDAR_INSTANCES (default 1), RENDER_INSTANCES (default 0),
@@ -44,24 +44,19 @@ services:
       -p sink:=${RENDER_SINK:-null}
       -p viewer_host:=${VIEWER_HOST:-localhost}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
-      # Dial the router on the edge host across the 5G user plane. The
-      # scheme must match what the router listens on — udp/...?rel=1 per
-      # ADR-0006. It said tcp/ here, which no router in this repo accepts.
-      # Star topology: every node is a CLIENT of the router, which relays.
-      # No peer mesh -- clients neither listen nor gossip, so nothing tries
-      # to dial a node that cannot be dialled (the UE is behind the UPF's
-      # NAT). Merged into rmw_zenoh's packaged config via _OVERRIDE rather
-      # than replacing it with a file, which silently dropped its listen,
-      # gossip and interest settings.
-      #
-      # TCP, not udp/?rel=1: relayed declarations are lost over the UDP
-      # link on this build (ros2/rmw_zenoh#765), and the router then drops
-      # every sample naming a key expression it never registered.
-      # Measured: TCP relay 8/8 e2e with zero errors; the same star over
-      # UDP failed 4-8 of 8 with dozens of 'unknown scope'.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${EDGE_HOST}:7448"]'
+      # Zenoh (tcp|quic) or Fast DDS (udp|tcp), the same on every host,
+      # resolved by the image's entrypoint (ADR-0013). Either way this node
+      # dials the edge's centre across the 5G user plane: the Zenoh router,
+      # which relays every sample, or the Fast DDS Discovery Server, after
+      # which data flows directly between participants (the UE's address must
+      # be routable from the edge).
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: ${EDGE_HOST}
+      # dds: this UE's 5G interface (or address) only. Fast DDS announces
+      # every interface; with the management LAN among them the point clouds
+      # could reach the edge without crossing the 5G link at all.
+      DDS_INTERFACES: ${DDS_INTERFACES:-}
       RUN_ID: ${RUN_ID:-}
       # The admin runs on the infra host; without it the node needs RUN_ID.
       # `-` not `:-`: an explicitly empty ADMIN_URL means "no control

@@ -18,6 +18,7 @@ Run (docker + built images required):
 Standard library only, like its sibling.
 """
 
+import middleware  # noqa: F401 - sets MIDDLEWARE / COMPOSE_PROFILES
 import json
 import pathlib
 import subprocess

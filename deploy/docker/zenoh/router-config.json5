@@ -17,26 +17,19 @@
     enabled: true,
     permissions: { read: true, write: false },
   },
-  // Reliable UDP (`rel=1`): Zenoh's own UDP link, with Zenoh's transport
-  // reliability (sequence numbers and retransmission) layered above it.
-  //
-  // This is NOT QUIC. The link is handled by `zenoh_link_udp`; the `quic/`
-  // scheme is a separate implementation and requires TLS. There is no
-  // network congestion control here — only the per-queue drop/block policy
-  // under transport.link.tx.queue.congestion_control — and no encryption.
-  //
-  // Chosen over TCP because it measured equal or better on p99 and jitter
-  // with identical loss, and because TCP's congestion collapse under random
-  // loss is the failure this platform kept hitting. See ADR-0006.
+  // TCP, plus QUIC when the deployment asks for it (MIDDLEWARE_LINK=quic:
+  // middleware-server.sh adds the quic/ listener). Zenoh carries TCP and QUIC;
+  // UDP is Fast DDS's (ADR-0013). Zenoh's own UDP link never relayed on this
+  // build -- declarations were lost (ros2/rmw_zenoh#765) -- so it is not here.
   listen: {
     // quic/ is NOT here on purpose. It needs TLS material that
     // scripts/gen-dev-tls.sh generates into a gitignored directory, so a
     // fresh checkout has none -- and zenoh treats a failed listener as FATAL.
-    // Listing it by default killed the whole router in CI, taking these two
-    // working listeners with it, and every node then died unable to resolve
-    // the container that had just exited. Enable it per deployment instead;
-    // see docs/operations/lab-topology.md.
-    endpoints: ["udp/[::]:7447?rel=1", "tcp/[::]:7448"],
+    // Listing it by default killed the whole router in CI, taking the
+    // working listener with it, and every node then died unable to resolve
+    // the container that had just exited. MIDDLEWARE_LINK=quic enables it
+    // per deployment; see docs/architecture/middleware.md.
+    endpoints: ["tcp/[::]:7448"],
   },
   // Shared memory is deliberately OFF.
   //

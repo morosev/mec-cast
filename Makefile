@@ -49,6 +49,15 @@ VERSION := $(shell git describe --tags --match 'platform-v*' --always --dirty 2>
 export VCS_REF
 export VERSION
 
+# The ROS middleware, one per deployment (ADR-0013): zenoh (MIDDLEWARE_LINK
+# tcp | quic) or dds, Fast DDS (udp | tcp). Compose starts the matching star
+# centre -- zenoh-router or dds-discovery -- through its profile.
+#   MIDDLEWARE=dds make up-admin        MIDDLEWARE=dds MIDDLEWARE_LINK=tcp make up-admin
+MIDDLEWARE ?= zenoh
+export MIDDLEWARE
+export MIDDLEWARE_LINK
+export COMPOSE_PROFILES ?= $(MIDDLEWARE)
+
 COMPOSE := docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml
 # Control plane on top of the data plane. Separate so `up-local` keeps
 # exercising the standalone env-RUN_ID path.
@@ -330,7 +339,7 @@ up-ran-admin: build-ros2 ## Simulated gNB + collector, driven by the control pla
 # VCS_REF/VERSION exported, or the rebuild stamps every node `unknown` and
 # WF_VERSION_SKEW goes quiet. RAN=1 adds the gNB metrics tap.
 up-local-5g: build-ros2 ## Pipeline over a local OCUDU + srsUE + Open5GS link (Ubuntu)
-	$(COMPOSE_5G) $(if $(RAN),--profile ran) up -d --build
+	$(COMPOSE_5G) --profile $(MIDDLEWARE) $(if $(RAN),--profile ran) up -d --build
 	@echo "admin page: http://localhost:8099/admin   (the UE appears once it is attached)"
 	@echo "  next: make attach-local-5g   (starts the gNB and srsUE, then routes the UE)"
 
@@ -343,7 +352,7 @@ attach-local-5g: ## Start the local-5G radio behind the UE container and route t
 	bash scripts/ocudu-attach-ue.sh $(if $(RESTART),-R) $(if $(MANUAL),-n)
 
 down-local-5g: ## Stop the local-5G stack and its radio, keeping the database
-	$(COMPOSE_5G) --profile ran down
+	$(COMPOSE_5G) --profile ran --profile zenoh --profile dds down
 	bash scripts/ocudu-attach-ue.sh -S
 
 up-logging: ## Logging service + postgres only
@@ -360,12 +369,12 @@ up-logging: ## Logging service + postgres only
 # though their overlay files are not named here — so one `down` is enough
 # whichever `up-*` you ran. There is deliberately no down-admin/down-render.
 down: ## Stop the local topology, keeping the database
-	$(COMPOSE) down --remove-orphans
+	COMPOSE_PROFILES=zenoh,dds $(COMPOSE) down --remove-orphans
 
 down-hard: ## Stop it AND delete the database volume (destroys run history)
 	@echo "This deletes the pgdata volume: every logged snapshot, every run."
 	@echo "Per-frame CSVs under runs/ are untouched."
-	$(COMPOSE) down -v --remove-orphans
+	COMPOSE_PROFILES=zenoh,dds $(COMPOSE) down -v --remove-orphans
 
 # The full overlay, not $(COMPOSE): with the base files this showed six of
 # the eight running services and silently omitted admin and render — the two

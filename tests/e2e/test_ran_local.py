@@ -14,6 +14,7 @@ pipeline — so this is the cheapest of the e2e suites.
     make test-e2e            # or: pytest tests/e2e/test_ran_local.py -v
 """
 
+import middleware  # noqa: F401 - sets MIDDLEWARE / COMPOSE_PROFILES
 import csv
 import json
 import os

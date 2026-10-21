@@ -40,10 +40,25 @@ class NodeType(StrEnum):
     RENDER = "render"
 
 
-#: The node types that hold a Zenoh session, and so report the link they
-#: dial as `params.transport`. The gNB collector and the xApp have none: a
-#: transport they report (the collector's udp/ws metrics feed) is not a link.
-ZENOH_NODE_TYPES = frozenset({NodeType.CLIENT, NodeType.EDGE, NodeType.RENDER})
+#: The node types that run a ROS middleware session -- Zenoh or Fast DDS
+#: (ADR-0013) -- and so report it as `params.middleware` and its link as
+#: `params.transport`. The gNB collector and the xApp have none: a transport
+#: they report (the collector's udp/ws metrics feed) is not a middleware link.
+MIDDLEWARE_NODE_TYPES = frozenset({NodeType.CLIENT, NodeType.EDGE, NodeType.RENDER})
+
+#: The RMW each middleware runs on, as run.json records it.
+MIDDLEWARE_RMW = {"zenoh": "rmw_zenoh_cpp", "dds": "rmw_fastrtps_cpp"}
+
+
+def middleware_of(params: dict[str, Any] | None) -> str | None:
+    """``"zenoh/tcp"``, ``"dds/udp"``...: what a node runs on, or None if it
+    reported no middleware."""
+    params = params or {}
+    name = str(params.get("middleware") or "")
+    link = str(params.get("transport") or "")
+    if not name:
+        return None
+    return f"{name}/{link}" if link else name
 
 
 class MessageType(StrEnum):

@@ -954,15 +954,18 @@ explicitly still wins.
 
 ### `WF_TRANSPORT_MISMATCH`
 
-The Zenoh nodes of one zone dial the router over different links, so a run
-there would cross two transports, and its `zenoh_link` in `run.json` would read
-`mixed`. The finding names each node that differs from the majority. The
-transport is fixed when a node process starts — one Zenoh session, one link —
-so nothing about a run can change it.
+The ROS nodes of one zone run different middlewares, or different links of
+one middleware ([ADR-0013](../architecture/adr/0013-two-middlewares.md)). Across
+middlewares nothing flows at all; across links a run would measure a mixture,
+and its `middleware` in `run.json` would read `mixed`. The finding names each
+node that differs from the majority. The middleware is fixed when a node
+process starts, so nothing about a run can change it.
 
-Redeploy the odd role with the same scheme in `ZENOH_CONFIG_OVERRIDE` as the
-rest of the zone (the compose files use `tcp/…:7448`) and **recreate** the
-container. Compare the **Link** column in the admin's Nodes table first.
+Compare the **Middleware** column in the Nodes table, and the badge in the
+header, which reads e.g. "Fast DDS · UDP" per zone and turns red when mixed.
+Then redeploy the odd role with the same `MIDDLEWARE` and `MIDDLEWARE_LINK` as
+the rest of the zone and **recreate** its container. See
+[middleware.md](../architecture/middleware.md).
 
 ### A run stuck in `stopping`
 
@@ -1012,7 +1015,8 @@ names a run that is `stopping`, this is why.
 | Code change has no effect | Image not rebuilt | `make build-ros2 && compose up -d --build` |
 | Admin page shows no nodes | Nodes created without `ADMIN_URL` | `docker exec compose-edge-1 printenv \| grep ADMIN`, then `--force-recreate` |
 | Renderer logs in bursts with big `seq` gaps | Uplink in congestion collapse — not a renderer fault | Compare `pub-0` to `edge-0` row counts. See [local-development.md](../guides/local-development.md#when-the-renderer-looks-broken-but-is-not) |
-| `Temporary failure in name resolution` at zenoh session open, node exits 1 | A ROS node on `network_mode: host` still dialling the router by compose service name — there is no compose DNS there | The role needs `ZENOH_CONFIG_OVERRIDE` with a reachable address: `127.0.0.1` where the router is local, `${EDGE_HOST}` from the UE |
+| `Temporary failure in name resolution` at session open, node exits 1 | A ROS node on `network_mode: host` dialling the middleware's centre by compose service name — there is no compose DNS there | Set `MIDDLEWARE_HOST` to a reachable address: `127.0.0.1` where the router or Discovery Server is local, `${EDGE_HOST}` from the UE |
+| `mec-cast middleware: MIDDLEWARE_LINK=… is not a link of …`, container exits 64 | An invalid pair | Zenoh takes `tcp` or `quic`; DDS takes `udp` or `tcp` |
 | Router floods `Route data with unknown scope N!` | rmw_zenoh discovery declarations lost on the impaired link | Check delivery, not the log — data is unaffected. Lower `NETEM_LOSS` |
 
 ## See also

@@ -561,12 +561,18 @@ class Orchestrator:
                     "version_sha": record.version_sha,
                 },
             )
-            # The Zenoh link this participant really ran on, as it reported
-            # it: the run's record of its transport (run.json `zenoh_link`).
-            transport = (record.params or {}).get("transport")
-            on_zenoh = record.node_type in p.ZENOH_NODE_TYPES
-            if on_zenoh and transport and "transport" not in entry:
-                entry["transport"] = str(transport)
+            # The middleware and link this participant really ran on, as it
+            # reported them: the run's record of its transport (run.json
+            # `middleware`, ADR-0013).
+            params = record.params or {}
+            if (
+                record.node_type in p.MIDDLEWARE_NODE_TYPES
+                and params.get("middleware")
+                and "middleware" not in entry
+            ):
+                entry["middleware"] = str(params["middleware"])
+                if params.get("transport"):
+                    entry["transport"] = str(params["transport"])
             # Keyed by node_id, and the node REPORTS its own directory leaf
             # (params.out_leaf, e.g. "pub-0") rather than the admin deriving
             # it from node_type. The old shape keyed a constant site string
@@ -823,6 +829,15 @@ class Orchestrator:
             # Coalesce: a burst of status frames becomes one repaint.
             await asyncio.sleep(self._settings.ui_broadcast_min_interval_s)
 
+    def zone_middleware(self) -> dict[str, str]:
+        """Per zone, the middleware its online ROS nodes report."""
+        seen: dict[str, set[str]] = {}
+        for r in self.registry.online():
+            mw = p.middleware_of(r.params) if r.node_type in p.MIDDLEWARE_NODE_TYPES else None
+            if mw:
+                seen.setdefault(r.zone or DEFAULT_ZONE, set()).add(mw)
+        return {z: (k.pop() if len(k) == 1 else "mixed") for z, k in seen.items()}
+
     def snapshot(self) -> dict[str, Any]:
         """The whole view. Full replacement beats diffing for tens of rows."""
         run = self.active_run
@@ -840,6 +855,9 @@ class Orchestrator:
             # the declared-topology view. `mermaid` is empty when nothing is
             # declared, which is how the page knows to hide that card.
             "topology": {**self.topology.to_dict(), "mermaid": topo.to_mermaid(self.topology)},
+            # What each zone runs on, from what its nodes report (ADR-0013):
+            # "zenoh/tcp", "dds/udp", "mixed", or absent when none reported.
+            "middleware": self.zone_middleware(),
             "findings": list(self._findings),
             # Empty means "derive from the page's own host" — see config.
             "logging_url": self._settings.logging_public_url,

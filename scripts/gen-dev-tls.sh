@@ -25,11 +25,12 @@ openssl req -newkey rsa:2048 -nodes -keyout router.key -out router.csr \
 # is rejected by zenoh's TLS stack as CaUsedAsEndEntity -- recorded in ADR-0006
 # and the single most expensive trap here.
 #
-# The SAN must cover every name a client dials: the compose service name
-# locally, and loopback for a node sharing a host with its router.
+# The SAN must cover every name a client dials: the compose service name and
+# the `middleware` alias the nodes dial locally (ADR-0013), and loopback for a
+# node sharing a host with its router.
 openssl x509 -req -in router.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
   -out router.crt -days 825 \
-  -extfile <(printf 'basicConstraints=critical,CA:FALSE\nsubjectAltName=DNS:zenoh-router,DNS:localhost,IP:127.0.0.1\n') 2>/dev/null
+  -extfile <(printf 'basicConstraints=critical,CA:FALSE\nsubjectAltName=DNS:zenoh-router,DNS:middleware,DNS:localhost,IP:127.0.0.1\n') 2>/dev/null
 
 rm -f router.csr ca.srl
 chmod 644 ca.crt router.crt

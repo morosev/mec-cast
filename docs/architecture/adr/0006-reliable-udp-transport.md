@@ -1,6 +1,6 @@
 # ADR-0006: Reliable UDP for the Zenoh transport
 
-- **Status:** Superseded in practice — see the 2026-09-23 amendment
+- **Status:** Superseded by [ADR-0013](0013-two-middlewares.md): Zenoh carries TCP and QUIC; UDP is Fast DDS's
 - **Date:** 2026-08-18
 - **Amended:** 2026-08-20 (the link is not QUIC), 2026-08-30 (the tail cost of
   ordered retransmission — measured, and it does not reverse the decision),
@@ -413,7 +413,7 @@ NETEM=0 make up-local
 # the tracked files in place is how an arm ends up committed by accident.
 sed 's/?rel=1/?rel=0/' deploy/docker/zenoh/router-config.json5 > /tmp/z/router-config.json5
 # mount /tmp/z at /zenoh in zenoh-router, and point the nodes at it with
-#   ZENOH_CONFIG_OVERRIDE='connect/endpoints=["udp/zenoh-router:7447?rel=0"]'
+#   ZENOH_CONFIG_OVERRIDE='connect/endpoints=["udp/<router>:7447?rel=0"]'
 ```
 
 Clustering is what separates head-of-line blocking from independent loss:

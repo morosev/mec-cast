@@ -13,7 +13,7 @@ instrument that makes the other findings trustworthy, not the purpose.**
 
 Two workload profiles share one telemetry spine:
 
-- **Profile A — robotics (ROS2 + Zenoh):** LiDAR point clouds from a UE
+- **Profile A — robotics (ROS2 + Zenoh or Fast DDS, [ADR-0013](adr/0013-two-middlewares.md)):** LiDAR point clouds from a UE
   (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a MEC
   edge server.
 - **Profile B — media (WebRTC):** today the legacy libwebrtc client
@@ -206,7 +206,7 @@ Everything ROS runs in containers (`deploy/docker/ros.Dockerfile`, host WSL Ubun
 is not a ROS2 target platform):
 
 ```
-zenoh-router ◄── publisher (+ netem sidecar: delay/jitter/loss) ──► edge
+zenoh-router | dds-discovery ◄── publisher (+ netem sidecar: delay/jitter/loss) ──► edge
                           │                                          │
                           └────────── logging service ◄──────────────┘
 ```

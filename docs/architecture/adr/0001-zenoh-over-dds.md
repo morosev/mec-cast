@@ -1,6 +1,6 @@
 # ADR-0001: Use rmw_zenoh rather than raw DDS for the point-cloud transport
 
-- **Status:** Accepted
+- **Status:** Accepted; extended by [ADR-0013](0013-two-middlewares.md), which makes the Fast DDS fallback a supported middleware
 - **Date:** 2026-08-06
 
 ## Context

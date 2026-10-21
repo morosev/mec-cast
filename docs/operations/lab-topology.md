@@ -28,19 +28,26 @@ buffer-then-drop while it is unreachable.
               (every measuring host on the SAME grandmaster)
 ```
 
-## Why the Zenoh router lives on the edge
+## The middleware: Zenoh or Fast DDS
 
-The UE is behind the UPF's NAT. It dials **out** to the router, which is why
-this works at all without port forwarding or a public UE address — see
-[ADR-0001](../architecture/adr/0001-zenoh-over-dds.md). Set `EDGE_HOST` in
-the UE role's environment to the router's reachable address.
+The data plane runs on one of two ROS middlewares, chosen at deployment and the
+same on every host ([ADR-0013](../architecture/adr/0013-two-middlewares.md),
+[middleware.md](../architecture/middleware.md)):
 
-## The Zenoh topology is a star
+| `MIDDLEWARE` | `MIDDLEWARE_LINK` | Centre on the edge host |
+|---|---|---|
+| `zenoh` (default) | `tcp` (default), `quic` | Zenoh router: 7448/tcp, 7449/udp for QUIC |
+| `dds` | `udp` (default), `tcp` | Fast DDS Discovery Server: 11811/udp or /tcp |
+
+Either way the topology is a **star centred on the edge**, and the UE dials
+the centre at `EDGE_HOST`. The image's entrypoint builds the middleware's
+config from these variables; no compose file names an RMW or an endpoint.
+
+## The star, with Zenoh
 
 Every node is a Zenoh **client** of the router; the router relays between
-them. There is no peer mesh, and there cannot be one: the UE sits behind the
-UPF's NAT and the edge's node reaches its router over loopback, so neither
-can be dialled by the other.
+them. There is no peer mesh, and none is needed: nothing ever dials the UE,
+so a NAT at the UPF does not matter.
 
 ```text
 UE host                                  Edge host
@@ -49,7 +56,7 @@ UE host                                  Edge host
            │                        zenoh-router
 ```
 
-Set per compose file, merged into `rmw_zenoh`'s packaged config:
+The entrypoint sets, for `zenoh/tcp`:
 
 ```
 ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${EDGE_HOST}:7448"]'
@@ -69,93 +76,79 @@ silently lost — including the `listen`, `gossip` and interest settings that
 relaying depends on. Only the endpoint and the mode differ from upstream, so
 only those are set.
 
-**TCP, not `udp/…?rel=1`.** Relayed key-expression declarations are lost over
-the UDP link on this build, and the router then drops every sample naming a
-scope it never registered
-([ros2/rmw_zenoh#765](https://github.com/ros2/rmw_zenoh/issues/765)). Measured
-on the e2e suite: TCP relay 8/8 with zero errors; the same star over UDP
-failed 4–8 of 8 with dozens of `unknown scope`. See the 2026-09-23 amendment
-in [ADR-0006](../architecture/adr/0006-reliable-udp-transport.md). The router
-still listens on `udp/[::]:7447?rel=1` alongside `tcp/[::]:7448` so that
-transport remains available to experiments.
+**No Zenoh over UDP.** Relayed key-expression declarations are lost over
+Zenoh's UDP link on this build, and the router then drops every sample naming
+a scope it never registered
+([ros2/rmw_zenoh#765](https://github.com/ros2/rmw_zenoh/issues/765)). The
+router listens on TCP only, plus QUIC on request; UDP is Fast DDS's.
 
-## Choosing a transport
+### Zenoh over QUIC
 
-The router listens on three endpoints at once, so a role's transport is
-whichever one it dials:
-
-| Endpoint | State |
-|---|---|
-| `tcp/[::]:7448` | **what the platform runs on** — correct and fast |
-| `udp/[::]:7447?rel=1` | listening, but **cannot relay on this build** — declarations are lost |
-| `quic/[::]:7449` | **not listening by default** — opt-in, see below |
-
-Change a role by changing one line, then **recreate the container** — the
-link is opened once at process start:
-
-```
-ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["quic/${EDGE_HOST}:7449"];transport/link/tls/root_ca_certificate="/zenoh/tls/ca.crt"'
-```
-
-### Enabling QUIC
-
-The router does **not** listen on `quic/` by default. It needs TLS material
-that is gitignored, and **zenoh treats a failed listener as fatal** -- listing
-an endpoint whose certificates are absent kills the whole router, taking the
-working TCP and UDP listeners with it. Every node then fails to resolve a
-container that has just exited, which looks like a DNS fault rather than a
-missing file.
-
-So generate the material first:
+`MIDDLEWARE_LINK=quic` makes the router listen on `quic/[::]:7449` as well, and
+the clients dial it with the CA in `/zenoh/tls/ca.crt`. QUIC mandates TLS 1.3,
+so the TLS material must exist first, and **zenoh treats a failed listener as
+fatal** -- a router whose certificates are absent dies, and every node then
+fails to resolve it, which looks like a DNS fault rather than a missing file:
 
 ```bash
-bash scripts/gen-dev-tls.sh
+bash scripts/gen-dev-tls.sh        # development CA, into deploy/docker/zenoh/tls/ (gitignored)
 ```
 
-then add the listener to that deployment's router, which merges rather than
-replacing:
+For the lab, generate certificates whose SAN covers the address each role
+dials. The material is mounted read-only at runtime, never baked into an
+image. Read [ADR-0006](../architecture/adr/0006-reliable-udp-transport.md)'s
+methodology warning before comparing transports: `netem delay X jitter Y`
+reorders packets, which penalises QUIC far more than TCP.
 
+## The star, with Fast DDS
+
+Every node is a Fast DDS **CLIENT** of the Discovery Server on the edge. It
+learns its peers there, and data then flows **directly** between participants,
+RTPS over UDP or TCP. Multicast discovery is never used: it does not cross the
+UPF, which is ADR-0001's reason for Zenoh.
+
+```text
+UE host                                    Edge host
+  lidar  ──discovery: udp/EDGE_HOST:11811──► dds-discovery
+  render ◄═══════════ RTPS data ══════════► edge node
 ```
-ZENOH_CONFIG_OVERRIDE: 'listen/endpoints=[udp/[::]:7447?rel=1,tcp/[::]:7448,quic/[::]:7449]'
-```
 
-That writes a development CA into `deploy/docker/zenoh/tls/`, which is
-gitignored and mounted read-only at runtime rather than baked into an image —
-a private key must never enter a layer. For the lab, generate certificates
-whose SAN covers the address each role dials, not the dev ones.
+Three things differ from Zenoh, and each needs attention in the lab:
 
-Measurements and the reasoning behind the default are in
-[ADR-0006](../architecture/adr/0006-reliable-udp-transport.md), including a
-warning worth reading before any transport comparison: `netem delay X jitter Y`
-reorders packets, which penalises QUIC far more than TCP and is not how a real
-link behaves.
+- **The edge sends to the UE's own address**, for the renderer's downlink and
+  for reliable ACKs. The UE pool must be routable from the edge, which it is
+  here: the UPF does not NAT it. Behind a NAT, use `dds/tcp` or Zenoh.
+- **`DDS_INTERFACES` on every multi-homed host.** Fast DDS announces every
+  interface, and a peer sends to any address it can reach. A UE and an edge
+  that are both on the management LAN could exchange point clouds over it,
+  skipping 5G. Set `DDS_INTERFACES` to the UE's 5G interface and the edge's
+  N6 address.
+- **Ports.** Discovery on 11811. Data on UDP 7400 and up (RTPS port mapping),
+  or TCP 7410 on the edge for `dds/tcp`, which the UE dials out to.
 
-## Which transport a run used
+## Which middleware a run used
 
-The transport is chosen at deployment, not per run. A Zenoh session opens one
-link at `rclpy.init()`, from `ZENOH_CONFIG_OVERRIDE`, so nothing can move a
-running node from TCP to QUIC. To compare transports, redeploy with a
-different scheme and **recreate** the containers.
+The middleware and its link are chosen at deployment, not per run. Both are
+fixed at `rclpy.init()`, so nothing can move a running node from one to
+another. To compare them, redeploy with other values and **recreate** the
+containers.
 
-- **Each node reports the link it really dials.** The admin page shows it in
-  the Nodes table (**Link**).
-- **The run records it.** Each participant's link goes into `run.json` under
-  `participants`, with a summary `zenoh_link`: one scheme, `mixed`, or null
-  when no Zenoh node took part. The top-level `transport: rmw_zenoh_cpp` is
-  the ROS middleware, not the link.
-- **A zone's Zenoh nodes must agree.** If one dials the router over a
-  different scheme, the admin raises `WF_TRANSPORT_MISMATCH` as an error, since
-  a run would cross two links:
+- **Each node reports what it really runs.** The admin page shows a badge per
+  zone (e.g. "Fast DDS · UDP") and a **Middleware** column in the Nodes table.
+- **The run records it.** Each participant's middleware and link go into
+  `run.json` under `participants`, with a summary
+  `middleware: {name, rmw, link}`, or `name: "mixed"` when the nodes
+  disagreed.
+- **A zone's nodes must agree.** If one runs another middleware or link, the
+  admin raises `WF_TRANSPORT_MISMATCH` as an error:
 
   ```text
-  client-ran-4-0 dials the router over 'udp-rel1', while edge-mec-0 use 'tcp'.
+  client-ran-4-0 runs on 'dds/udp', while edge-mec-0 runs on 'zenoh/tcp'.
   ```
 
-`udp-rel1` and `udp-rel0` count as different links, because they are
-different experiments. The gNB collector and the xApp do not use Zenoh and are
-not compared.
+The gNB collector and the xApp have no ROS session and are not compared.
 
-## How publish/subscribe reaches the edge
+## How publish/subscribe reaches the edge (Zenoh)
 
 ROS 2 topics become Zenoh **key expressions**; `rmw_zenoh` rewrites every `/`
 to `%`, so `/mec_cast/cloud` is one chunk carrying topic, type and type hash.
@@ -210,11 +203,31 @@ failing loudly:
 sudo timeout 45 tcpdump -ni any port 7448 -c 10 & sleep 1 && docker restart lab-ue-agent-1 && wait
 ```
 
+On **Fast DDS**, `ros2 node list` from a plain CLIENT shows only what that
+participant matched; ask as a SUPER_CLIENT, which the Discovery Server tells
+everything:
+
+```bash
+docker exec -e DDS_DISCOVERY_PROTOCOL=SUPER_CLIENT lab-ue-agent-1 bash -lc 'source /middleware/middleware-env.sh && ros2 node list'
+```
+
+The edge missing from that list is a discovery fault: port 11811 blocked, or
+`EDGE_HOST` wrong. The edge listed but no samples arriving is a data-path
+fault: the RTPS ports (UDP 7400 and up, or TCP 7410), or a UE address the
+edge cannot route back to. Watch both:
+
+```bash
+sudo timeout 45 tcpdump -ni any 'port 11811 or portrange 7400-7500' -c 20
+```
+
 ## Required environment per role
 
 ```bash
 export INFRA_HOST=10.0.0.10       # infra host: logging :8000 AND admin :8099
 export EDGE_HOST=10.0.0.20        # edge host (UE and gNB roles)
+export MIDDLEWARE=zenoh            # or dds -- the same on every host (ADR-0013)
+export MIDDLEWARE_LINK=tcp         # zenoh: tcp | quic; dds: udp | tcp
+export DDS_INTERFACES=...          # dds only, per host: the UE's 5G interface, the edge's N6 address
 export RUN_ID=$(uuidgen)          # only without the admin; see below
 ```
 

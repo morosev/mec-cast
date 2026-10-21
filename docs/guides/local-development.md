@@ -128,15 +128,20 @@ uvicorn startup line, then confirm from any terminal:
 curl -s http://localhost:8000/health/ready
 ```
 
-### Terminal 3 — Zenoh router
+### Terminal 3 — the middleware's centre
 
 ```bash
-compose up --no-deps --build zenoh-router
+compose up --no-deps --build zenoh-router      # MIDDLEWARE=zenoh, the default
+compose up --no-deps --build dds-discovery     # MIDDLEWARE=dds
 ```
 
 The rendezvous point. Both the client and the edge dial into it; nothing
-discovers anything by multicast, which is the whole reason Zenoh was chosen —
-see [ADR-0001](../architecture/adr/0001-zenoh-over-dds.md).
+discovers anything by multicast, which is why Zenoh was chosen
+([ADR-0001](../architecture/adr/0001-zenoh-over-dds.md)) and why DDS runs with
+a Discovery Server ([ADR-0013](../architecture/adr/0013-two-middlewares.md)).
+Export `MIDDLEWARE` (and `MIDDLEWARE_LINK`) in every terminal, so the nodes
+use the centre you started; `make` targets do it for you:
+`MIDDLEWARE=dds make up-admin`.
 
 ### Terminal 4 — edge ingest node
 

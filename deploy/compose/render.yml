@@ -52,11 +52,13 @@ services:
       -p web_port:=${RENDER_PORT:-9876}
       -p grpc_port:=${RENDER_GRPC_PORT:-9877}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      # Client mode: pure star, every sample relayed by the router.
-      # batch_size fits one IP datagram so a UDP batch never IP-fragments.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/zenoh-router:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Zenoh (tcp|quic) or Fast DDS (udp|tcp), one choice per deployment,
+      # resolved by the image's entrypoint (deploy/docker/middleware/
+      # middleware-env.sh, ADR-0013). `middleware` is the edge's star centre:
+      # the zenoh-router or the dds-discovery service, whichever is up.
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: middleware
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
@@ -87,4 +89,6 @@ services:
       - ../../runs:/runs
       - ../docker/zenoh/tls:/zenoh/tls:ro
     depends_on:
-      - zenoh-router
+      # Only the active middleware's centre runs (compose profiles).
+      zenoh-router: {condition: service_started, required: false}
+      dds-discovery: {condition: service_started, required: false}

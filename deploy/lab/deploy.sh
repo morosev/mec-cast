@@ -125,7 +125,7 @@ OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL \
           LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST ZONE \
           BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY \
-          VCS_REF VERSION PTP_DEVICE"
+          VCS_REF VERSION PTP_DEVICE MIDDLEWARE MIDDLEWARE_LINK DDS_INTERFACES"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,
@@ -190,7 +190,7 @@ echo "==> Starting role '$ROLE' on $TARGET"
 [ -n "$REMOTE_ENV" ] && echo "    forwarding:$(echo "$REMOTE_ENV" | tr ' ' '\n' | grep -oE '^[A-Z_]+' | tr '\n' ' ')"
 # shellcheck disable=SC2029
 ssh "$TARGET" "cd $REMOTE_DIR && \
-  env $REMOTE_ENV docker compose -f deploy/lab/compose.$ROLE.yml up -d --build"
+  env $REMOTE_ENV COMPOSE_PROFILES=${MIDDLEWARE:-zenoh} docker compose -f deploy/lab/compose.$ROLE.yml up -d --build"
 
 echo "==> Verifying PTP on $TARGET"
 # shellcheck disable=SC2029

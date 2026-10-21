@@ -127,6 +127,20 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [rust, ros]
+    # Once per middleware a deployment can choose (ADR-0013). zenoh/quic needs
+    # TLS material CI does not have; it is covered by the entrypoint tests.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {middleware: zenoh, link: tcp}
+          - {middleware: dds, link: udp}
+          - {middleware: dds, link: tcp}
+    name: e2e (${{ matrix.middleware }}/${{ matrix.link }})
+    env:
+      MIDDLEWARE: ${{ matrix.middleware }}
+      MIDDLEWARE_LINK: ${{ matrix.link }}
+      COMPOSE_PROFILES: ${{ matrix.middleware }}
     steps:
       # Only the small submodules: third_party/webrtc is ~20 GB and nothing
       # in CI builds it.

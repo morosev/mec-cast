@@ -262,8 +262,21 @@ in [lab-topology.md](lab-topology.md).
 ignored, and the run id is minted for you.
 
 **Order matters: `infra` → `edge` → `gnb` → `ue`.** Everything posts to the
-logging service, and the UE dials the edge's Zenoh router. Start the UE last or
-it retries against a router that is not there yet.
+logging service, and the UE dials the edge's middleware centre — the Zenoh
+router or the Fast DDS Discovery Server. Start the UE last or it retries
+against a centre that is not there yet.
+
+**Choose the middleware once, for every role.** `MIDDLEWARE=zenoh` (default,
+links `tcp` or `quic`) or `MIDDLEWARE=dds` (links `udp` or `tcp`), with
+`MIDDLEWARE_LINK`, set identically on every host; `deploy.sh` forwards both
+and picks the edge's compose profile from `MIDDLEWARE`. With DDS, also set
+`DDS_INTERFACES` per host: the UE's 5G interface, the edge's N6 address. See
+[middleware.md](../architecture/middleware.md).
+
+```bash
+MIDDLEWARE=dds MIDDLEWARE_LINK=udp DDS_INTERFACES=10.45.0.1 \
+  INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@edge-host
+```
 
 ### The scripted path
 
@@ -377,6 +390,13 @@ docker compose -f deploy/lab/compose.infra.yml up -d --build
 INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.edge.yml up -d --build
 ```
 
+On DDS, the profile selects the Discovery Server instead of the router:
+
+```bash
+MIDDLEWARE=dds COMPOSE_PROFILES=dds DDS_INTERFACES=<edge N6 address> \
+  INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.edge.yml up -d --build
+```
+
 **gNB** — also tell srsRAN to export its metrics, in whichever form its
 release has. The collector listens for both by default
 (`GNB_METRICS_SOURCE=auto`) and locks onto the one that delivers; set `udp`
@@ -401,6 +421,9 @@ INFRA_HOST=10.0.0.10 docker compose -f deploy/lab/compose.gnb.yml up -d --build
 ```bash
 INFRA_HOST=10.0.0.10 EDGE_HOST=10.0.0.20 docker compose -f deploy/lab/compose.ue.yml up -d --build
 ```
+
+On DDS, add `MIDDLEWARE=dds` (and `MIDDLEWARE_LINK`, if not `udp`) and
+`DDS_INTERFACES=<the UE's 5G interface>`, matching the edge.
 
 To run one in the foreground for debugging, drop `-d` and name the service.
 
@@ -730,6 +753,7 @@ and a shorthand in `~/mec-cast/.run-env` on that host, once:
 cat > .run-env <<'EOF'
 export INFRA_HOST=10.0.0.10
 export EDGE_HOST=10.0.0.20
+export MIDDLEWARE=zenoh MIDDLEWARE_LINK=tcp COMPOSE_PROFILES=zenoh   # as deployed
 compose() { docker compose -f deploy/lab/compose.ue.yml "$@"; }
 EOF
 source .run-env

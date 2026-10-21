@@ -18,6 +18,7 @@ the three things ADR-0011 promises:
     pytest tests/e2e/test_ran_control.py -v
 """
 
+import middleware  # noqa: F401 - sets MIDDLEWARE / COMPOSE_PROFILES
 import csv
 import json
 import os

@@ -40,8 +40,8 @@ FlexRIC's static `e42_xapp` with its ASN.1 dependencies, under the same
 this directory to the FlexRIC checkout's build, and `flexric.sh up` builds the
 image. `FLEXRIC_REBUILD=1 flexric.sh up` rebuilds it after a change here.
 
-**Test.** `tests/test_flexric.py` runs the adapter against a fake bridge
-(`tests/fake_bridge.py`). The real bridge runs against FlexRIC's emulated gNB
+**Test.** `ran/xapp/tests/test_flexric.py` runs the adapter against a fake bridge
+(`ran/xapp/tests/fake_bridge.py`). The real bridge runs against FlexRIC's emulated gNB
 with `flexric.sh up`, then `flexric.sh emu`, then `flexric.sh kpm`.
 
 It links to FlexRIC (OAI CSSL v1.0) and contains none of its code.

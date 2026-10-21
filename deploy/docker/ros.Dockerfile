@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# mec-cast ROS2 image: telemetry wheel (stage 1) + ROS2 Jazzy + rmw_zenoh +
+# mec-cast ROS2 image: telemetry wheel (stage 1) + ROS2 Jazzy + rmw_zenoh and
+# rmw_fastrtps (ADR-0013: Zenoh or Fast DDS, chosen at deployment) +
 # colcon-built mec_cast packages (stage 2). One image serves the zenoh
 # router, the point-cloud publisher, and the edge node.
 #
@@ -31,7 +32,7 @@ FROM ros:jazzy-ros-base
 ARG VCS_REF=unknown
 ARG VERSION=unknown
 LABEL org.opencontainers.image.title="mec-cast-ros" \
-      org.opencontainers.image.description="ROS2 + rmw_zenoh + mec_cast packages" \
+      org.opencontainers.image.description="ROS2 + rmw_zenoh / rmw_fastrtps + mec_cast packages" \
       org.opencontainers.image.source="https://github.com/morosev/mec-cast" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.revision="${VCS_REF}" \
@@ -45,8 +46,13 @@ LABEL org.opencontainers.image.title="mec-cast-ros" \
 ENV VCS_REF=${VCS_REF} \
     VERSION=${VERSION}
 
+# Both middlewares, so one image serves either deployment (ADR-0013). Fast DDS
+# ships in ros-base already; it is listed so a base image that drops it fails
+# here, not at a node's first publish.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-rmw-zenoh-cpp \
+        ros-jazzy-rmw-fastrtps-cpp \
+        ros-jazzy-fastrtps \
         python3-colcon-common-extensions \
         python3-pip \
         python3-numpy \
@@ -75,6 +81,8 @@ RUN . /opt/ros/jazzy/setup.sh && colcon build
 
 COPY deploy/docker/ros-entrypoint.sh /ros-entrypoint.sh
 COPY deploy/docker/zenoh /zenoh
-RUN chmod +x /ros-entrypoint.sh
+COPY deploy/docker/middleware /middleware
+RUN chmod +x /ros-entrypoint.sh /middleware/middleware-server.sh \
+    && test -x /opt/ros/jazzy/bin/fast-discovery-server
 ENTRYPOINT ["/ros-entrypoint.sh"]
 CMD ["bash"]

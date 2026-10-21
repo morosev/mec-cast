@@ -16,6 +16,7 @@ in the environment and runs with no admin service present. Keep it that way —
 `test_admin_run.py` covers the control-plane path, and the two must not merge.
 """
 
+from middleware import CENTRE  # also sets COMPOSE_PROFILES
 import csv
 import json
 import os
@@ -101,7 +102,7 @@ def collect_diagnostics(env) -> str:
     if ps.stderr.strip():
         parts += ["--- ps stderr ---", ps.stderr]
 
-    for svc in ("zenoh-router", "lidar-client", "edge", "netem",
+    for svc in (CENTRE, "lidar-client", "edge", "netem",
                 "logging", "postgres"):
         got = compose(["logs", "--tail", "40", svc], env, check=False)
         body = (got.stdout or "").strip() or (got.stderr or "").strip()

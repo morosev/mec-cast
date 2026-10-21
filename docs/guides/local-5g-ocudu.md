@@ -65,7 +65,7 @@ directly over SCTP, and the xApp reaches the admin and the logging service
 through the host at `10.0.2.1`.
 
 **Uplink:** ue_agent → `tun_srsue` → srsUE (SDAP/PDCP/RLC/MAC/PHY → IQ) →
-ZMQ → gNB → GTP-U → UPF → `ogstun` → 10.53.1.1 → Zenoh router → edge.
+ZMQ → gNB → GTP-U → UPF → `ogstun` → 10.53.1.1 → Zenoh router (or, on DDS, straight to the edge) → edge.
 **Downlink** is the reverse, and needs one host route
 (`10.45.0.0/16 via 10.53.1.2`) so replies to the UE go back into the core
 instead of out of the default gateway.
@@ -401,7 +401,7 @@ lab topology collapsed onto this host. It runs **with** `logging.yml` and
 
 | Service | Network | Plays the lab's |
 |---|---|---|
-| `zenoh-router`, `edge` | host (N6 side, `10.53.1.1`) | edge role |
+| `zenoh-router` or `dds-discovery`, `edge` | host (N6 side, `10.53.1.1`) | edge role |
 | `lidar-client` | own namespace, `tun_srsue` moved in by srsUE | UE role |
 | `ran-collector` (`--profile ran`) | host, beside the gNB | gNB role |
 | `logging`, `postgres`, `admin` | compose bridge | infra role |
@@ -430,13 +430,21 @@ docker logs mec5g-lidar-client-1
 # waiting for the 5G link: 10.53.1.1 does not route via tun_srsue yet
 ```
 
+**On Fast DDS** instead of Zenoh: `MIDDLEWARE=dds make up-local-5g` (UDP),
+or add `MIDDLEWARE_LINK=tcp`. The compose file already pins DDS to the
+measured path, `tun_srsue` on the client and the N6 address on the edge
+(`DDS_INTERFACES`), and the edge reaches the UE's 10.45.0.x address through
+the host's existing route. Keep the same `MIDDLEWARE` for `attach-local-5g`
+and every later `make` in this shell; see
+[middleware.md](../architecture/middleware.md).
+
 Start it through `make`, not a bare `docker compose ... up --build`. The
 Makefile passes the commit as a build argument. A plain rebuild stamps every
 node's version `unknown`, and the admin's version-skew check goes quiet.
 For logs and one-off commands, this shell function is the same project:
 
 ```bash
-mec5g() { docker compose -p mec5g -f deploy/compose/logging.yml \
+mec5g() { COMPOSE_PROFILES=${MIDDLEWARE:-zenoh} docker compose -p mec5g -f deploy/compose/logging.yml \
   -f deploy/compose/admin.yml -f deploy/compose/local-5g.yml "$@"; }
 ```
 
@@ -497,7 +505,7 @@ only re-checks the route.
 `make up-local-5g` rebuilds the image, and a new commit changes it, so any
 re-run of that target can recreate the client. To change only one service,
 use the `mec5g` function with `--no-deps`, e.g.
-`mec5g --profile ran up -d --no-deps ran-collector`.
+`mec5g --profile ran up -d --no-deps ran-collector` (a `--profile` flag replaces `COMPOSE_PROFILES`; `--no-deps` keeps the middleware's centre out of it).
 
 <details>
 <summary>What the script runs, by hand</summary>

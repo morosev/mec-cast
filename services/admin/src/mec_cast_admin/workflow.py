@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .protocol import ZENOH_NODE_TYPES, NodeState, NodeType
+from .protocol import MIDDLEWARE_NODE_TYPES, NodeState, NodeType, middleware_of
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
@@ -269,47 +269,49 @@ def diagnose(
                 )
             )
 
-    # The nodes of one zone must share a Zenoh transport.
+    # The nodes of one zone must share a middleware and a link.
     #
-    # The transport is fixed when a node process starts -- one Zenoh session,
-    # one link, from ZENOH_CONFIG_OVERRIDE -- and each node reports the scheme
-    # it really dials (`params.transport`). Nothing is declared per run: the
-    # run records what its participants reported (run.json `zenoh_link`).
-    # What can go wrong is a zone whose nodes dial the router over DIFFERENT
-    # links, e.g. a client redeployed on udp beside an edge still on tcp. Its
-    # data crosses two links, so a transport comparison would be measuring a
-    # mixture -- and nothing in the CSVs would show it. Nodes that do not use
-    # Zenoh (the gNB collector, the E2 xApp) are not compared, whatever they
-    # report.
+    # Both are fixed when a node process starts -- one Zenoh or Fast DDS
+    # session, one link, from MIDDLEWARE / MIDDLEWARE_LINK (ADR-0013) -- and
+    # each node reports what it really runs (`params.middleware`,
+    # `params.transport`). Nothing is declared per run: the run records what
+    # its participants reported (run.json `middleware`). What can go wrong is
+    # a zone whose nodes disagree, e.g. a client redeployed on dds/udp beside
+    # an edge still on zenoh/tcp. Across middlewares nothing flows at all;
+    # across links of one middleware the data crosses two transports, so a
+    # comparison would measure a mixture -- and nothing in the CSVs would show
+    # it. Nodes with no ROS session (the gNB collector, the E2 xApp) are not
+    # compared, whatever they report.
     for zone in zones:
-        on_zenoh = {
-            r.node_id: str((r.params or {}).get("transport"))
+        reported = {
+            r.node_id: mw
             for r in online
             if zone_of(r) == zone
-            and r.node_type in ZENOH_NODE_TYPES
-            and (r.params or {}).get("transport")
+            and r.node_type in MIDDLEWARE_NODE_TYPES
+            and (mw := middleware_of(r.params))
         }
-        schemes = sorted(set(on_zenoh.values()))
-        if len(schemes) < 2:
+        kinds = sorted(set(reported.values()))
+        if len(kinds) < 2:
             continue
-        counts = {t: list(on_zenoh.values()).count(t) for t in schemes}
-        majority = max(schemes, key=lambda t: (counts[t], t == "tcp"))
-        others = ", ".join(sorted(n for n, t in on_zenoh.items() if t == majority))
-        for node_id, scheme in sorted(on_zenoh.items()):
-            if scheme == majority:
+        counts = {k: list(reported.values()).count(k) for k in kinds}
+        majority = max(kinds, key=lambda k: (counts[k], k == "zenoh/tcp"))
+        peers = sorted(n for n, k in reported.items() if k == majority)
+        others = f"{', '.join(peers)} {'runs' if len(peers) == 1 else 'run'}"
+        for node_id, kind in sorted(reported.items()):
+            if kind == majority:
                 continue
             findings.append(
                 Finding(
                     "WF_TRANSPORT_MISMATCH",
                     "error",
                     node_id,
-                    f"{node_id} dials the router over {scheme!r}, while {others} "
-                    f"use {majority!r}. A run in this zone would cross two links, "
-                    "and its data would describe neither.",
-                    "Deploy every node of the zone with the same scheme in "
-                    "ZENOH_CONFIG_OVERRIDE (the compose files use tcp/...:7448) and "
-                    "RECREATE the odd container: the link is fixed when the "
-                    "process starts, so restarting a run cannot change it.",
+                    f"{node_id} runs on {kind!r}, while {others} on "
+                    f"{majority!r}. A run in this zone would cross two transports "
+                    "(or, across middlewares, carry nothing), and its data would "
+                    "describe neither.",
+                    "Deploy every node of the zone with the same MIDDLEWARE and "
+                    "MIDDLEWARE_LINK and RECREATE the odd container: both are fixed "
+                    "when the process starts, so restarting a run cannot change them.",
                     zone=zone,
                 )
             )

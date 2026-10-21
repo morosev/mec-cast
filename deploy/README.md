@@ -12,16 +12,16 @@ Three environments, one mechanism (docker compose), different composition.
 ## Layout
 
 ```
-docker/          Dockerfiles + the ROS image entrypoint and zenoh configs
+docker/          Dockerfiles + the ROS image entrypoint, middleware/ (Zenoh or Fast DDS config, ADR-0013) and zenoh configs
   ros.Dockerfile   telemetry wheel (stage 1) + ROS2 Jazzy + colcon (stage 2)
   ran.Dockerfile   srsRAN metrics collector
   xapp.Dockerfile  the E2 xApp on Python 3.8, sim adapter (local; the lab runs it inside the RIC)
 compose/         Local topology
-  local.yml        zenoh router, lidar client, netem sidecar, edge
+  local.yml        zenoh router or DDS discovery server (profile = MIDDLEWARE), lidar client, netem sidecar, edge
   logging.yml      logging service + postgres
   render.yml       edge return path + the UE renderer (ADR-0009)
   ran.yml          gnb-sim + ran-collector + xapp: both RAN sources without a radio
-  local-5g.yml     zenoh router + edge on the N6 side, lidar client behind srsUE (local 5G)
+  local-5g.yml     middleware centre + edge on the N6 side, lidar client behind srsUE (local 5G)
 lab/             Per-role compose files for the real testbed
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role

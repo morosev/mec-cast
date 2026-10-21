@@ -5,7 +5,7 @@
 # The roles mirror the lab (deploy/lab/compose.{edge,ue}.yml), collapsed onto
 # one host:
 #
-#   zenoh-router, edge, ran-collector   network_mode: host -> the N6 side,
+#   zenoh-router | dds-discovery, edge, ran-collector   network_mode: host -> the N6 side,
 #                                       reached from the UPF at N6_ADDR
 #   lidar-client                        its own netns; srsUE puts tun_srsue in
 #                                       it, and only N6_ADDR is routed via 5G
@@ -18,7 +18,7 @@
 # (RAN=1 for the metrics tap) does that, and passes the VCS_REF/VERSION build
 # args a bare `docker compose up --build` would reset to `unknown`.
 #
-# The UE waits until N6_ADDR routes via tun_srsue before it opens its Zenoh
+# The UE waits until N6_ADDR routes via tun_srsue before it opens its middleware
 # session, so it can never silently take the bridge shortcut instead of 5G.
 # Until then the admin shows no UE node. `make attach-local-5g`
 # (scripts/ocudu-attach-ue.sh) starts the gNB and srsUE behind this container
@@ -37,11 +37,29 @@ services:
         VCS_REF: ${VCS_REF:-unknown}
         VERSION: ${VERSION:-unknown}
     network_mode: host
-    command: ros2 run rmw_zenoh_cpp rmw_zenohd
+    profiles: [zenoh]
+    command: /middleware/middleware-server.sh zenoh
     environment:
       ZENOH_ROUTER_CONFIG_URI: /zenoh/router-config.json5
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-tcp}
     volumes:
       - ../docker/zenoh/tls:/zenoh/tls:ro
+
+  # MIDDLEWARE=dds: the Fast DDS Discovery Server in the router's place.
+  dds-discovery:
+    image: mec-cast-ros
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ros.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    network_mode: host
+    profiles: [dds]
+    command: /middleware/middleware-server.sh dds
+    environment:
+      MIDDLEWARE: dds
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-udp}
 
   edge:
     image: mec-cast-ros
@@ -53,10 +71,15 @@ services:
       -p reliability:=${RELIABILITY:-reliable}
       -p qos_depth:=${QOS_DEPTH:-10}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      # Loopback: the router runs beside this node under network_mode: host.
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/127.0.0.1:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      # Zenoh or Fast DDS (ADR-0013). Loopback: the centre runs beside this
+      # node under network_mode: host.
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: 127.0.0.1
+      DDS_TCP_LISTEN_PORT: "7410"
+      # DDS announces every interface, and the UE could then reach this edge
+      # over the compose bridge instead of 5G: only the N6 address.
+      DDS_INTERFACES: ${N6_ADDR:-10.53.1.1}
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       # Host networking has no compose DNS: use the published ports.
@@ -69,7 +92,8 @@ services:
     volumes:
       - ../../runs:/runs
     depends_on:
-      - zenoh-router
+      zenoh-router: {condition: service_started, required: false}
+      dds-discovery: {condition: service_started, required: false}
 
   lidar-client:
     image: mec-cast-ros
@@ -99,9 +123,12 @@ services:
           -p reliability:=${RELIABILITY:-reliable} \
           -p qos_depth:=${QOS_DEPTH:-10}
     environment:
-      RMW_IMPLEMENTATION: rmw_zenoh_cpp
-      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${N6_ADDR:-10.53.1.1}:7448"]'
-      ZENOH_ROUTER_CHECK_ATTEMPTS: "-1"
+      MIDDLEWARE: ${MIDDLEWARE:-zenoh}
+      MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      MIDDLEWARE_HOST: ${N6_ADDR:-10.53.1.1}
+      # DDS: the 5G interface only, or the edge could answer over the compose
+      # bridge (eth0) and the downlink would skip the RAN.
+      DDS_INTERFACES: tun_srsue
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000

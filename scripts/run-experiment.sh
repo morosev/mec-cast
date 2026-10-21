@@ -57,6 +57,8 @@ RUN_DIR="runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
 COMPOSE="docker compose -f deploy/compose/logging.yml -f deploy/compose/local.yml"
+# The edge's router or Discovery Server, per MIDDLEWARE (ADR-0013).
+export COMPOSE_PROFILES=${COMPOSE_PROFILES:-${MIDDLEWARE:-zenoh}}
 
 export RUN_ID NUM_POINTS RATE_HZ SEED NETEM_DELAY NETEM_JITTER NETEM_LOSS
 
@@ -97,7 +99,11 @@ cat > "$RUN_DIR/run.json" <<JSON
     "jitter": "$NETEM_JITTER",
     "loss": "$NETEM_LOSS"
   },
-  "transport": "rmw_zenoh_cpp",
+  "middleware": {
+    "name": "${MIDDLEWARE:-zenoh}",
+    "rmw": "$( [ "${MIDDLEWARE:-zenoh}" = dds ] && echo rmw_fastrtps_cpp || echo rmw_zenoh_cpp )",
+    "link": "${MIDDLEWARE_LINK:-$( [ "${MIDDLEWARE:-zenoh}" = dds ] && echo udp || echo tcp )}"
+  },
   "git": {
     "repo": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
     "dirty": $(test -n "$(git status --porcelain 2>/dev/null)" && echo true || echo false),
