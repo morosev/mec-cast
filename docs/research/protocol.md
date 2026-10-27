@@ -110,7 +110,9 @@ replaced.
 - One cell, one USRP, one srsRAN build. The result describes this
   scheduler, not 5G in general.
 - The LiDAR source is synthetic (`lidar_scan`): realistic in size and rate,
-  not in content. Compression is not under test.
+  not in content. Compression is under test only in runs whose
+  `params.codec` is `gpcc` (ADR-0014); every figure must say which, since
+  coding changes the bytes on the air and the sender and edge delays.
 - KPM reports at 1 s. Per-frame mechanism comes from the JSON tap only.
 - E2 UE ids follow attach order. A UE that re-attaches mid-session invalidates
   the mapping from Stage 0.2 until it is re-checked.

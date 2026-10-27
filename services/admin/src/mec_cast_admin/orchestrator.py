@@ -573,6 +573,18 @@ class Orchestrator:
                 entry["middleware"] = str(params["middleware"])
                 if params.get("transport"):
                     entry["transport"] = str(params["transport"])
+            # Likewise the point-cloud codec it ran (ADR-0014), and the
+            # sender's coded precision. Taken from a RUNNING report: before
+            # it, a node reports its default, which the run may override.
+            if (
+                record.node_type in p.MIDDLEWARE_NODE_TYPES
+                and record.state is p.NodeState.RUNNING
+                and params.get("codec")
+                and "codec" not in entry
+            ):
+                entry["codec"] = str(params["codec"])
+                if params["codec"] != "none" and params.get("codec_precision_m") is not None:
+                    entry["codec_precision_m"] = float(params["codec_precision_m"])
             # Keyed by node_id, and the node REPORTS its own directory leaf
             # (params.out_leaf, e.g. "pub-0") rather than the admin deriving
             # it from node_type. The old shape keyed a constant site string

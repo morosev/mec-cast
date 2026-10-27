@@ -15,7 +15,7 @@ Runs with RUN_ID in the environment and no admin service, so it also shows the
 downlink working on the standalone path.
 """
 
-from middleware import CENTRE  # also sets COMPOSE_PROFILES
+from middleware import CENTRE, CODEC  # also sets COMPOSE_PROFILES
 import csv
 import os
 import pathlib
@@ -169,6 +169,20 @@ def test_every_stamp_is_consistent_frame_by_frame(render_run):
         f"unaccounted {p50_ms:.2f} ms between the edge's record() and its "
         f"publish() — the stamps do not reconcile\n{DIAG}"
     )
+
+
+def test_the_uplink_carries_the_codec_it_was_given(render_run):
+    """A CI leg with CODEC=gpcc must really code, not quietly send raw clouds
+    that pass every other assertion here just as well (ADR-0014)."""
+    raw = NUM_POINTS * 12
+    sizes = [int(r["payload_bytes"]) for r in rows(render_run, "pub-0")]
+    assert sizes, f"the publisher recorded nothing\n{DIAG}"
+    if CODEC == "gpcc":
+        assert max(sizes) < raw * 0.6, (
+            f"CODEC=gpcc but frames of up to {max(sizes)} B against {raw} B raw\n{DIAG}"
+        )
+    else:
+        assert set(sizes) == {raw}, f"CODEC=none but frame sizes {sorted(set(sizes))}\n{DIAG}"
 
 
 def test_the_downlink_is_smaller_than_the_uplink(render_run):

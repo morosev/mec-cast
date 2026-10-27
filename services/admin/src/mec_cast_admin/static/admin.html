@@ -84,6 +84,20 @@
         <label for="f_depth">QoS depth</label>
         <input id="f_depth" type="number" min="1" value="10">
       </div>
+      <div class="field">
+        <label for="f_codec" title="G-PCC codes the clouds both ways, and the edge's result losslessly (ADR-0014)">Codec</label>
+        <select id="f_codec">
+          <option value="none" selected>none — raw PointCloud2</option>
+          <option value="gpcc">gpcc — G-PCC both ways</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f_precision" title="The uplink's coded position step. Both divide the edge's 0.5 m voxels, so its result is unchanged">Precision</label>
+        <select id="f_precision" disabled>
+          <option value="0.001" selected>1 mm</option>
+          <option value="0.01">1 cm</option>
+        </select>
+      </div>
       <div class="field hidden" id="f_zone_field">
         <label for="f_zone">Zone</label>
         <select id="f_zone"></select>

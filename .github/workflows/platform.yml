@@ -135,14 +135,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {middleware: zenoh, link: tcp}
-          - {middleware: dds, link: udp}
-          - {middleware: dds, link: tcp}
-    name: e2e (${{ matrix.middleware }}/${{ matrix.link }})
+          - {middleware: zenoh, link: tcp, codec: none}
+          - {middleware: dds, link: udp, codec: none}
+          - {middleware: dds, link: tcp, codec: none}
+          # The point-cloud codec, both ways (ADR-0014). One middleware is
+          # enough: the codec sits above the RMW, on topics of its own.
+          - {middleware: zenoh, link: tcp, codec: gpcc}
+    name: e2e (${{ matrix.middleware }}/${{ matrix.link }}, codec ${{ matrix.codec }})
     env:
       MIDDLEWARE: ${{ matrix.middleware }}
       MIDDLEWARE_LINK: ${{ matrix.link }}
       COMPOSE_PROFILES: ${{ matrix.middleware }}
+      CODEC: ${{ matrix.codec }}
     steps:
       # Only the small submodules: third_party/webrtc is ~20 GB and nothing
       # in CI builds it.

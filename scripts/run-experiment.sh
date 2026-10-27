@@ -91,7 +91,9 @@ cat > "$RUN_DIR/run.json" <<JSON
     "num_points": $NUM_POINTS,
     "rate_hz": $RATE_HZ,
     "seed": $SEED,
-    "modality": "pointcloud"
+    "modality": "pointcloud",
+    "codec": "${CODEC:-none}",
+    "codec_precision_m": $( [ "${CODEC:-none}" = gpcc ] && echo "${CODEC_PRECISION_M:-0.001}" || echo null )
   },
   "network": {
     "impairment": "netem",

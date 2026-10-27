@@ -49,6 +49,10 @@ MIDDLEWARE_NODE_TYPES = frozenset({NodeType.CLIENT, NodeType.EDGE, NodeType.REND
 #: The RMW each middleware runs on, as run.json records it.
 MIDDLEWARE_RMW = {"zenoh": "rmw_zenoh_cpp", "dds": "rmw_fastrtps_cpp"}
 
+#: The point-cloud codecs a run may name (ADR-0014): the nodes' `codec`
+#: parameter and the run's params.codec.
+CODECS = ("none", "gpcc")
+
 
 def middleware_of(params: dict[str, Any] | None) -> str | None:
     """``"zenoh/tcp"``, ``"dds/udp"``...: what a node runs on, or None if it

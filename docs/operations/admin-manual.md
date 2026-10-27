@@ -343,6 +343,13 @@ make up-admin
 Then open `http://localhost:8099/admin`. Press **Add run**, then **Start**.
 `RUN_ID` is ignored — the admin mints one.
 
+**Codec** on the run form codes the point clouds with G-PCC, both ways
+([ADR-0014](../architecture/adr/0014-gpcc-point-cloud-codec.md)): `none` sends raw `PointCloud2`, as every run
+before it did; `gpcc` sends the clouds at the chosen **Precision** (1 mm or
+1 cm) and the edge's result losslessly. The run applies it to every node, and
+`run.json` records it in `params` and per participant. The Nodes table shows a
+coded node as e.g. `zenoh/tcp · gpcc`.
+
 In the lab the admin runs in the `edge` role and the other roles dial it at
 `ws://${EDGE_HOST}:8099/ws/node`.
 
@@ -966,6 +973,21 @@ header, which reads e.g. "Fast DDS · UDP" per zone and turns red when mixed.
 Then redeploy the odd role with the same `MIDDLEWARE` and `MIDDLEWARE_LINK` as
 the rest of the zone and **recreate** its container. See
 [middleware.md](../architecture/middleware.md).
+
+### `WF_CODEC_MISMATCH`
+
+The lidar client, edge or renderer of one zone disagree on the point-cloud
+codec ([ADR-0014](../architecture/adr/0014-gpcc-point-cloud-codec.md)). Each listens or publishes only on its codec's
+topics (`mec_cast/cloud` or `mec_cast/cloud_gpcc`, and the result likewise),
+so between them nothing flows, and nothing on the wire says why.
+
+- **A warning, while the nodes are idle.** Only their defaults differ
+  (`CODEC` at deployment). A run that names its codec on the form sets every
+  node alike, so naming one is the fix.
+- **An error, while they are running.** The run is carrying nothing between
+  the disagreeing nodes. Stop it, and start one that names the codec.
+
+To fix the defaults, deploy every role of the zone with the same `CODEC`.
 
 ### A run stuck in `stopping`
 

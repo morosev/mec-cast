@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .protocol import CODECS
 from .ranpolicy import validate_ran_policy
 
 
@@ -31,9 +32,9 @@ class RunCreate(BaseModel):
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="Workload knobs carried to the nodes with run.start: "
-        "num_points, rate_hz, seed, pattern, reliability, qos_depth; and for the "
-        "E2 xApp, kpm_style, kpm_metrics, kpm_ue_ids, e2_node_id and ran_policy "
-        "(ADR-0011).",
+        "num_points, rate_hz, seed, pattern, reliability, qos_depth; codec "
+        "(none | gpcc) and codec_precision_m (ADR-0014); and for the E2 xApp, "
+        "kpm_style, kpm_metrics, kpm_ue_ids, e2_node_id and ran_policy (ADR-0011).",
     )
 
     @field_validator("params")
@@ -42,6 +43,18 @@ class RunCreate(BaseModel):
         # Refused here, at create, rather than as a failed ack mid-run.
         if params.get("ran_policy") is not None:
             params = dict(params, ran_policy=validate_ran_policy(params["ran_policy"]))
+        # The codec too: a bad value would otherwise fail every node's
+        # run.start ack, after the run was created.
+        codec = params.get("codec")
+        if codec is not None and codec not in CODECS:
+            raise ValueError(f"codec must be one of {CODECS}, got {codec!r}")
+        precision = params.get("codec_precision_m")
+        if precision is not None and (
+            isinstance(precision, bool)
+            or not isinstance(precision, (int, float))
+            or not precision > 0
+        ):
+            raise ValueError(f"codec_precision_m must be a positive number, got {precision!r}")
         return params
 
 

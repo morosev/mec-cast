@@ -61,7 +61,9 @@ const MIDDLEWARE_TYPES = new Set(['client', 'edge', 'render']);
 function middlewareOf(n) {
   const p = n.params || {};
   if (!MIDDLEWARE_TYPES.has(n.node_type) || !p.middleware) return '';
-  return p.transport ? `${p.middleware}/${p.transport}` : p.middleware;
+  const mw = p.transport ? `${p.middleware}/${p.transport}` : p.middleware;
+  // The point-cloud codec rides along (ADR-0014); `none` is the plain case.
+  return p.codec && p.codec !== 'none' ? `${mw} · ${p.codec}` : mw;
 }
 
 const MIDDLEWARE_NAMES = { zenoh: 'Zenoh', dds: 'Fast DDS' };
@@ -480,7 +482,7 @@ function renderNodes(snapshot) {
       <td>${esc(n.node_type)} ${zoneChip(n.zone, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
-      <td class="mono" title="Middleware/link the node runs on — fixed at deployment">${esc(middlewareOf(n) || '—')}</td>
+      <td class="mono" title="Middleware/link the node runs on — fixed at deployment — and its point-cloud codec, when not none">${esc(middlewareOf(n) || '—')}</td>
       <td class="mono">${(n.peers || []).length}</td>
       <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>
@@ -524,6 +526,10 @@ $('selectAll').addEventListener('change', (event) => {
 });
 
 $('addToggle').addEventListener('click', () => $('addForm').classList.toggle('open'));
+// The precision is the uplink coder's; it means nothing without a codec.
+$('f_codec').addEventListener('change', () => {
+  $('f_precision').disabled = $('f_codec').value === 'none';
+});
 $('addCancel').addEventListener('click', () => $('addForm').classList.remove('open'));
 
 $('addForm').addEventListener('submit', async (event) => {
@@ -535,7 +541,9 @@ $('addForm').addEventListener('submit', async (event) => {
     seed: Number($('f_seed').value),
     reliability: $('f_reliability').value,
     qos_depth: Number($('f_depth').value),
+    codec: $('f_codec').value,
   };
+  if (params.codec !== 'none') params.codec_precision_m = Number($('f_precision').value);
   try {
     const zone = $('f_zone').value || 'default';
     await call('POST', '/runs', { label: $('f_label').value.trim(), zone, params });

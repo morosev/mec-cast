@@ -1,6 +1,6 @@
 # ADR-0014: G-PCC as the point-cloud codec, opt-in and coded frame by frame
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-27
 
 ## Context

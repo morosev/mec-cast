@@ -228,6 +228,7 @@ export EDGE_HOST=10.0.0.20        # edge host (UE and gNB roles)
 export MIDDLEWARE=zenoh            # or dds -- the same on every host (ADR-0013)
 export MIDDLEWARE_LINK=tcp         # zenoh: tcp | quic; dds: udp | tcp
 export DDS_INTERFACES=...          # dds only, per host: the UE's 5G interface, the edge's N6 address
+export CODEC=none                  # or gpcc (ADR-0014): the default codec, the same on ue and edge; a run may name its own
 export RUN_ID=$(uuidgen)          # only without the admin; see below
 ```
 

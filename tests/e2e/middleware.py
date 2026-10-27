@@ -8,3 +8,6 @@ MIDDLEWARE = os.environ.setdefault("MIDDLEWARE", "zenoh")
 os.environ.setdefault("COMPOSE_PROFILES", MIDDLEWARE)
 #: The edge's star centre: what every log dump should include.
 CENTRE = "dds-discovery" if MIDDLEWARE == "dds" else "zenoh-router"
+#: The point-cloud codec the nodes default to (ADR-0014), as the CI matrix
+#: sets it. Compose passes CODEC to every node.
+CODEC = os.environ.get("CODEC") or "none"

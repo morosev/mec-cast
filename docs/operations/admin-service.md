@@ -164,6 +164,7 @@ nothing.
 | `WF_CLOCK_SKEW` | A node recorded an impossible (negative) delay: the sending host’s clock is ahead of its own, so every cross-host figure it produced is wrong by the skew. The run still looks healthy — frames flow and CSVs grow — which is why this is an error |
 | `WF_VERSION_SKEW` | A node is on a different commit from the admin |
 | `WF_TRANSPORT_MISMATCH` | The ROS nodes of a zone run different middlewares or links (`zenoh/tcp`, `zenoh/quic`, `dds/udp`, `dds/tcp`): nothing flows across middlewares, and a run would mix links. Each node reports `middleware` and `transport`; runs record `middleware: {name, rmw, link}`, and the page shows a badge per zone (ADR-0013) |
+| `WF_CODEC_MISMATCH` | The lidar client, edge or renderer of a zone use different point-cloud codecs (`none`, `gpcc`): each listens only on its codec's topics, so nothing flows between them. A warning while idle (only the `CODEC` defaults differ, and a run naming its codec sets every node), an error while running (ADR-0014) |
 | `WF_PARTICIPANT_LOST` | A participant stopped answering mid-run |
 | `WF_LOGGING_UNREACHABLE` | Snapshots are not reaching the logging service |
 | `WF_TOPOLOGY_UNDECLARED` | A node connected that the declared topology does not list |
@@ -339,6 +340,11 @@ e.g. `{"name": "dds", "rmw": "rmw_fastrtps_cpp", "link": "udp"}`. The admin
 takes it from what the participants reported, and writes `name: "mixed"` when
 they disagreed; `run-experiment.sh` takes it from `MIDDLEWARE` and
 `MIDDLEWARE_LINK`. It replaces the former `transport` and `zenoh_link` fields.
+
+**Each participant records its point-cloud codec** (ADR-0014): `codec`, and
+for the lidar client `codec_precision_m`, taken from its first report while
+running, since a run's `params.codec` overrides a node's default. The run's
+own choice is in `params`.
 
 ## Security posture
 

@@ -316,6 +316,50 @@ def diagnose(
                 )
             )
 
+    # The nodes of one zone must use one point-cloud codec (ADR-0014).
+    #
+    # The lidar client, the edge and the renderer each listen or publish only
+    # on their codec's topics (mec_cast/cloud or mec_cast/cloud_gpcc, and the
+    # result likewise), so a pair that disagrees exchanges nothing -- silently,
+    # since no subscriber sees a wrong message. A run's `codec` parameter sets
+    # every node alike, so when idle a disagreement is only in the configured
+    # defaults (CODEC) and matters to a run that does not name a codec: a
+    # warning. While nodes are running it is what the run is doing: an error.
+    for zone in zones:
+        nodes = [
+            r
+            for r in online
+            if zone_of(r) == zone
+            and r.node_type in MIDDLEWARE_NODE_TYPES
+            and (r.params or {}).get("codec")
+        ]
+        codecs = sorted({str(r.params["codec"]) for r in nodes})
+        if len(codecs) < 2:
+            continue
+        counts = {c: sum(str(r.params["codec"]) == c for r in nodes) for c in codecs}
+        majority = max(codecs, key=lambda c: (counts[c], c == "none"))
+        running = any(r.state is NodeState.RUNNING for r in nodes)
+        peers = sorted(r.node_id for r in nodes if r.params["codec"] == majority)
+        others = f"{', '.join(peers)} {'uses' if len(peers) == 1 else 'use'}"
+        for r in sorted(nodes, key=lambda r: r.node_id):
+            codec = str(r.params["codec"])
+            if codec == majority:
+                continue
+            findings.append(
+                Finding(
+                    "WF_CODEC_MISMATCH",
+                    "error" if running else "warning",
+                    r.node_id,
+                    f"{r.node_id} uses codec {codec!r}, while {others} {majority!r}. "
+                    "Each listens only on its codec's topics, so between them "
+                    + ("nothing is flowing." if running else "a run would carry nothing."),
+                    "Name the codec in the run (params.codec) -- it is applied to "
+                    "every node -- or deploy every node of the zone with the same "
+                    "CODEC.",
+                    zone=zone,
+                )
+            )
+
     # Clocks, checked BEFORE a run rather than after it is spoiled.
     #
     # Every envelope carries the node's CLOCK_REALTIME in `ts_ns` -- the same
