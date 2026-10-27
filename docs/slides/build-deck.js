@@ -286,7 +286,7 @@ function bullets(s, x, y, w, h, items, size) {
   const y = TOP, h = 1.25;
   const q = cols(4, 0.30);
   box(s, { x: q[0].x, y, w: q[0].w, h, title: "1 — generate", lines: ["deterministic cloud from a seed", "capture_ns stamped"] });
-  box(s, { x: q[1].x, y, w: q[1].w, h, title: "2 — publish", lines: ["CloudWithTelemetry", "send_ns stamped last"] });
+  box(s, { x: q[1].x, y, w: q[1].w, h, title: "2 — publish", lines: ["raw, or G-PCC coded", "send_ns stamped last"] });
   box(s, { x: q[2].x, y, w: q[2].w, h, title: "3 — record", lines: ["sender-side CSV", "snapshots to logging"] });
   box(s, { x: q[3].x, y, w: q[3].w, h, title: "4 — render", lines: ["mec_cast/result from the edge", "process_done_ns stamped"] });
   arrow(s, q[0].x + q[0].w + 0.03, y + h / 2, q[1].x - 0.03, y + h / 2);
@@ -306,6 +306,7 @@ function bullets(s, x, y, w, h, items, size) {
   bullets(s, M + 6.4, 3.15, 5.83, 1.95, [
     "The timing envelope rides in-band as a message field, because rclpy exposes no per-publish attachments on either middleware.",
     "The renderer is optional and off by default, so the one-way path stays byte-for-byte comparable with campaigns recorded before it existed.",
+    "With codec=gpcc both legs travel G-PCC coded: encoding counts in the sender delay, decoding in processing (ADR-0014).",
   ], 11.5);
 
   note(s, M, 5.40, CW, 1.4, [
@@ -322,7 +323,7 @@ function bullets(s, x, y, w, h, items, size) {
 
   const y = TOP, h = 1.25;
   box(s, { x: M, y, w: 2.85, h, title: "recv_ns", lines: ["stamped on arrival", "before any work"] });
-  box(s, { x: M + 3.35, y, w: 2.85, h, title: "process", lines: ["centroid + voxel count", "deterministic"] });
+  box(s, { x: M + 3.35, y, w: 2.85, h, title: "process", lines: ["decode, if G-PCC coded", "centroid + voxel count"] });
   box(s, { x: M + 6.7, y, w: 2.85, h, title: "process_done_ns", lines: ["stamped after work"] });
   box(s, { x: M + 10.05, y, w: 2.18, h, title: "record", lines: ["CSV + snapshot", "then optionally reply"] });
   arrow(s, M + 2.91, y + h / 2, M + 3.29, y + h / 2);
@@ -342,7 +343,7 @@ function bullets(s, x, y, w, h, items, size) {
     "The hot path never blocks: samples go into a bounded lock-free ring, and a writer thread drains it.",
     "A full ring drops the sample and counts it — dropping is always preferable to perturbing the measurement.",
     "A separate uploader thread posts snapshots, so a stalled logging service cannot stall CSV writing.",
-    "With publish_result on, the voxel cloud already computed goes back to the UE on mec_cast/result — after record(), so the edge's own sample is never delayed for the renderer's benefit.",
+    "With publish_result on, the voxel cloud already computed goes back to the UE on mec_cast/result, or coded losslessly on mec_cast/result_gpcc — after record(), so the edge's own sample is never delayed for the renderer's benefit.",
   ], 11.5);
 
   note(s, M, 5.45, CW, 1.4, [
@@ -533,7 +534,7 @@ function bullets(s, x, y, w, h, items, size) {
     "Haptics and force feedback, where budgets are tightest",
   ], fs: 11 });
   box(s, { x: M + cw + 0.31, y: y2, w: cw, h: ch, title: "Near-term platform work", lines: [
-    "Draco compression as a measured variable",
+    "Campaign: G-PCC at 1 mm and 1 cm over 5G",
     "Latency versus payload-size sweeps",
     "Campaign: Zenoh versus Fast DDS over 5G",
     "Real LiDAR replacing the synthetic source",

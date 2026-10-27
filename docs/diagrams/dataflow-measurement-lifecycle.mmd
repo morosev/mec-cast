@@ -20,7 +20,7 @@ flowchart TB
     GEN["Generate cloud<br/>seed · num_points · rate_hz<br/>deterministic, reproducible"]:::work
     T1(["capture_ns<br/>PTP-disciplined CLOCK_REALTIME"]):::stamp
     ENV["Build TimingEnvelope — 64 bytes, little-endian<br/>capture_ns · seq · modality=pointcloud · trace_id=RUN_ID"]:::work
-    MSG["CloudWithTelemetry<br/>envelope rides IN-BAND as a message field<br/>rclpy exposes no per-publish attachment"]:::wire
+    MSG["CloudWithTelemetry, or with codec=gpcc G-PCC encoded<br/>into CompressedCloudWithTelemetry (ADR-0014)<br/>envelope rides IN-BAND as a message field<br/>encoding counts in the sender delay"]:::wire
     T2(["send_ns<br/>last line before publish"]):::stamp
     PUB["rclpy publish → rmw_zenoh_cpp or rmw_fastrtps_cpp<br/>chosen at deployment, ADR-0013"]:::work
     GEN --> T1 --> ENV --> MSG --> T2 --> PUB
@@ -31,7 +31,7 @@ flowchart TB
     SCSV[("runs/&lt;RUN_ID&gt;/pub-0/samples.csv")]:::sink
     T2 -.-> SREC --> SRING --> SWRITE --> SCSV
 
-    REND["Render node — draws the edge's result<br/>optional, off by default"]:::work
+    REND["Render node — decodes if coded, draws the edge's result<br/>optional, off by default"]:::work
     T5(["process_done_ns — on THIS host<br/>same CLOCK_REALTIME that stamped capture_ns"]):::stamp
     RCSV[("runs/&lt;RUN_ID&gt;/render-0/samples.csv<br/>site 2 · e2e_ns is a ROUND TRIP")]:::sink
     REND --> T5 --> RCSV
@@ -45,14 +45,14 @@ flowchart TB
     UU --> GNB2
   end
 
-  T4 ==>|"mec_cast/result — voxel cloud<br/>publish_result, off by default"| REND
+  T4 ==>|"mec_cast/result — voxel cloud, or result_gpcc coded<br/>publish_result, off by default"| REND
 
   subgraph EDGEHOST["3 &nbsp; EDGE HOST — MEC application server"]
     direction TB
     ZR2["Zenoh router :7448 relays every sample<br/>or Fast DDS: Discovery Server :11811, data direct"]:::work
     CB["Edge subscription callback"]:::work
     T3(["recv_ns<br/>FIRST line of the callback, before any work"]):::stamp
-    PROC["Process the cloud<br/>numpy centroid + occupied-voxel count"]:::work
+    PROC["Process the cloud<br/>G-PCC decode first, if coded<br/>numpy centroid + occupied-voxel count"]:::work
     T4(["process_done_ns<br/>after the work completes"]):::stamp
     ZR2 --> CB --> T3 --> PROC --> T4
 

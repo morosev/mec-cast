@@ -205,7 +205,7 @@
       <div class="chip ue">
         <div class="t">ROS 2 — lidar client</div>
         <div class="s">stamps capture_ns, then send_ns immediately before publish</div>
-        <div class="m">rclpy · rmw_zenoh or Fast DDS · CloudWithTelemetry</div>
+        <div class="m">rclpy · rmw_zenoh or Fast DDS · G-PCC optional</div>
       </div>
       <div class="chip ue">
         <div class="t">ROS 2 — render node</div>
@@ -319,7 +319,7 @@
       </div>
       <div class="chip edge">
         <div class="t">Edge ingest node</div>
-        <div class="s">stamps recv_ns first, processes the cloud, then process_done_ns</div>
+        <div class="s">stamps recv_ns first, decodes and processes the cloud, then process_done_ns</div>
         <div class="m">ROS 2 · rmw_zenoh or rmw_fastrtps</div>
       </div>
       <div class="row2">
@@ -379,7 +379,7 @@
 
 <div class="foot">
   <span><span class="k">Studies:</span> large-payload transport · teleoperation latency · peer and edge offload</span>
-  <span><span class="k">Middleware:</span> chosen per deployment — Zenoh over TCP :7448 or QUIC :7449, Fast DDS over UDP or TCP via a Discovery Server; each run records which</span>
+  <span><span class="k">Transport:</span> Zenoh over TCP or QUIC, or Fast DDS over UDP or TCP, per deployment; G-PCC coding both ways, per run; run.json records both</span>
   <span><span class="k">RAN:</span> JSON tap + E2 xApp, one data model, correlated to application latency; RC control scoped to a run — E2 not yet lab-verified</span>
   <span><span class="k">Return path:</span> processed cloud back to a UE renderer — a round trip stamped on one clock, so it needs no PTP</span>
   <span class="planned">robotic arm shown as intended deployment; results return to the UE today, but no actuation is commanded</span>

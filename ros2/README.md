@@ -80,8 +80,9 @@ the RMW. Each node reports what it runs to the admin (`params.middleware`,
 `params.transport`). `make test-ros2` runs the launch tests under both.
 
 The timing envelope rides **in-band** as a field of `CloudWithTelemetry`
-rather than as a Zenoh attachment, because `rmw_zenoh` does not expose
-per-publish attachments to the application layer.
+(and of `CompressedCloudWithTelemetry`) rather than as a middleware
+attachment, because neither RMW exposes per-publish attachments to the
+application layer through `rclpy`.
 
 ## Test vectors
 
@@ -93,6 +94,8 @@ per-publish attachments to the application layer.
 | `num_points` | 5000 | Payload size — the primary sweep variable |
 | `rate_hz` | 10.0 | Publish rate |
 | `pattern` | `uniform_cube` | Ten shapes: `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane`, `torus`, `helix`, `wave`, `cylinder`, `cube_edges`, `swarm` — see `workload.patterns` in `docs/_facts.yml` for how much each compresses on the downlink (1.4x to 23.5x) |
+| `codec` | `none` | `gpcc` sends the cloud G-PCC coded (ADR-0014) |
+| `codec_precision_m` | 0.001 | The coded position step; 0.001 or 0.01 keep the edge's voxels unchanged |
 
 Fixing the seed across a size sweep means only the size varies.
 
@@ -103,8 +106,12 @@ make test-ros2      # builds the image, runs colcon test in-container
 ```
 
 `mec_cast_edge/test/test_pipeline_launch.py` is a `launch_testing` case:
-it starts the router, client, and edge, then asserts messages flow, `seq`
-is gapless, and `recv_ns > send_ns` over the active RMW.
+it starts the client and edge, then asserts messages flow, `seq` is
+gapless, and `recv_ns > send_ns` over the active RMW (both RMWs, one after
+the other). `mec_cast_render/test/test_gpcc_launch.py` runs lidar, edge and
+renderer with `codec=gpcc` and checks every frame's points and voxels against
+the uncoded cloud. `mec_cast_codec/test/` and
+`mec_cast_edge/test/test_codec_on_our_clouds.py` test the codec itself.
 
 ## `mec_cast_admin_client`
 

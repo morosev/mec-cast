@@ -40,9 +40,9 @@ flowchart LR
   CSV["Per-frame CSV<br/>runs/&lt;RUN_ID&gt;/"]
   LOG["Logging service + PostgreSQL<br/>2 s aggregated snapshots"]
 
-  ROSC -->|"Uu — PointCloud2"| GNB
+  ROSC -->|"Uu — PointCloud2, raw or G-PCC coded"| GNB
   CORE -->|"UPF / N6"| ZR
-  EN -.->|"mec_cast/result — voxel cloud, opt-in"| RENDER
+  EN -.->|"mec_cast/result — voxel cloud, opt-in, raw or G-PCC"| RENDER
   GNB -.->|"JSON · UDP / WS"| RANC
   GNB <-.->|"E2 · KPM, RC"| XAPP
   XAPP -->|"ran-kpm/ · same data model"| CSV

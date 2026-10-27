@@ -21,8 +21,15 @@ code** — that is what keeps them from rotting:
 — the two profiles, the telemetry spine, data routing, clock model.
 
 **know why something is the way it is** → [architecture/adr/](architecture/adr/README.md)
-— why Zenoh and not DDS, why Rust, why PTP off the user plane, why exact
-percentiles, why the RAN has two sources. Read these before proposing to change any of it.
+— why Zenoh or Fast DDS and never multicast DDS, why Rust, why PTP off the
+user plane, why exact percentiles, why the RAN has two sources, why G-PCC.
+Read these before proposing to change any of it.
+
+**choose the middleware, or code the point clouds** →
+[architecture/middleware.md](architecture/middleware.md) — Zenoh over TCP or
+QUIC, Fast DDS over UDP or TCP, and what each needs in the lab;
+[ADR-0014](architecture/adr/0014-gpcc-point-cloud-codec.md) for G-PCC coding,
+a run parameter.
 
 **trust a number** → [architecture/timing-model.md](architecture/timing-model.md)
 — what each metric measures, and precisely when it is valid.

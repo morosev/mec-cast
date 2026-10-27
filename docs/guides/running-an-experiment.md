@@ -172,3 +172,19 @@ done
 
 Keep the seed fixed across a sweep so cloud contents are identical and only
 the size varies.
+
+The middleware and the point-cloud codec are factors too, set for the whole
+deployment by environment ([middleware](../architecture/middleware.md),
+[ADR-0014](../architecture/adr/0014-gpcc-point-cloud-codec.md)). `run.json`
+records both, so runs on different settings stay apart:
+
+```bash
+MIDDLEWARE=dds MIDDLEWARE_LINK=udp bash scripts/run-experiment.sh -d 60 -t "dds-udp"
+```
+
+```bash
+CODEC=gpcc CODEC_PRECISION_M=0.01 bash scripts/run-experiment.sh -d 60 -t "gpcc-1cm"
+```
+
+With the admin service, `codec` and `codec_precision_m` are run parameters
+instead, chosen on the run form.
