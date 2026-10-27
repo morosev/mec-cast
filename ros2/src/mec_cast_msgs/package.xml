@@ -3,7 +3,7 @@
 <package format="3">
   <name>mec_cast_msgs</name>
   <version>0.1.0</version>
-  <description>mec-cast message definitions: timing envelope and point cloud carrier.</description>
+  <description>mec-cast message definitions: timing envelope, and the raw and coded point cloud carriers.</description>
   <maintainer email="morosev@gmail.com">morosev</maintainer>
   <license>MIT</license>
 
@@ -11,6 +11,7 @@
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
 
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
 

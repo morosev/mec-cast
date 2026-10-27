@@ -49,16 +49,32 @@ uplink, and within 0.5 ms for the downlink.
    point count, the voxel size and the coded bytes) on `mec_cast/cloud_gpcc`
    and `mec_cast/result_gpcc`. Reusing the raw topics with another type would
    match nothing and fail silently.
-4. **Every frame is coded on its own.** No inter prediction. The uplink may
-   run best-effort and the downlink keeps the newest frame only, so frames are
-   dropped by design; with inter prediction one lost frame would corrupt every
-   frame after it. Each coded frame carries its parameter sets, so a decoder
-   that joins late, or restarts, decodes the next frame it receives.
+4. **Every frame is a stream of its own.** No inter prediction. The uplink
+   may run best-effort and the downlink keeps the newest frame only, so frames
+   are dropped by design; with inter prediction one lost frame would corrupt
+   every frame after it. Beyond that, the encoder and the decoder are created
+   and destroyed for each frame, so every frame is frame 0 of a one-frame
+   stream, the reference software's simplest case. In the ROS image this adds
+   0.5 to 0.8 ms to each encode and each decode (`lidar_scan` at 1 mm:
+   5.4 ms to encode, 4.7 ms to decode, against 4.8 and 3.9). Testing
+   found two reference-decoder faults that a long-lived codec meets:
+   - A decoder recognises a new frame only by a change of the frame counter,
+     so frames from several lidar instances interleaved on one topic, each
+     counting from 0, fold into one frame; it has crashed on that.
+   - A fresh decoder given a frame whose counter is not 0 reads an
+     uninitialised member (`PredGeomPredictor::globalMotionEnabled`), and
+     crashes intermittently on Linux. Valgrind confirms the read, and
+     confirms it is gone with an encoder per frame.
 5. **Positions are quantised to a precision that divides the voxel size**
    (1 mm or 1 cm against 0.5 m). The codec truncates, so no point can cross a
    voxel boundary and the edge's result does not depend on the codec. The
    precision is a run parameter; the bitstream declares metres, so the
    decoder returns metres.
+   - **The origin is fixed and explicit.** By default the codec takes it from
+     the first frame's bounding box and silently clamps any later point below
+     it onto it: a moving shape lost its lower edge, by up to 0.18 m in a few
+     frames. The encoder is given a fixed origin and refuses a point below it
+     rather than let the codec clamp it.
 6. **The downlink is coded losslessly, as voxel indices.** The edge's result
    is already an integer grid, which is what G-PCC codes best.
 7. **The timing envelope is unchanged, and so is the meaning of each stamp.**
@@ -108,8 +124,11 @@ uplink, and within 0.5 ms for the downlink.
   build.
 - **The reference decoder is not hardened** against malformed streams. The
   only producer is our own encoder, on a closed lab network.
-- **One decoder per publisher** is assumed until shown otherwise: whether one
-  decoder can take frames interleaved from several lidar instances is not yet
-  verified.
+- **The fork should fix the two decoder faults** (decision 4): initialise
+  `PredGeomPredictor`'s members in its constructor, and let
+  `tmc3_decoder_end_frame` start a new frame whatever the next counter.
+  Per-frame codecs work around both at 0.5 to 0.8 ms per side per frame.
+  After the fix, long-lived codecs (one decoder per publisher) would win that
+  back.
 - **Measured on one machine.** Encode and decode times on the lab's hosts
   (x86-64 or otherwise) must be measured before any timing comparison.

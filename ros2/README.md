@@ -1,13 +1,14 @@
 # ROS2 workspace (Profile A)
 
-A single colcon workspace holding all six ROS2 packages. **It is never
+A single colcon workspace holding all seven ROS2 packages. **It is never
 built on the host** — ROS2 runs only in containers
 (`deploy/docker/ros.Dockerfile`), because the development machine is WSL
 Ubuntu 25.x and ROS2 Jazzy targets 24.04.
 
 | Package | Role | Runs on |
 |---|---|---|
-| `mec_cast_msgs` | `TimingEnvelope`, `CloudWithTelemetry` | both |
+| `mec_cast_msgs` | `TimingEnvelope`, `CloudWithTelemetry`, `CompressedCloudWithTelemetry` | both |
+| `mec_cast_codec` | G-PCC encode/decode through `libtmc3codec` (ADR-0014); no ROS imports | both |
 | `mec_cast_lidar_client` | Synthetic/real point-cloud source | UE |
 | `mec_cast_edge` | ROS ingest, stamps arrival, computes latency | edge |
 | `mec_cast_admin_client` | WebSocket client, shared node base (`MecCastNode`), site codes | all |

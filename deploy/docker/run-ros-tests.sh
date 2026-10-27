@@ -18,7 +18,7 @@ for mw in "${@:-dds zenoh}"; do
       else
         export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
       fi
-      colcon test --packages-select mec_cast_edge mec_cast_render --event-handlers console_cohesion+ || true
+      colcon test --packages-select mec_cast_codec mec_cast_edge mec_cast_render --event-handlers console_cohesion+ || true
       colcon test-result --verbose
     '
   done

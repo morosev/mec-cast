@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mec_cast_codec</name>
+  <version>0.1.0</version>
+  <description>mec-cast point-cloud codec: G-PCC through libtmc3codec (ADR-0014).</description>
+  <maintainer email="morosev@gmail.com">morosev</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>mec_cast_lidar_client</test_depend>
+  <test_depend>mec_cast_edge</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
