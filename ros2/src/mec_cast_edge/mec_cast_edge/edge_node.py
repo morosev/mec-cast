@@ -15,6 +15,10 @@ demoted to a default, so a laptop run needs no exports):
                      `mec_cast/result` for a renderer at the UE
     result_reliability (str, default best_effort)  downlink QoS
     result_qos_depth (int,  default 1)  display semantics: newest frame wins
+    codec            (str,  default $CODEC or none)  none | gpcc. With gpcc
+                     the result goes out G-PCC coded, as voxel indices on
+                     `mec_cast/result_gpcc` (ADR-0014). A run's `codec`
+                     parameter overrides it for that run
 
 With `publish_result` false — the default — this node is a terminal consumer
 exactly as it always was, and the uplink measurements are byte-for-byte
@@ -39,14 +43,29 @@ import mec_cast_telemetry as tel
 from mec_cast_admin_client import protocol as ap
 from mec_cast_admin_client.node_base import MecCastNode, spin
 from mec_cast_admin_client.sites import SITE_EDGE
-from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
+from mec_cast_codec import gpcc
+from mec_cast_msgs.msg import CloudWithTelemetry, CompressedCloudWithTelemetry, TimingEnvelope
 
 VOXEL_SIZE = 0.5
 CLOUD_TOPIC = "mec_cast/cloud"
 #: Downlink: the processing result, for a renderer at the UE. Off by default
 #: — see the `publish_result` parameter.
 RESULT_TOPIC = "mec_cast/result"
+#: The same result G-PCC coded (ADR-0014). A topic of its own: the same name
+#: with another message type would match no subscriber, silently.
+RESULT_GPCC_TOPIC = "mec_cast/result_gpcc"
 RESULT_FRAME_ID = "mec_cast_edge"
+CODECS = ("none", "gpcc")
+#: The coding origin of the downlink, in voxels: far enough below anything a
+#: sensor reports (about 32 km at 0.5 m) that no voxel is ever refused. It
+#: costs about 15 bytes a frame against an origin at 0.
+RESULT_ORIGIN_VOXELS = -(1 << 16)
+
+
+def check_codec(codec: str) -> str:
+    if codec not in CODECS:
+        raise ValueError(f"codec must be one of {CODECS}, got {codec!r}")
+    return codec
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -144,14 +163,20 @@ class EdgeNode(MecCastNode):
         )
         self.declare_parameter("result_reliability", "best_effort")
         self.declare_parameter("result_qos_depth", 1)
+        self.declare_parameter("codec", os.environ.get("CODEC") or "none")
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
         self.publish_result = bool(self.get_parameter("publish_result").value)
         self.result_reliability = str(self.get_parameter("result_reliability").value)
         self.result_qos_depth = int(self.get_parameter("result_qos_depth").value)
+        self.default_codec = check_codec(str(self.get_parameter("codec").value))
+        #: The codec of the current run: the default unless the run names one.
+        self.codec = self.default_codec
 
         self.sub = None
         self.result_pub = None
+        self.result_encoder = None
+        self.result_errors = 0
         self.frames = 0
         self.results_published = 0
         self.seq_gaps = 0
@@ -172,6 +197,7 @@ class EdgeNode(MecCastNode):
             "publish_result": self.publish_result,
             "result_reliability": self.result_reliability,
             "result_qos_depth": self.result_qos_depth,
+            "codec": self.codec,
         }
 
     def counters(self) -> dict:
@@ -179,6 +205,7 @@ class EdgeNode(MecCastNode):
             "frames": self.frames,
             "seq_gaps": self.seq_gaps,
             "results_published": self.results_published,
+            "result_errors": self.result_errors,
         }
 
     def _status_extra(self) -> dict:
@@ -196,8 +223,12 @@ class EdgeNode(MecCastNode):
                 return
             self.stop_run()
 
+        # Checked before anything is built, so a bad value fails the run.start
+        # ack and leaves the node idle, not half-started.
+        self.codec = check_codec(str((args or {}).get("codec") or self.default_codec))
         self.frames = 0
         self.results_published = 0
+        self.result_errors = 0
         self.seq_gaps = 0
         self.last_seq = None
         self._make_recorder(run_id)
@@ -208,15 +239,21 @@ class EdgeNode(MecCastNode):
             cloud_qos(self.reliability, self.qos_depth),
         )
         if self.publish_result:
+            if self.codec == "gpcc":
+                self.result_encoder = gpcc.Encoder(None, origin_m=(RESULT_ORIGIN_VOXELS,) * 3)
             self.result_pub = self.create_publisher(
-                CloudWithTelemetry,
-                RESULT_TOPIC,
+                CompressedCloudWithTelemetry if self.codec == "gpcc" else CloudWithTelemetry,
+                self.result_topic,
                 cloud_qos(self.result_reliability, self.result_qos_depth),
             )
         self.get_logger().info(
             f"edge recording run {run_id}"
-            + (f" (result -> {RESULT_TOPIC})" if self.publish_result else "")
+            + (f" (result -> {self.result_topic})" if self.publish_result else "")
         )
+
+    @property
+    def result_topic(self) -> str:
+        return RESULT_GPCC_TOPIC if self.codec == "gpcc" else RESULT_TOPIC
 
     def stop_run(self) -> dict:
         """Unsubscribe, then drain the recorder. Order matters: a callback
@@ -229,6 +266,7 @@ class EdgeNode(MecCastNode):
         if self.result_pub is not None:
             self.destroy_publisher(self.result_pub)
             self.result_pub = None
+        self.result_encoder = None
         report = self._close_recorder()
         self.get_logger().info(
             f"edge stopped run {self.run_id}: frames={self.frames} "
@@ -255,11 +293,10 @@ class EdgeNode(MecCastNode):
         """
         if self.result_pub is None:
             return
-        out = CloudWithTelemetry()
         # A fresh envelope, not a reference to the inbound one: assigning the
         # message field would alias it, and stamping send_ns below would then
         # rewrite the value this callback still needs.
-        out.envelope = TimingEnvelope(
+        envelope = TimingEnvelope(
             capture_ns=env.capture_ns,
             recv_ns=0,
             process_done_ns=0,
@@ -267,10 +304,32 @@ class EdgeNode(MecCastNode):
             modality=env.modality,
             trace_id=env.trace_id,
         )
-        out.cloud = make_pointcloud2(
-            voxel_centres(voxels), self.get_clock().now().to_msg(), RESULT_FRAME_ID
-        )
-        # Stamped as late as possible: everything above is sender pipeline.
+        stamp = self.get_clock().now().to_msg()
+        if self.result_encoder is not None:
+            # The voxel indices themselves, losslessly: the integer grid is
+            # what G-PCC codes best, and the renderer computes the centres.
+            try:
+                data = self.result_encoder.encode(voxels)
+            except (ValueError, gpcc.CodecError) as exc:
+                # The edge's own sample is already recorded; a result that
+                # cannot be coded is counted and skipped, not fatal.
+                self.result_errors += 1
+                self.get_logger().error(f"result seq={env.seq} not coded: {exc}")
+                return
+            out = CompressedCloudWithTelemetry(
+                envelope=envelope,
+                codec="gpcc",
+                num_points=int(voxels.shape[0]),
+                precision_m=0.0,
+                voxel_size_m=VOXEL_SIZE,
+                data=data,
+            )
+            out.header.stamp, out.header.frame_id = stamp, RESULT_FRAME_ID
+        else:
+            out = CloudWithTelemetry(envelope=envelope)
+            out.cloud = make_pointcloud2(voxel_centres(voxels), stamp, RESULT_FRAME_ID)
+        # Stamped as late as possible: everything above, encoding included,
+        # is sender pipeline.
         out.envelope.send_ns = tel.now_ns()
         self.result_pub.publish(out)
         self.results_published += 1

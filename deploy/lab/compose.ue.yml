@@ -57,6 +57,9 @@ services:
       # every interface; with the management LAN among them the point clouds
       # could reach the edge without crossing the 5G link at all.
       DDS_INTERFACES: ${DDS_INTERFACES:-}
+      # none | gpcc (ADR-0014): the renderer's downlink G-PCC coded; must match the edge's. A run's `codec`
+      # parameter overrides it; this is the default without the admin.
+      CODEC: ${CODEC:-}
       RUN_ID: ${RUN_ID:-}
       # The admin runs on the infra host; without it the node needs RUN_ID.
       # `-` not `:-`: an explicitly empty ADMIN_URL means "no control

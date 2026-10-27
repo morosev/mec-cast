@@ -103,6 +103,9 @@ services:
       # a host also on the management LAN the data could bypass 5G.
       DDS_INTERFACES: ${DDS_INTERFACES:-}
       PUBLISH_RESULT: ${PUBLISH_RESULT:-}
+      # none | gpcc (ADR-0014): the downlink G-PCC coded. A run's `codec`
+      # parameter overrides it; this is the default without the admin.
+      CODEC: ${CODEC:-}
       RUN_ID: ${RUN_ID:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000

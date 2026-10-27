@@ -11,9 +11,16 @@
   <depend>sensor_msgs</depend>
   <depend>mec_cast_msgs</depend>
   <depend>mec_cast_admin_client</depend>
+  <depend>mec_cast_codec</depend>
   <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
+  <test_depend>launch</test_depend>
+  <test_depend>launch_ros</test_depend>
+  <test_depend>launch_testing</test_depend>
+  <test_depend>launch_testing_ros</test_depend>
+  <test_depend>mec_cast_edge</test_depend>
+  <test_depend>mec_cast_lidar_client</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

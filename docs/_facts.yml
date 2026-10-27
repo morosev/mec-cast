@@ -111,6 +111,7 @@ env:
   EDGE_HOST:   {default: null, note: "lab only, REQUIRED for ue/gnb. The edge host, where the UE dials the middleware's centre (Zenoh router or Fast DDS Discovery Server)"}
   MIDDLEWARE:  {default: "zenoh", note: "zenoh | dds, the same on EVERY host of a deployment (ADR-0013). Also selects the compose profile, i.e. which centre the edge runs. Fixed at node start: changing it means recreating the containers"}
   MIDDLEWARE_LINK: {default: "tcp (zenoh) / udp (dds)", note: "zenoh: tcp | quic; dds: udp | tcp. Any other pair stops the container (exit 64)"}
+  CODEC: {default: "none", note: "none | gpcc (ADR-0014): the edge's result G-PCC coded on mec_cast/result_gpcc, decoded by the renderer. A run's params.codec overrides it; edge and renderer must agree, a mismatched pair exchanges nothing"}
   DDS_INTERFACES: {default: "", note: "dds only, per multi-homed host: comma-separated addresses or interface names the participant may use and announce. Lab UE: its 5G interface; lab edge: its N6 address. Unset, point clouds can bypass 5G over the management LAN"}
   ADMIN_URL:   {default: null, note: "ws://<infra>:8099/ws/node; EMPTY = standalone, node reads RUN_ID. Empty and unset differ: lab compose defaults it to a live address, so standalone needs ADMIN_URL= explicitly, and the files use ${ADMIN_URL-...} not ${ADMIN_URL:-...}"}
   ADMIN_AUTOSTART: {default: "false", note: "lidar client only; the edge joins the active run unconditionally"}

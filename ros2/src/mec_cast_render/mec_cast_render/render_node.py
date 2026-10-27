@@ -36,6 +36,11 @@ demoted to a default):
     reliability     (str,  default best_effort)  must match the edge's
                     `result_reliability`
     qos_depth       (int,  default 1)  display semantics: newest frame wins
+    codec           (str,  default $CODEC or none)  must match the edge's.
+                    With gpcc the result arrives G-PCC coded on
+                    `mec_cast/result_gpcc` and is decoded here; decoding counts
+                    in processing_ns (ADR-0014). A run's `codec` parameter
+                    overrides it for that run
 
 The default sink is `null` on purpose. The node must import and run on a host
 with no renderer installed, so the measurement path is never gated on a
@@ -60,10 +65,15 @@ import mec_cast_telemetry as tel
 from mec_cast_admin_client import protocol as ap
 from mec_cast_admin_client.node_base import MecCastNode, spin
 from mec_cast_admin_client.sites import SITE_RENDER
-from mec_cast_msgs.msg import CloudWithTelemetry
+from mec_cast_codec import gpcc
+from mec_cast_msgs.msg import CloudWithTelemetry, CompressedCloudWithTelemetry
 from mec_cast_render.sinks import SINKS, build_sink
 
 RESULT_TOPIC = "mec_cast/result"
+#: The G-PCC coded result (ADR-0014), on a topic of its own. Duplicated from
+#: the edge for the reason `cloud_qos` is.
+RESULT_GPCC_TOPIC = "mec_cast/result_gpcc"
+CODECS = ("none", "gpcc")
 
 #: How often the node says whether it is receiving anything. It logs one line
 #: per frame, so on a congested uplink it can go tens of seconds between
@@ -127,6 +137,7 @@ class RenderNode(MecCastNode):
         self.declare_parameter("record_rrd_max_mb", 500.0)
         self.declare_parameter("reliability", "best_effort")
         self.declare_parameter("qos_depth", 1)
+        self.declare_parameter("codec", os.environ.get("CODEC") or "none")
 
         self.sink_kind = str(self.get_parameter("sink").value)
         if self.sink_kind not in SINKS:
@@ -139,11 +150,15 @@ class RenderNode(MecCastNode):
         self.record_rrd_max_mb = float(self.get_parameter("record_rrd_max_mb").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
+        self.default_codec = self._check_codec(str(self.get_parameter("codec").value))
+        #: The codec of the current run: the default unless the run names one.
+        self.codec = self.default_codec
 
         self.sub = None
         self.sink = None
         self.frames = 0
         self.drawn = 0
+        self.decode_errors = 0
         self.seq_gaps = 0
         self.last_seq: int | None = None
         self._progress_mark = 0
@@ -162,6 +177,7 @@ class RenderNode(MecCastNode):
             "sink": self.sink_kind,
             "reliability": self.reliability,
             "qos_depth": self.qos_depth,
+            "codec": self.codec,
         }
         # The node is the only thing that knows where its viewer actually is:
         # the address has to resolve in the operator's browser, which is why
@@ -178,7 +194,14 @@ class RenderNode(MecCastNode):
             "frames": self.frames,
             "drawn": self.drawn,
             "seq_gaps": self.seq_gaps,
+            "decode_errors": self.decode_errors,
         }
+
+    @staticmethod
+    def _check_codec(codec: str) -> str:
+        if codec not in CODECS:
+            raise ValueError(f"codec must be one of {CODECS}, got {codec!r}")
+        return codec
 
     def _status_extra(self) -> dict:
         return {"subscribed": self.sub is not None}
@@ -195,8 +218,14 @@ class RenderNode(MecCastNode):
                 return
             self.stop_run()
 
+        # Checked before anything is built, so a bad value fails the run.start
+        # ack and leaves the node idle, not half-started.
+        self.codec = self._check_codec(str((args or {}).get("codec") or self.default_codec))
+        # The admin reads peers from the topic actually subscribed.
+        self.PEER_TOPIC = RESULT_GPCC_TOPIC if self.codec == "gpcc" else RESULT_TOPIC
         self.frames = 0
         self.drawn = 0
+        self.decode_errors = 0
         self.seq_gaps = 0
         self.last_seq = None
         self._progress_mark = 0
@@ -212,11 +241,12 @@ class RenderNode(MecCastNode):
             rrd_path=(os.path.join(out_dir, "session.rrd") if self.record_rrd else None),
             rrd_max_mb=self.record_rrd_max_mb,
         )
+        if self.codec == "gpcc":
+            msg_type, callback = CompressedCloudWithTelemetry, self.on_result_gpcc
+        else:
+            msg_type, callback = CloudWithTelemetry, self.on_result
         self.sub = self.create_subscription(
-            CloudWithTelemetry,
-            RESULT_TOPIC,
-            self.on_result,
-            cloud_qos(self.reliability, self.qos_depth),
+            msg_type, self.PEER_TOPIC, callback, cloud_qos(self.reliability, self.qos_depth)
         )
         # Both ways in, because the browser one is the fragile one: it needs
         # two ports reachable from the browser, WebGPU or WebGL, and the exact
@@ -224,7 +254,7 @@ class RenderNode(MecCastNode):
         # is named first — an operator reads this line and takes the first
         # thing that looks like an answer.
         where = getattr(self.sink, "url", None)
-        lines = [f"render recording run {run_id} (sink={self.sink_kind})"]
+        lines = [f"render recording run {run_id} (sink={self.sink_kind}, codec={self.codec})"]
         if where:
             grpc = getattr(self.sink, "grpc_uri", None)
             if grpc:
@@ -288,24 +318,48 @@ class RenderNode(MecCastNode):
 
     def on_result(self, msg: CloudWithTelemetry) -> None:
         recv_ns = tel.now_ns()  # first line: the arrival stamp
-        env = msg.envelope
+        n = msg.cloud.width * msg.cloud.height
+        self._draw_and_record(
+            msg.envelope, recv_ns, len(msg.cloud.data),
+            lambda: np.frombuffer(msg.cloud.data, dtype=np.float32).reshape(n, 3),
+        )
 
+    def on_result_gpcc(self, msg: CompressedCloudWithTelemetry) -> None:
+        recv_ns = tel.now_ns()  # first line: the arrival stamp
+
+        def points() -> np.ndarray:
+            # Decoding is this node's processing, like drawing: it happens
+            # between recv_ns and process_done_ns.
+            voxels = gpcc.decode(bytes(msg.data), dtype=np.int32)
+            return ((voxels.astype(np.float32) + 0.5) * msg.voxel_size_m).astype(np.float32)
+
+        self._draw_and_record(msg.envelope, recv_ns, len(msg.data), points)
+
+    def _draw_and_record(self, env, recv_ns: int, payload_bytes: int, points) -> None:
+        """Get the points, draw them, record the sample.
+
+        `points` is called inside the guarded region: a frame that cannot be
+        decoded or drawn is still recorded, with `process_done_ns` left at 0,
+        so `e2e` stays empty for a frame that never reached glass.
+        """
         if self.last_seq is not None and env.seq != self.last_seq + 1:
             self.seq_gaps += 1
         self.last_seq = env.seq
         self.frames += 1
 
-        n = msg.cloud.width * msg.cloud.height
-        points = np.frombuffer(msg.cloud.data, dtype=np.float32).reshape(n, 3)
-
-        # A draw that raises leaves process_done_ns at 0, making e2e
-        # undefined for that frame — it never reached glass. Measurement
-        # continues either way: a renderer fault must not end the run.
+        # Measurement continues either way: a renderer fault must not end the run.
         process_done_ns = 0
+        n = 0
         try:
+            try:
+                pts = points()
+            except gpcc.CodecError:
+                self.decode_errors += 1
+                raise
+            n = len(pts)
             self.sink.draw(
                 env.seq,
-                points,
+                pts,
                 {
                     "e2e_ns": recv_ns - env.capture_ns,
                     "network_ns": recv_ns - env.send_ns,
@@ -314,7 +368,7 @@ class RenderNode(MecCastNode):
             process_done_ns = tel.now_ns()
             self.drawn += 1
         except Exception as exc:
-            self.get_logger().error(f"sink.draw failed on seq={env.seq}: {exc}")
+            self.get_logger().error(f"render failed on seq={env.seq}: {exc}")
 
         self.recorder.record(
             seq=env.seq,
@@ -323,7 +377,7 @@ class RenderNode(MecCastNode):
             send_ns=env.send_ns,
             recv_ns=recv_ns,
             process_done_ns=process_done_ns,
-            payload_bytes=len(msg.cloud.data),
+            payload_bytes=payload_bytes,
             site=self.SITE,
             trace_id=bytes(env.trace_id),
         )

@@ -37,6 +37,18 @@ Both halves are off by default: `publish_result` is false, and the renderer's
 `sink` is `null` (measures everything, draws nothing). Set `sink:=rerun` to
 see the cloud, or `sink:=ros` to republish plainly for RViz2 or Foxglove.
 
+**The result can travel G-PCC coded** ([ADR-0014](../docs/architecture/adr/0014-gpcc-point-cloud-codec.md)).
+With `codec=gpcc` the edge sends its voxel indices, coded losslessly, as
+`CompressedCloudWithTelemetry` on `mec_cast/result_gpcc`, and the renderer
+decodes them and draws the voxel centres. The `lidar_scan` result shrinks from
+6.6 kB to about 160 B a frame. Encoding falls inside the edge's sending, before
+`send_ns`; decoding inside the renderer's `processing_ns`.
+
+`codec` is a run parameter (`params.codec` in the admin's run, recorded in
+`run.json`), and otherwise the nodes' `codec` parameter or the `CODEC`
+environment variable. Edge and renderer must agree: each listens or publishes
+only on its codec's topic, so a mismatched pair exchanges nothing.
+
 ## Why one workspace across two deployment locations
 
 The top level of this repo is organised by deployment location, and these
