@@ -15,6 +15,12 @@ logging_url, admin_url, admin_autostart, admin_instance):
     pattern     (str,   default $PATTERN or uniform_cube)
     reliability (str,   default reliable)  must match the edge's
     qos_depth   (int,   default 10)
+    codec       (str,   default $CODEC or none)  none | gpcc. With gpcc each
+                frame is G-PCC coded and sent on `mec_cast/cloud_gpcc`
+                (ADR-0014); encoding falls between capture_ns and send_ns
+    codec_precision_m (float, default $CODEC_PRECISION_M or 0.001)  the
+                coded position step. It must divide the edge's voxel size
+                (0.5 m) for the edge's result to be unchanged: 0.001 or 0.01
 
 With no admin_url the node starts publishing immediately under its `run_id`
 parameter — the standalone path. With an admin it sits idle until told to
@@ -32,7 +38,8 @@ import mec_cast_telemetry as tel
 from mec_cast_admin_client import protocol as ap
 from mec_cast_admin_client.node_base import MecCastNode, spin
 from mec_cast_admin_client.sites import SITE_PUBLISHER
-from mec_cast_msgs.msg import CloudWithTelemetry, TimingEnvelope
+from mec_cast_codec import gpcc
+from mec_cast_msgs.msg import CloudWithTelemetry, CompressedCloudWithTelemetry, TimingEnvelope
 
 import uuid
 
@@ -58,6 +65,22 @@ EXTENT = 10.0
 CENTRE = 5.0
 ADMIN_POLL_S = 0.1
 STATUS_PERIOD_S = 2.0
+CLOUD_TOPIC = "mec_cast/cloud"
+#: The same frames G-PCC coded (ADR-0014). A topic of its own: the same name
+#: with another message type would match no subscriber, silently.
+CLOUD_GPCC_TOPIC = "mec_cast/cloud_gpcc"
+CODECS = ("none", "gpcc")
+#: The uplink's coding origin, in metres: far enough below anything a sensor
+#: reports that no point is ever refused, for about 15 bytes a frame.
+CLOUD_ORIGIN_M = -1000.0
+
+
+def check_codec(codec: str, precision_m: float) -> tuple[str, float]:
+    if codec not in CODECS:
+        raise ValueError(f"codec must be one of {CODECS}, got {codec!r}")
+    if not precision_m > 0:
+        raise ValueError(f"codec_precision_m must be positive, got {precision_m!r}")
+    return codec, precision_m
 
 
 def cloud_qos(reliability: str, depth: int) -> QoSProfile:
@@ -141,6 +164,10 @@ class PointCloudPublisher(MecCastNode):
         self.declare_parameter("pattern", os.environ.get("PATTERN", "uniform_cube"))
         self.declare_parameter("reliability", "reliable")
         self.declare_parameter("qos_depth", 10)
+        self.declare_parameter("codec", os.environ.get("CODEC") or "none")
+        self.declare_parameter(
+            "codec_precision_m", float(os.environ.get("CODEC_PRECISION_M") or 0.001)
+        )
 
         self.seed = int(self.get_parameter("seed").value)
         self.num_points = int(self.get_parameter("num_points").value)
@@ -148,6 +175,12 @@ class PointCloudPublisher(MecCastNode):
         self.pattern = str(self.get_parameter("pattern").value)
         self.reliability = str(self.get_parameter("reliability").value)
         self.qos_depth = int(self.get_parameter("qos_depth").value)
+        self.codec, self.codec_precision_m = check_codec(
+            str(self.get_parameter("codec").value),
+            float(self.get_parameter("codec_precision_m").value),
+        )
+        self.encoder = None
+        self.encode_errors = 0
         if self.pattern not in PATTERNS:
             raise ValueError(f"unknown pattern {self.pattern!r}, expected one of {PATTERNS}")
 
@@ -157,12 +190,11 @@ class PointCloudPublisher(MecCastNode):
         self.seq = 0
         self.frames_published = 0
 
-        # The publisher exists before any run; only the timer is per-run.
-        self.pub = self.create_publisher(
-            CloudWithTelemetry,
-            "mec_cast/cloud",
-            cloud_qos(self.reliability, self.qos_depth),
-        )
+        # The publishers exist before any run; only the timer is per-run.
+        # Both, because a run may name either codec.
+        qos = cloud_qos(self.reliability, self.qos_depth)
+        self.pub = self.create_publisher(CloudWithTelemetry, CLOUD_TOPIC, qos)
+        self.gpcc_pub = self.create_publisher(CompressedCloudWithTelemetry, CLOUD_GPCC_TOPIC, qos)
         self._start()
         if not self.admin.enabled:
             self.get_logger().info(
@@ -181,6 +213,8 @@ class PointCloudPublisher(MecCastNode):
             "pattern": self.pattern,
             "reliability": self.reliability,
             "qos_depth": self.qos_depth,
+            "codec": self.codec,
+            "codec_precision_m": self.codec_precision_m,
         }
 
     def counters(self) -> dict:
@@ -189,6 +223,7 @@ class PointCloudPublisher(MecCastNode):
             "frames_published": self.frames_published,
             "seq_last": max(self.seq - 1, 0),
             "samples_dropped": dropped,
+            "encode_errors": self.encode_errors,
         }
 
     def _status_extra(self) -> dict:
@@ -209,11 +244,18 @@ class PointCloudPublisher(MecCastNode):
                 return
             self.stop_run()
 
-        for key in ("num_points", "rate_hz", "seed", "pattern"):
+        for key in ("num_points", "rate_hz", "seed", "pattern", "codec", "codec_precision_m"):
             if args and key in args and args[key] is not None:
                 setattr(self, key, type(getattr(self, key))(args[key]))
         if self.pattern not in PATTERNS:
             raise ValueError(f"unknown pattern {self.pattern!r}, expected one of {PATTERNS}")
+        check_codec(self.codec, self.codec_precision_m)
+        # Built here, so a bad codec configuration fails the run.start ack.
+        self.encoder = (
+            gpcc.Encoder(self.codec_precision_m, origin_m=(CLOUD_ORIGIN_M,) * 3)
+            if self.codec == "gpcc" else None
+        )
+        self.encode_errors = 0
 
         self.trace_id = run_trace_id(run_id)
         # A run is reproducible from its seed, so the sequence restarts with it.
@@ -224,7 +266,8 @@ class PointCloudPublisher(MecCastNode):
         self.timer = self.create_timer(1.0 / self.rate_hz, self.publish_frame)
         self.get_logger().info(
             f"streaming run {run_id}: {self.num_points} pts @ {self.rate_hz} Hz "
-            f"(pattern={self.pattern}, seed={self.seed})"
+            f"(pattern={self.pattern}, seed={self.seed}, codec={self.codec}"
+            + (f" at {self.codec_precision_m} m" if self.codec == "gpcc" else "") + ")"
         )
 
     def stop_run(self) -> dict:
@@ -427,26 +470,51 @@ class PointCloudPublisher(MecCastNode):
         capture_ns = tel.now_ns()
         points = self.generate_points()
 
-        msg = CloudWithTelemetry()
-        msg.cloud = make_pointcloud2(points, self.get_clock().now().to_msg(), "lidar")
         env = TimingEnvelope()
         env.capture_ns = capture_ns
         env.seq = self.seq
         env.modality = tel.MODALITY_POINTCLOUD
         env.trace_id = list(self.trace_id)
+        stamp = self.get_clock().now().to_msg()
+
+        if self.encoder is not None:
+            # Encoding is sender pipeline: it falls between capture_ns and
+            # send_ns, so it is part of the sender delay.
+            try:
+                data = self.encoder.encode(points)
+            except (ValueError, gpcc.CodecError) as exc:
+                # The frame is lost, as on a bad link: seq still advances, so
+                # the edge sees the gap.
+                self.encode_errors += 1
+                self.get_logger().error(f"seq={self.seq} not coded, not sent: {exc}")
+                self.seq += 1
+                return
+            msg = CompressedCloudWithTelemetry(
+                codec="gpcc",
+                num_points=len(points),
+                precision_m=self.codec_precision_m,
+                voxel_size_m=0.0,
+                data=data,
+            )
+            msg.header.stamp, msg.header.frame_id = stamp, "lidar"
+            pub, payload_bytes = self.gpcc_pub, len(data)
+        else:
+            msg = CloudWithTelemetry()
+            msg.cloud = make_pointcloud2(points, stamp, "lidar")
+            pub, payload_bytes = self.pub, len(msg.cloud.data)
 
         # Stamp as late as possible: the gap send_ns -> edge recv_ns is the
         # network (+ middleware) leg.
         env.send_ns = tel.now_ns()
         msg.envelope = env
-        self.pub.publish(msg)
+        pub.publish(msg)
 
         self.recorder.record(
             seq=self.seq,
             modality=tel.MODALITY_POINTCLOUD,
             capture_ns=capture_ns,
             send_ns=env.send_ns,
-            payload_bytes=len(msg.cloud.data),
+            payload_bytes=payload_bytes,
             site=self.SITE,
             trace_id=self.trace_id,
         )

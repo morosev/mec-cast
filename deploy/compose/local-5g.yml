@@ -76,6 +76,9 @@ services:
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
       MIDDLEWARE_HOST: 127.0.0.1
+      # none | gpcc (ADR-0014): the clouds arrive, and the result leaves,
+      # G-PCC coded. A run's `codec` parameter overrides it.
+      CODEC: ${CODEC:-}
       DDS_TCP_LISTEN_PORT: "7410"
       # DDS announces every interface, and the UE could then reach this edge
       # over the compose bridge instead of 5G: only the N6 address.
@@ -126,6 +129,10 @@ services:
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
       MIDDLEWARE_HOST: ${N6_ADDR:-10.53.1.1}
+      # none | gpcc (ADR-0014), and the coded position step. A run's
+      # `codec` and `codec_precision_m` parameters override them.
+      CODEC: ${CODEC:-}
+      CODEC_PRECISION_M: ${CODEC_PRECISION_M:-}
       # DDS: the 5G interface only, or the edge could answer over the compose
       # bridge (eth0) and the downlink would skip the RAN.
       DDS_INTERFACES: tun_srsue

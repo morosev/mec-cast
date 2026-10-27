@@ -92,6 +92,10 @@ services:
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
       MIDDLEWARE_HOST: middleware
+      # none | gpcc (ADR-0014), and the coded position step. A run's
+      # `codec` and `codec_precision_m` parameters override them.
+      CODEC: ${CODEC:-}
+      CODEC_PRECISION_M: ${CODEC_PRECISION_M:-}
       RUN_ID: ${RUN_ID:-dev-run}
       RUNS_DIR: /runs
       LOGGING_URL: http://logging:8000
@@ -143,6 +147,9 @@ services:
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
       MIDDLEWARE_HOST: middleware
+      # none | gpcc (ADR-0014): the clouds arrive, and the result leaves,
+      # G-PCC coded. A run's `codec` parameter overrides it.
+      CODEC: ${CODEC:-}
       # dds/tcp: the edge listens, UE participants dial out to it.
       DDS_TCP_LISTEN_PORT: "7410"
       RUN_ID: ${RUN_ID:-dev-run}

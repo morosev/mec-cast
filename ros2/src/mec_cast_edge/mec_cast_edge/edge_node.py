@@ -16,9 +16,10 @@ demoted to a default, so a laptop run needs no exports):
     result_reliability (str, default best_effort)  downlink QoS
     result_qos_depth (int,  default 1)  display semantics: newest frame wins
     codec            (str,  default $CODEC or none)  none | gpcc. With gpcc
-                     the result goes out G-PCC coded, as voxel indices on
-                     `mec_cast/result_gpcc` (ADR-0014). A run's `codec`
-                     parameter overrides it for that run
+                     the clouds arrive G-PCC coded on `mec_cast/cloud_gpcc`
+                     and are decoded here, as part of processing; the result
+                     goes out coded, as voxel indices on `mec_cast/result_gpcc`
+                     (ADR-0014). A run's `codec` parameter overrides it
 
 With `publish_result` false — the default — this node is a terminal consumer
 exactly as it always was, and the uplink measurements are byte-for-byte
@@ -48,6 +49,8 @@ from mec_cast_msgs.msg import CloudWithTelemetry, CompressedCloudWithTelemetry, 
 
 VOXEL_SIZE = 0.5
 CLOUD_TOPIC = "mec_cast/cloud"
+#: The same clouds G-PCC coded (ADR-0014), on a topic of their own.
+CLOUD_GPCC_TOPIC = "mec_cast/cloud_gpcc"
 #: Downlink: the processing result, for a renderer at the UE. Off by default
 #: — see the `publish_result` parameter.
 RESULT_TOPIC = "mec_cast/result"
@@ -177,6 +180,8 @@ class EdgeNode(MecCastNode):
         self.result_pub = None
         self.result_encoder = None
         self.result_errors = 0
+        self.decode_errors = 0
+        self._warned_precision: set[float] = set()
         self.frames = 0
         self.results_published = 0
         self.seq_gaps = 0
@@ -206,6 +211,7 @@ class EdgeNode(MecCastNode):
             "seq_gaps": self.seq_gaps,
             "results_published": self.results_published,
             "result_errors": self.result_errors,
+            "decode_errors": self.decode_errors,
         }
 
     def _status_extra(self) -> dict:
@@ -226,17 +232,22 @@ class EdgeNode(MecCastNode):
         # Checked before anything is built, so a bad value fails the run.start
         # ack and leaves the node idle, not half-started.
         self.codec = check_codec(str((args or {}).get("codec") or self.default_codec))
+        # The admin reads peers from the topic actually subscribed.
+        self.PEER_TOPIC = CLOUD_GPCC_TOPIC if self.codec == "gpcc" else CLOUD_TOPIC
         self.frames = 0
         self.results_published = 0
         self.result_errors = 0
+        self.decode_errors = 0
+        self._warned_precision = set()
         self.seq_gaps = 0
         self.last_seq = None
         self._make_recorder(run_id)
+        if self.codec == "gpcc":
+            msg_type, callback = CompressedCloudWithTelemetry, self.on_cloud_gpcc
+        else:
+            msg_type, callback = CloudWithTelemetry, self.on_cloud
         self.sub = self.create_subscription(
-            CloudWithTelemetry,
-            CLOUD_TOPIC,
-            self.on_cloud,
-            cloud_qos(self.reliability, self.qos_depth),
+            msg_type, self.PEER_TOPIC, callback, cloud_qos(self.reliability, self.qos_depth)
         )
         if self.publish_result:
             if self.codec == "gpcc":
@@ -247,7 +258,7 @@ class EdgeNode(MecCastNode):
                 cloud_qos(self.result_reliability, self.result_qos_depth),
             )
         self.get_logger().info(
-            f"edge recording run {run_id}"
+            f"edge recording run {run_id} from {self.PEER_TOPIC}"
             + (f" (result -> {self.result_topic})" if self.publish_result else "")
         )
 
@@ -336,20 +347,52 @@ class EdgeNode(MecCastNode):
 
     def on_cloud(self, msg: CloudWithTelemetry) -> None:
         recv_ns = tel.now_ns()  # first line: the arrival stamp
-        env = msg.envelope
-
         n = msg.cloud.width * msg.cloud.height
-        points = np.frombuffer(msg.cloud.data, dtype=np.float32).reshape(n, 3)
-        centroid, voxels = process_cloud(points)
-        voxel_count = int(voxels.shape[0])
-        process_done_ns = tel.now_ns()
+        self._process(
+            msg.envelope, recv_ns, len(msg.cloud.data),
+            lambda: np.frombuffer(msg.cloud.data, dtype=np.float32).reshape(n, 3),
+        )
 
+    def on_cloud_gpcc(self, msg: CompressedCloudWithTelemetry) -> None:
+        recv_ns = tel.now_ns()  # first line: the arrival stamp
+        precision = float(msg.precision_m)
+        steps = VOXEL_SIZE / precision if precision > 0 else 0.0
+        if abs(steps - round(steps)) > 1e-6 and precision not in self._warned_precision:
+            # The voxels can then differ from the uncoded cloud's: a point
+            # truncated to the step may cross a voxel boundary.
+            self._warned_precision.add(precision)
+            self.get_logger().warning(
+                f"coded at {precision} m, which does not divide the voxel size "
+                f"{VOXEL_SIZE} m: this run's voxels may differ from the uncoded cloud's"
+            )
+        # Decoding is processing: it falls between recv_ns and process_done_ns.
+        self._process(msg.envelope, recv_ns, len(msg.data), lambda: gpcc.decode(bytes(msg.data)))
+
+    def _process(self, env, recv_ns: int, payload_bytes: int, points) -> None:
+        """Get the points, process them, record the sample, send the result.
+
+        A frame that cannot be decoded is still recorded, with
+        process_done_ns left at 0 -- the recorder then leaves the derived
+        delays empty for a frame that was never processed -- and counted in
+        `decode_errors`. A run is not ended by one bad frame.
+        """
         # With several publishers on one topic their seq streams interleave,
         # so this counter overcounts there — per-instance truth lives in each
         # publisher's own CSV. Kept because it is exact in the 1-client case.
         if self.last_seq is not None and env.seq != self.last_seq + 1:
             self.seq_gaps += 1
         self.last_seq = env.seq
+
+        process_done_ns = 0
+        try:
+            pts = points()
+        except gpcc.CodecError as exc:
+            self.decode_errors += 1
+            self.get_logger().error(f"seq={env.seq} not decoded: {exc}")
+            pts = None
+        if pts is not None:
+            centroid, voxels = process_cloud(pts)
+            process_done_ns = tel.now_ns()
 
         self.recorder.record(
             seq=env.seq,
@@ -358,15 +401,17 @@ class EdgeNode(MecCastNode):
             send_ns=env.send_ns,
             recv_ns=recv_ns,
             process_done_ns=process_done_ns,
-            payload_bytes=len(msg.cloud.data),
+            payload_bytes=payload_bytes,
             site=self.SITE,
             trace_id=bytes(env.trace_id),
         )
         self.frames += 1
+        if pts is None:
+            return
         self.publish_result_cloud(env, voxels)
         # Parseable progress line — the launch test and humans both read it.
         self.get_logger().info(
-            f"processed seq={env.seq} n={n} voxels={voxel_count} "
+            f"processed seq={env.seq} n={len(pts)} voxels={int(voxels.shape[0])} "
             f"centroid=({centroid[0]:.2f},{centroid[1]:.2f},{centroid[2]:.2f}) "
             f"network_ns={recv_ns - env.send_ns}"
         )

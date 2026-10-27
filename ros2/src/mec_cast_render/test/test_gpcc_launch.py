@@ -1,9 +1,15 @@
-"""launch_testing: the G-PCC downlink, lidar -> edge -> renderer (ADR-0014).
+"""launch_testing: G-PCC both ways, lidar -> edge -> renderer (ADR-0014).
 
-The edge codes its voxel result with codec=gpcc on `mec_cast/result_gpcc`;
-the renderer decodes it and draws (sink null). Asserted per frame: the
-renderer drew exactly as many points as the edge found voxels — the coding is
-lossless end to end — and the round trip is positive.
+With codec=gpcc everywhere: the lidar client codes its clouds at 1 mm onto
+`mec_cast/cloud_gpcc`, the edge decodes and processes them and codes its
+voxel result onto `mec_cast/result_gpcc`, and the renderer decodes and draws
+it (sink null). Asserted per frame:
+
+- **uplink:** the edge saw as many points, and found as many voxels, as the
+  uncoded cloud gives — computed here from the same generator, which is
+  deterministic per frame for `lidar_scan`;
+- **downlink:** the renderer drew exactly as many points as the edge found
+  voxels, and the round trip is positive.
 
 Isolated as test_pipeline_launch.py is (a domain and a namespace of its own),
 and for the same reasons; see there. The downlink is best-effort, so the
@@ -25,13 +31,18 @@ import launch.event_handlers
 import launch_ros.actions
 import launch_testing
 import launch_testing.actions
+import numpy as np
 import pytest
+
+from mec_cast_edge.edge_node import process_cloud
+from mec_cast_lidar_client.publisher_node import PointCloudPublisher
 
 FRAMES = 10
 RATE_HZ = 5.0
 TIMEOUT_S = 30.0
 
-EDGE_RE = re.compile(r"processed seq=(\d+) n=\d+ voxels=(\d+)")
+NUM_POINTS = 3000
+EDGE_RE = re.compile(r"processed seq=(\d+) n=(\d+) voxels=(\d+)")
 RENDER_RE = re.compile(r"rendered seq=(\d+) n=(\d+) round_trip_ns=(-?\d+)")
 
 RUN_ID = str(uuid.uuid4())
@@ -56,8 +67,8 @@ def generate_test_description():
         package="mec_cast_lidar_client",
         executable="lidar_client",
         namespace=NAMESPACE,
-        parameters=[{"seed": 42, "num_points": 3000, "rate_hz": RATE_HZ,
-                     "pattern": "lidar_scan"}],
+        parameters=[{"seed": 42, "num_points": NUM_POINTS, "rate_hz": RATE_HZ,
+                     "pattern": "lidar_scan", "codec": "gpcc", "codec_precision_m": 0.001}],
         env=env,
         output="screen",
     )
@@ -116,6 +127,15 @@ def logged(proc_output, proc, pattern) -> list[tuple[int, ...]]:
     return [tuple(int(g) for g in m.groups()) for m in pattern.finditer(text)]
 
 
+def uncoded(seq: int) -> tuple[int, int]:
+    """(points, voxels) of the lidar client's frame `seq`, never coded."""
+    gen = PointCloudPublisher.__new__(PointCloudPublisher)
+    gen.pattern, gen.num_points, gen.seed, gen.seq = "lidar_scan", NUM_POINTS, 42, seq
+    gen.rng = np.random.default_rng(42)
+    pts = gen.generate_points()
+    return len(pts), len(process_cloud(pts)[1])
+
+
 def wait_for_renders(proc_output, render, count: int) -> list[tuple[int, ...]]:
     deadline = time.monotonic() + TIMEOUT_S
     while True:
@@ -125,17 +145,25 @@ def wait_for_renders(proc_output, render, count: int) -> list[tuple[int, ...]]:
         time.sleep(0.2)
 
 
-class TestGpccDownlink(unittest.TestCase):
-    def test_both_ends_run_the_codec(self, proc_output, edge, render):
+class TestGpcc(unittest.TestCase):
+    def test_every_node_runs_the_codec(self, proc_output, edge, render):
         proc_output.assertWaitFor(
-            "(result -> mec_cast/result_gpcc)", process=edge, timeout=TIMEOUT_S
+            "from mec_cast/cloud_gpcc (result -> mec_cast/result_gpcc)",
+            process=edge, timeout=TIMEOUT_S,
         )
         proc_output.assertWaitFor("codec=gpcc", process=render, timeout=TIMEOUT_S)
+
+    def test_the_edge_gets_the_uncoded_clouds_voxels(self, proc_output, edge, render):
+        wait_for_renders(proc_output, render, FRAMES)
+        frames = logged(proc_output, edge, EDGE_RE)
+        self.assertGreaterEqual(len(frames), FRAMES, f"edge processed: {frames}")
+        for seq, n, voxels in frames:
+            self.assertEqual((n, voxels), uncoded(seq), f"seq {seq}: (points, voxels)")
 
     def test_the_renderer_draws_every_voxel_the_edge_found(self, proc_output, edge, render):
         renders = wait_for_renders(proc_output, render, FRAMES)
         self.assertGreaterEqual(len(renders), FRAMES, f"rendered: {renders}")
-        voxels = dict(logged(proc_output, edge, EDGE_RE))
+        voxels = {seq: v for seq, _, v in logged(proc_output, edge, EDGE_RE)}
         for seq, n, round_trip_ns in renders:
             self.assertIn(seq, voxels, f"seq {seq} rendered but not logged by the edge")
             self.assertGreater(n, 0, f"seq {seq} drew nothing")

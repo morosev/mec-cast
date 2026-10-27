@@ -37,17 +37,27 @@ Both halves are off by default: `publish_result` is false, and the renderer's
 `sink` is `null` (measures everything, draws nothing). Set `sink:=rerun` to
 see the cloud, or `sink:=ros` to republish plainly for RViz2 or Foxglove.
 
-**The result can travel G-PCC coded** ([ADR-0014](../docs/architecture/adr/0014-gpcc-point-cloud-codec.md)).
-With `codec=gpcc` the edge sends its voxel indices, coded losslessly, as
-`CompressedCloudWithTelemetry` on `mec_cast/result_gpcc`, and the renderer
-decodes them and draws the voxel centres. The `lidar_scan` result shrinks from
-6.6 kB to about 160 B a frame. Encoding falls inside the edge's sending, before
-`send_ns`; decoding inside the renderer's `processing_ns`.
+## G-PCC coding, both ways
 
-`codec` is a run parameter (`params.codec` in the admin's run, recorded in
-`run.json`), and otherwise the nodes' `codec` parameter or the `CODEC`
-environment variable. Edge and renderer must agree: each listens or publishes
-only on its codec's topic, so a mismatched pair exchanges nothing.
+With `codec=gpcc` the clouds travel G-PCC coded, as
+`CompressedCloudWithTelemetry` ([ADR-0014](../docs/architecture/adr/0014-gpcc-point-cloud-codec.md)):
+
+| Leg | Topic | Coded | `lidar_scan`, 5,000 points |
+|---|---|---|---|
+| uplink | `mec_cast/cloud_gpcc` | positions, truncated to `codec_precision_m` (0.001 or 0.01 m) | 60 kB → 5.3 kB (1 mm), 3.2 kB (1 cm) |
+| downlink | `mec_cast/result_gpcc` | the edge's voxel indices, losslessly | 6.6 kB → 160 B |
+
+Encoding falls between `capture_ns` and `send_ns`, in the sender delay;
+decoding falls between `recv_ns` and `process_done_ns`, in the processing
+delay. `payload_bytes` is the coded size. A precision that divides the edge's
+voxel size (0.5 m) leaves its result unchanged; the edge warns once per run
+about one that does not.
+
+`codec` and `codec_precision_m` are run parameters (`params` in the admin's
+run, recorded in `run.json`), and otherwise the nodes' parameters of the same
+name or the `CODEC` / `CODEC_PRECISION_M` environment variables. All three
+nodes must agree: each listens or publishes only on its codec's topics, so a
+mismatched pair exchanges nothing.
 
 ## Why one workspace across two deployment locations
 

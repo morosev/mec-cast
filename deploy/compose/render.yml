@@ -20,9 +20,6 @@ services:
   edge:
     environment:
       PUBLISH_RESULT: "1"
-      # none | gpcc (ADR-0014): the downlink G-PCC coded. A run's `codec`
-      # parameter overrides it; this is the default without the admin.
-      CODEC: ${CODEC:-}
     command: >
       ros2 run mec_cast_edge edge --ros-args
       -p reliability:=${RELIABILITY:-reliable}
