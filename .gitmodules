@@ -8,3 +8,6 @@
 [submodule "third_party/str0m"]
 	path = third_party/str0m
 	url = https://github.com/morosev/mec-cast-str0m.git
+[submodule "third_party/mpeg-pcc-tmc13"]
+	path = third_party/mpeg-pcc-tmc13
+	url = https://github.com/morosev/mpeg-pcc-tmc13.git

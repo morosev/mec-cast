@@ -2,6 +2,10 @@
 # third_party/webrtc alone is ~20 GB — it must never enter a build context.
 .git/
 third_party/
+# ...except the G-PCC codec, which the ROS image builds (ADR-0014). Its build
+# directories, if any were made in the checkout, stay out.
+!third_party/mpeg-pcc-tmc13/
+third_party/mpeg-pcc-tmc13/build*/
 clients/
 edge/signaling/
 services/

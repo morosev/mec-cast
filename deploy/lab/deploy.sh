@@ -79,8 +79,10 @@ done
 # this machine. The remote cannot fix it either — .git is excluded from the
 # sync, so there is no repository there to update. Check the sending side.
 case "$ROLE" in
-  infra) NEEDS_CONTEXT="services/logging services/admin" ;;
-  *)     NEEDS_CONTEXT="" ;;
+  infra)   NEEDS_CONTEXT="services/logging services/admin" ;;
+  # The ROS image builds the G-PCC codec from source (ADR-0014).
+  ue|edge) NEEDS_CONTEXT="third_party/mpeg-pcc-tmc13" ;;
+  *)       NEEDS_CONTEXT="" ;;
 esac
 for c in $NEEDS_CONTEXT; do
   # MECLOG_BUILD_CONTEXT overrides the logging context with a sibling
@@ -88,17 +90,23 @@ for c in $NEEDS_CONTEXT; do
   if [ "$c" = "services/logging" ] && [ -n "${MECLOG_BUILD_CONTEXT:-}" ]; then
     continue
   fi
-  if [ ! -f "$ROOT_DIR/$c/pyproject.toml" ]; then
+  case "$c" in
+    third_party/mpeg-pcc-tmc13) marker=CMakeLists.txt ;;
+    *)                          marker=pyproject.toml ;;
+  esac
+  if [ ! -f "$ROOT_DIR/$c/$marker" ]; then
     echo "ERROR: $c is empty; role '$ROLE' builds an image from it." >&2
-    # Only services/logging is a submodule. Telling someone to run
-    # `git submodule update` for services/admin sends them after a submodule
-    # that does not exist, while the real cause -- a broken or partial
-    # checkout -- goes unmentioned.
+    # Only services/logging and the codec are submodules. Telling someone to
+    # run `git submodule update` for services/admin sends them after a
+    # submodule that does not exist, while the real cause -- a broken or
+    # partial checkout -- goes unmentioned.
     if [ "$c" = "services/logging" ]; then
       echo "  On THIS machine:  git submodule update --init --recursive" >&2
       echo "  ...or point at a sibling checkout:" >&2
       echo "    MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service \\" >&2
       echo "      bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
+    elif [ "$c" = "third_party/mpeg-pcc-tmc13" ]; then
+      echo "  On THIS machine:  git submodule update --init $c" >&2
     else
       echo "  $c is part of this repository, not a submodule, so this is a" >&2
       echo "  broken or partial checkout. On THIS machine:  git status $c" >&2
@@ -140,7 +148,7 @@ for v in $REQUIRED $OPTIONAL; do
   [ -n "${!v+x}" ] && REMOTE_ENV="$REMOTE_ENV $v=$(printf '%q' "${!v}")"
 done
 
-echo "==> Syncing repo to $TARGET (excluding third_party, runs, target)"
+echo "==> Syncing repo to $TARGET (excluding third_party but the G-PCC codec, runs, target)"
 # .run-env is excluded because it is the operator's own config for THIS host
 # -- the shell function and this machine's EDGE_HOST/INFRA_HOST. It is
 # gitignored, so it is not in the source tree, and --delete would remove it on
@@ -150,6 +158,9 @@ echo "==> Syncing repo to $TARGET (excluding third_party, runs, target)"
 rsync -az --delete \
   --exclude '.git/' \
   --exclude '.run-env' \
+  --include '/third_party/' \
+  --include '/third_party/mpeg-pcc-tmc13/***' \
+  --exclude '/third_party/*' \
   --exclude 'third_party/' \
   --exclude 'target/' \
   --exclude 'runs/' \

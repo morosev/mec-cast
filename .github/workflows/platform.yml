@@ -111,6 +111,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The image builds the G-PCC codec from this submodule (ADR-0014).
+      - run: git submodule update --init third_party/mpeg-pcc-tmc13
       - run: docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
       - name: colcon test (launch_testing)
         run: bash deploy/docker/run-ros-tests.sh
@@ -145,7 +147,7 @@ jobs:
       # Only the small submodules: third_party/webrtc is ~20 GB and nothing
       # in CI builds it.
       - uses: actions/checkout@v4
-      - run: git submodule update --init services/logging
+      - run: git submodule update --init services/logging third_party/mpeg-pcc-tmc13
       - name: Fall back to a sibling checkout if the submodule is empty
         run: |
           if [ ! -f services/logging/pyproject.toml ]; then
@@ -192,6 +194,8 @@ jobs:
       REGISTRY: ghcr.io
     steps:
       - uses: actions/checkout@v4
+      # The ROS image builds the G-PCC codec from this submodule (ADR-0014).
+      - run: git submodule update --init third_party/mpeg-pcc-tmc13
 
       # Plain docker login rather than a third-party action: GITHUB_TOKEN is
       # already scoped by the permissions block above, so no extra secret.

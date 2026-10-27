@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # mec-cast ROS2 image: telemetry wheel (stage 1) + ROS2 Jazzy + rmw_zenoh and
 # rmw_fastrtps (ADR-0013: Zenoh or Fast DDS, chosen at deployment) +
-# colcon-built mec_cast packages (stage 2). One image serves the zenoh
-# router, the point-cloud publisher, and the edge node.
+# the G-PCC codec library (stage 2, ADR-0014) + colcon-built mec_cast packages
+# (stage 3). One image serves the zenoh router, the point-cloud publisher, and
+# the edge node.
 #
 # Build from the repo root:
 #   docker build -f deploy/docker/ros.Dockerfile -t mec-cast-ros .
@@ -26,6 +27,19 @@ COPY telemetry ./telemetry
 COPY ran ./ran
 # abi3-py310 wheel: one artifact serves the container's 3.12 and any >=3.10.
 RUN cd telemetry/python && /opt/maturin/bin/maturin build --release -o /wheels
+
+# libtmc3codec: the C interface of the MPEG G-PCC reference codec (TMC13, our
+# fork in third_party/mpeg-pcc-tmc13), for the point-cloud codec (ADR-0014).
+# Built on the runtime base, so it links against the same libstdc++. Only the
+# shared library and its header leave this stage.
+FROM ros:jazzy-ros-base AS gpcc
+RUN apt-get update && apt-get install -y --no-install-recommends cmake g++ make \
+    && rm -rf /var/lib/apt/lists/*
+COPY third_party/mpeg-pcc-tmc13 /src/tmc13
+RUN cmake -S /src/tmc13 -B /build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /build --target tmc3codec -j"$(nproc)" \
+    && install -D /build/tmc3/libtmc3codec.so /out/lib/libtmc3codec.so \
+    && install -D -m 644 /src/tmc13/tmc3/include/tmc3_api.h /out/include/tmc3_api.h
 
 FROM ros:jazzy-ros-base
 
@@ -60,6 +74,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=wheel /wheels /wheels
+# Checked here, by loading it the way the nodes will (ctypes), so a library
+# that built but cannot load fails the image rather than a node's first frame.
+COPY --from=gpcc /out/lib/libtmc3codec.so /usr/local/lib/
+COPY --from=gpcc /out/include/tmc3_api.h /usr/local/include/
+RUN ldconfig \
+    && python3 -c "import ctypes as c; l = c.CDLL('libtmc3codec.so'); \
+l.tmc3_version.restype = c.c_char_p; print('tmc3codec', l.tmc3_version().decode(), 'api', l.tmc3_api_version())"
 # websockets carries the admin control-plane client. The apt package is
 # 10.4 and websockets.sync.client landed in 12, so it comes from pip.
 # Build-time network only: nothing is fetched when the container runs.
