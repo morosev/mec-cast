@@ -179,6 +179,7 @@ class EdgeNode(MecCastNode):
         self.sub = None
         self.result_pub = None
         self.result_encoder = None
+        self.cloud_decoder = None
         self.result_errors = 0
         self.decode_errors = 0
         self._warned_precision: set[float] = set()
@@ -243,6 +244,9 @@ class EdgeNode(MecCastNode):
         self.last_seq = None
         self._make_recorder(run_id)
         if self.codec == "gpcc":
+            # One decoder for the run: frames of every lidar instance on the
+            # topic, in whatever order they come.
+            self.cloud_decoder = gpcc.Decoder()
             msg_type, callback = CompressedCloudWithTelemetry, self.on_cloud_gpcc
         else:
             msg_type, callback = CloudWithTelemetry, self.on_cloud
@@ -277,7 +281,12 @@ class EdgeNode(MecCastNode):
         if self.result_pub is not None:
             self.destroy_publisher(self.result_pub)
             self.result_pub = None
-        self.result_encoder = None
+        if self.result_encoder is not None:
+            self.result_encoder.close()
+            self.result_encoder = None
+        if self.cloud_decoder is not None:
+            self.cloud_decoder.close()
+            self.cloud_decoder = None
         report = self._close_recorder()
         self.get_logger().info(
             f"edge stopped run {self.run_id}: frames={self.frames} "
@@ -366,7 +375,7 @@ class EdgeNode(MecCastNode):
                 f"{VOXEL_SIZE} m: this run's voxels may differ from the uncoded cloud's"
             )
         # Decoding is processing: it falls between recv_ns and process_done_ns.
-        self._process(msg.envelope, recv_ns, len(msg.data), lambda: gpcc.decode(bytes(msg.data)))
+        self._process(msg.envelope, recv_ns, len(msg.data), lambda: self.cloud_decoder.decode(bytes(msg.data)))
 
     def _process(self, env, recv_ns: int, payload_bytes: int, points) -> None:
         """Get the points, process them, record the sample, send the result.

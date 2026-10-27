@@ -15,7 +15,8 @@ Two workload profiles share one telemetry spine:
 
 - **Profile A — robotics (ROS2 + Zenoh or Fast DDS, [ADR-0013](adr/0013-two-middlewares.md)):** LiDAR point clouds from a UE
   (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a MEC
-  edge server.
+  edge server, optionally G-PCC coded both ways
+  ([ADR-0014](adr/0014-gpcc-point-cloud-codec.md)).
 - **Profile B — media (WebRTC):** today the legacy libwebrtc client
   (`clients/webrtc_native/`, `edge/signaling/`, `third_party/webrtc/`); planned retarget onto str0m
   (see [str0m-profile.md](str0m-profile.md)).
@@ -23,11 +24,11 @@ Two workload profiles share one telemetry spine:
 ```
  ROBOT / UE                       5G RAN + CORE (lab)             EDGE (MEC server)
 ┌─────────────────────┐                                         ┌──────────────────────────┐
-│ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (rmw_zenoh)    │
+│ LiDAR → ROS2 node   │   Uu    ┌────────┐   ┌─────────┐        │ edge node (Zenoh or DDS) │
 │  capture_ns stamp   ├─5G modem┤ srsRAN ├───┤ Open5GS ├─UPF/N6─┤  recv_ns stamp           │
-│  (compress: later)  │ (USRP)  │O-DU/CU │   │  core   │        │  process → done_ns stamp │
+│  G-PCC encode (opt) │ (USRP)  │O-DU/CU │   │  core   │        │  process → done_ns stamp │
 │  send_ns stamp      │         └───┬────┘   └─────────┘        │  ├─► runs/<id>/samples.csv
-│  rmw_zenoh publish  │             │ metrics UDP/JSON          │  └─► snapshots → logging │
+│  ROS2 publish       │             │ metrics UDP/JSON          │  └─► snapshots → logging │
 │                     │                                         │                          │
 │  render node        │◄─── mec_cast/result (ADR-0009) ─────────┤  publish_result          │
 │  process_done_ns    │     round trip: ONE clock, no PTP       │  → voxel cloud back down │

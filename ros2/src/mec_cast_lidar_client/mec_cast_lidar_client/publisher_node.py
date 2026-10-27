@@ -278,6 +278,9 @@ class PointCloudPublisher(MecCastNode):
         if self.timer is not None:
             self.destroy_timer(self.timer)
             self.timer = None
+        if self.encoder is not None:
+            self.encoder.close()
+            self.encoder = None
         report = self._close_recorder()
         self.get_logger().info(
             f"stopped run {self.run_id}: frames={self.frames_published} report={report}"

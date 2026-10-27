@@ -27,9 +27,9 @@ other answers trustworthy.
 
 Two workload profiles share one Rust telemetry spine:
 
-- **Profile A — robotics:** ROS2 LiDAR point clouds over `rmw_zenoh`, from a
-  UE (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a
-  MEC edge server, plus a tap on the srsRAN O-DU MAC scheduler.
+- **Profile A — robotics:** ROS2 LiDAR point clouds over Zenoh or Fast DDS,
+  from a UE (robot compute + 5G modem) across an srsRAN/Open5GS lab network
+  to a MEC edge server, plus a tap on the srsRAN O-DU MAC scheduler.
 - **Profile B — media:** WebRTC. Today the legacy libwebrtc client; the
   planned retarget onto [str0m](docs/architecture/str0m-profile.md) removes
   the need for a patched WebRTC fork.
@@ -38,6 +38,79 @@ More detail: [architecture overview and lab deployment](docs/diagrams/README.md)
 (rendered inline), or the two detailed dataflow diagrams —
 [measurement lifecycle](docs/diagrams/dataflow-measurement-lifecycle.png) and
 [runtime topology](docs/diagrams/dataflow-runtime-topology.png).
+
+## Features
+
+**Workloads**
+
+- Synthetic LiDAR point clouds, seeded and reproducible frame for frame: ten
+  shapes from a 16-beam room sweep to noise, with the point count and rate as
+  the sweep knobs ([running an experiment](docs/guides/running-an-experiment.md)).
+- Several LiDAR and renderer instances in one UE process
+  (`LIDAR_INSTANCES`, `RENDER_INSTANCES`).
+- A return path: the edge sends its processed result back to a renderer on
+  the UE, which measures a round trip on one clock, independent of PTP
+  ([ADR-0009](docs/architecture/adr/0009-render-return-path.md)). It draws
+  in a rerun viewer, republishes for RViz2, or draws nothing.
+
+**Transport and coding**
+
+- Two ROS middlewares, chosen at deployment: Zenoh over TCP or QUIC, and
+  Fast DDS over UDP or TCP through a Discovery Server, both as a star on the
+  edge ([ADR-0013](docs/architecture/adr/0013-two-middlewares.md),
+  [middleware](docs/architecture/middleware.md)).
+- G-PCC point-cloud coding both ways, per run: the uplink at 1 mm or 1 cm,
+  the edge's result losslessly, through our fork of MPEG's reference codec
+  ([ADR-0014](docs/architecture/adr/0014-gpcc-point-cloud-codec.md)).
+- Reliable or best-effort QoS, and network impairment (delay, jitter, loss)
+  with a netem sidecar where there is no radio.
+
+**Measurement**
+
+- A 64-byte timing envelope on every frame: capture, send, receive and
+  processed stamps on the PTP-disciplined clock, and a run id that joins
+  every record ([timing model](docs/architecture/timing-model.md)).
+- A per-frame CSV on every node, and exact windowed percentiles in 2 s
+  snapshots to PostgreSQL through the logging service, with a dashboard
+  ([logging service](docs/operations/logging-submodule.md)).
+- Clock health per node (`ptp.reliable`), and the clock offset between nodes
+  checked before a run.
+- One Rust telemetry core for every component: Python (PyO3) and C ABI.
+
+**RAN observability and control**
+
+- The srsRAN or OCUDU gNB's scheduler metrics through a JSON tap (UDP or
+  WebSocket), normalised to one data model
+  ([RAN data model](ran/schema/metrics.md)).
+- An E2 xApp on the near-RT RIC, on the O-RAN SC RIC or FlexRIC: KPM
+  monitoring, and a PRB quota through RC that is scoped to a run, recorded
+  and always reverted ([ADR-0011](docs/architecture/adr/0011-run-scoped-ran-control.md),
+  [ADR-0012](docs/architecture/adr/0012-two-near-rt-rics.md)).
+- RAN metrics joined to application latency per frame
+  ([`tools/ran_join.py`](tools/README.md)), and drawn in the dashboard's radio panel.
+
+**Run control**
+
+- An admin service and page: runs created, started and stopped for the
+  fleet, one active run per zone, every run's settings and participants in
+  `runs/<run_id>/run.json`
+  ([admin service](docs/operations/admin-service.md),
+  [admin manual](docs/operations/admin-manual.md)).
+- Zones (a gNB, its UEs and its edge) declared in a topology file, so
+  several groups measure independently.
+- Checks on the deployment before and during a run: middleware or codec
+  mismatches, clock offset, version skew, a renderer on another host than
+  its LiDAR, and more.
+
+**Deployment**
+
+- One laptop with Docker; one host with a software 5G link (OCUDU, srsUE and
+  Open5GS over ZMQ, [local 5G](docs/guides/local-5g-ocudu.md)); or the lab:
+  UE, gNB, edge and infra hosts, deployed by `deploy/lab/deploy.sh`
+  ([deploy manual](docs/operations/deploy-manual.md),
+  [lab topology](docs/operations/lab-topology.md)).
+- Container images per commit in GHCR, and versioned releases; every node
+  reports the commit it runs.
 
 ## Quick start
 
@@ -62,12 +135,12 @@ Run `make help` for all targets.
 | 1.ii | WebRTC native client | [`clients/webrtc_native/`](clients/webrtc_native/README.md) |
 | 1.iii | ROS2 render node — draws the edge's result, measures the round trip | [`ros2/src/mec_cast_render/`](ros2/README.md) |
 | 2 | **MEC server components** | [`edge/`](edge/README.md) |
-| 2.i | Zenoh ingest layer for ROS2 | [`ros2/src/mec_cast_edge/`](ros2/README.md) |
+| 2.i | ROS2 ingest layer (Zenoh or Fast DDS) | [`ros2/src/mec_cast_edge/`](ros2/README.md) |
 | 2.ii | str0m SFU (planned) | [design](docs/architecture/str0m-profile.md) |
 | 3 | **Telemetry** — the shared spine | [`telemetry/`](telemetry/README.md) |
 | 4 | **Logging service** (submodule) | [`services/logging/`](docs/operations/logging-submodule.md) |
 | 4.i | **Admin service** — run orchestration (in-repo) | [`services/admin/`](docs/operations/admin-service.md) |
-| 5 | **Third-party, extended** | [`third_party/`](third_party/README.md) — [webrtc](docs/guides/building-libwebrtc.md), [str0m](docs/architecture/str0m-profile.md) |
+| 5 | **Third-party, extended** | [`third_party/`](third_party/README.md) — [webrtc](docs/guides/building-libwebrtc.md), [str0m](docs/architecture/str0m-profile.md), [G-PCC codec](docs/architecture/adr/0014-gpcc-point-cloud-codec.md) |
 | — | RAN metrics tap (srsRAN JSON) | [`ran/collector/`](ran/collector/README.md) |
 | — | E2 xApp — KPM + RC on the near-RT RIC | [`ran/xapp/`](ran/xapp/README.md) |
 | — | RAN data model | [`ran/schema/`](ran/schema/metrics.md) |
@@ -93,16 +166,17 @@ the same targets so local and CI cannot drift.
 next to their code. Start with
 [architecture/overview.md](docs/architecture/overview.md), and read the
 [ADRs](docs/architecture/adr/README.md) before proposing to change a major
-design decision — they record why Zenoh beat DDS, why the telemetry core is
-Rust, why PTP stays off the 5G user plane, why percentiles are exact, and
-why the RAN is read through two sources (a JSON tap and an E2 xApp).
+design decision — they record why the data plane runs on Zenoh or Fast DDS
+and never on multicast DDS, why the telemetry core is Rust, why PTP stays off
+the 5G user plane, why percentiles are exact, why the RAN is read through two
+sources (a JSON tap and an E2 xApp), and why point clouds are coded with G-PCC.
 
 ## Status
 
 | Area | State |
 |---|---|
 | Telemetry crate (+ PyO3, C ABI) | Working, tested |
-| ROS2 + Zenoh profile | Working; netem e2e green |
+| ROS2 profile on Zenoh or Fast DDS | Working; netem e2e green on zenoh/tcp, dds/udp and dds/tcp; Fast DDS not yet lab-verified |
 | WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
 | RAN metrics tap | UDP and WebSocket (srsRAN 25.04+) sources, normalised to `kpi.csv`; tested against fixtures and `gnb-sim` (`make up-ran`); not yet verified on the lab gNB |
 | E2 xApp (KPM) | Implemented; e2e green against `gnb-sim`; `osc` adapter brought up inside the real RIC runner; not yet verified against a srsRAN E2 agent |
@@ -111,7 +185,7 @@ why the RAN is read through two sources (a JSON tap and an E2 xApp).
 | Admin control plane | Wired at `services/admin`; `make up-admin`, page on :8099 |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |
 | str0m SFU implementation | Not started — [design](docs/architecture/str0m-profile.md) |
-| Draco compression | Not started |
+| G-PCC point-cloud codec | Working both ways; launch tests and netem e2e green; codec times not yet measured on the lab hosts |
 
 ## Development note
 

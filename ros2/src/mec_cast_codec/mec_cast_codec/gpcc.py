@@ -9,21 +9,20 @@ Two shapes of cloud cross the 5G link, and each has its coder:
 - **integer grid indices** (the downlink's voxels): int32 (N, 3), coded
   losslessly — ``precision_m=None``.
 
-**Every frame is a stream of its own.** Each `Encoder.encode` and each
-`decode` call creates the codec, codes one frame and destroys it, which adds
-0.5 to 0.8 ms to a few ms of coding. Every frame is then frame 0 of a
-one-frame stream, which is what the reference software handles best -- a
-single-frame file -- and which frames dropped by design (best-effort,
-KEEP_LAST(1)) need anyway: no inter prediction, parameter sets in every
-frame. It also avoids two faults of the reference decoder, found while
-testing this module:
+**Every frame decodes on its own.** No inter prediction, and parameter sets
+in every frame, since frames are dropped by design (best-effort,
+KEEP_LAST(1)): a decoder that starts late, gets frames out of order, or gets
+frames of several streams interleaved -- several lidar instances on one
+topic, each counting from 0 -- decodes each one as it comes.
 
-- A long-lived decoder recognises a new frame only by a change of the frame
-  counter, so streams interleaved on one topic -- several lidar instances,
-  each counting from 0 -- fold into one frame, and it has crashed on that.
-- A fresh decoder handed a frame whose counter is not 0 reads an
-  uninitialised member (PredGeomPredictor::globalMotionEnabled, set only on
-  frame 0) and crashes, intermittently, on Linux.
+One `Encoder` and one `Decoder` serve a whole run. Our fork of the codec
+fixes the three reference-software faults that once made that unsafe (a
+decoder folding interleaved frames into one and crashing, an uninitialised
+member read by a decoder starting mid-stream, and a manual sequence box of
+size 0); until then each frame was coded and decoded by codecs of its own,
+which cost about 1 ms a side (ADR-0014, amendment). A `Decoder` given a bad frame raises and starts
+afresh, since the reference decoder is not hardened and its state after a
+bad stream is not to be trusted.
 
 Coordinates are coded relative to a fixed origin (``origin_m``). The codec's
 default takes the origin from the first frame's bounding box and silently
@@ -31,8 +30,8 @@ clamps any later point below it onto it, so a moving shape loses its lower
 edge; a point below the origin raises here instead.
 
 The library is loaded with ctypes. Arrays go in without a copy and the GIL is
-released during every call. Since no codec outlives a call, `encode` and
-`decode` may run on any thread.
+released during every call. One `Encoder` or `Decoder` must not be used from
+two threads at once; separate ones may.
 
 No ROS imports here, so this module is tested wherever the library is.
 """
@@ -156,10 +155,9 @@ def encoder_options(precision_m: float | None,
         "srcUnitLength=1",
         "autoSeqBbox=0",
         f"seqOrigin={origin}",
-        # Required with autoSeqBbox=0. Left unset, the reference encoder takes
-        # the box's maximum from a size of 0 before applying its default, and
-        # signals a box of size 0. This is the default it means to apply; the
-        # size is metadata, not a clamp.
+        # The encoder's own default, stated: the reference software derived a
+        # manual box from a size of 0 when this was unset (fixed in our fork).
+        # The size is metadata, not a clamp.
         f"seqSizeWhd={_SEQ_SIZE},{_SEQ_SIZE},{_SEQ_SIZE}",
         "mergeDuplicatedPoints=0",
         "interPredictionEnabled=0",
@@ -180,8 +178,8 @@ class Encoder:
     (in the input's units: metres, or indices). ``extra`` options are tmc3
     options appended after ours, for experiments.
 
-    The options are checked here, by creating the codec once, so a bad
-    configuration fails when a run starts rather than at its first frame.
+    The codec is created here, so a bad configuration fails when a run
+    starts rather than at its first frame.
     """
 
     def __init__(self, precision_m: float | None,
@@ -190,14 +188,11 @@ class Encoder:
         self.precision_m = precision_m
         self.origin_m = np.asarray(origin_m, dtype=np.float64)
         self._dtype = np.int32 if precision_m is None else np.float32
-        self._options = encoder_options(precision_m, origin_m) + list(extra)
-        library().tmc3_encoder_destroy(self._create())
-
-    def _create(self) -> C.c_void_p:
+        self._handle = None
         handle = C.c_void_p()
-        opts, n = _options(self._options)
+        opts, n = _options(encoder_options(precision_m, origin_m) + list(extra))
         _check(library().tmc3_encoder_create(opts, n, C.byref(handle)))
-        return handle
+        self._handle = handle
 
     def encode(self, points: np.ndarray) -> bytes:
         if points.ndim != 2 or points.shape[1] != 3 or points.dtype != self._dtype:
@@ -221,26 +216,93 @@ class Encoder:
         dtype = _INT32 if self._dtype is np.int32 else _FLOAT32
         cloud = _Cloud(len(pts), _Array(pts.ctypes.data, dtype, stride, offsets),
                        _Array(), _Array())
+        if self._handle is None:
+            raise CodecError("encoder is closed")
         lib = library()
-        handle = self._create()
+        packet = C.c_void_p()
+        _check(lib.tmc3_encoder_encode(self._handle, C.byref(cloud), C.byref(packet), None))
         try:
-            packet = C.c_void_p()
-            _check(lib.tmc3_encoder_encode(handle, C.byref(cloud), C.byref(packet), None))
-            try:
-                return C.string_at(lib.tmc3_packet_data(packet), lib.tmc3_packet_size(packet))
-            finally:
-                lib.tmc3_packet_release(packet)
+            return C.string_at(lib.tmc3_packet_data(packet), lib.tmc3_packet_size(packet))
         finally:
-            lib.tmc3_encoder_destroy(handle)
+            lib.tmc3_packet_release(packet)
+
+    def close(self) -> None:
+        if self._handle is not None:
+            library().tmc3_encoder_destroy(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        self.close()
+
+
+def _positions(frame: C.c_void_p, dtype) -> np.ndarray:
+    """A decoded frame's positions: float32 metres, or int32 indices."""
+    lib = library()
+    info = _FrameInfo()
+    _check(lib.tmc3_frame_get_info(frame, C.byref(info)))
+    # Positions arrive as float; indices are exact integers in float64.
+    as_float = np.float64 if dtype == np.int32 else np.float32
+    out = np.empty((info.num_points, 3), dtype=as_float)
+    dst = _Array(out.ctypes.data, _FLOAT64 if as_float is np.float64 else _FLOAT32,
+                 0, (0, 0, 0))
+    _check(lib.tmc3_frame_get_positions(frame, C.byref(dst)))
+    if dtype == np.int32:
+        return np.rint(out).astype(np.int32)
+    return out
+
+
+class Decoder:
+    """Decodes one coded frame per call, for a whole run.
+
+    Returns float32 metres, or int32 indices with ``dtype=np.int32`` for a
+    cloud coded with ``precision_m=None``. Frames may come in any order and
+    from several encoders. A call whose data is not one whole frame raises
+    CodecError, and the decoder starts afresh for the next one.
+    """
+
+    def __init__(self) -> None:
+        self._handle = None
+        self._open()
+
+    def _open(self) -> None:
+        handle = C.c_void_p()
+        opts, n = _options(DECODER_OPTIONS)
+        _check(library().tmc3_decoder_create(opts, n, C.byref(handle)))
+        self._handle = handle
+
+    def decode(self, data: bytes, dtype=np.float32) -> np.ndarray:
+        if self._handle is None:
+            raise CodecError("decoder is closed")
+        lib = library()
+        frame = C.c_void_p()
+        try:
+            _check(lib.tmc3_decoder_push(self._handle, data, len(data)))
+            # The data is one whole frame: output it now, not when the next
+            # frame's data arrives. Data left over is an incomplete unit: an error.
+            _check(lib.tmc3_decoder_end_frame(self._handle))
+            if _check(lib.tmc3_decoder_next_frame(self._handle, C.byref(frame))) == _NO_FRAME:
+                raise CodecError("the data held no complete frame")
+        except CodecError:
+            self.close()
+            self._open()
+            raise
+        try:
+            return _positions(frame, dtype)
+        finally:
+            lib.tmc3_frame_release(frame)
+
+    def close(self) -> None:
+        if self._handle is not None:
+            library().tmc3_decoder_destroy(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        self.close()
 
 
 def decode(data: bytes, dtype=np.float32) -> np.ndarray:
-    """Decode one coded frame with a decoder of its own.
-
-    Returns float32 metres, or int32 indices with ``dtype=np.int32`` for a
-    cloud coded with ``precision_m=None``. Raises CodecError when the data is
-    not one whole frame.
-    """
+    """Decode one coded frame with a decoder of its own: for a single frame.
+    A run decodes with one `Decoder`, which saves creating one per frame."""
     lib = library()
     handle = C.c_void_p()
     opts, n = _options(DECODER_OPTIONS)
@@ -254,18 +316,8 @@ def decode(data: bytes, dtype=np.float32) -> np.ndarray:
         if _check(lib.tmc3_decoder_next_frame(handle, C.byref(frame))) == _NO_FRAME:
             raise CodecError("the data held no complete frame")
         try:
-            info = _FrameInfo()
-            _check(lib.tmc3_frame_get_info(frame, C.byref(info)))
-            # Positions arrive as float; indices are exact integers in float64.
-            as_float = np.float64 if dtype == np.int32 else np.float32
-            out = np.empty((info.num_points, 3), dtype=as_float)
-            dst = _Array(out.ctypes.data, _FLOAT64 if as_float is np.float64 else _FLOAT32,
-                         0, (0, 0, 0))
-            _check(lib.tmc3_frame_get_positions(frame, C.byref(dst)))
+            return _positions(frame, dtype)
         finally:
             lib.tmc3_frame_release(frame)
     finally:
         lib.tmc3_decoder_destroy(handle)
-    if dtype == np.int32:
-        return np.rint(out).astype(np.int32)
-    return out

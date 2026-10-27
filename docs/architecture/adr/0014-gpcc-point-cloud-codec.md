@@ -2,6 +2,31 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-27
+- **Amended:** 2026-10-27 (the fork fixes the codec faults; one codec per run)
+
+## Amendment, 2026-10-27 — the fork fixes the faults; one codec per run
+
+Our fork of the codec now fixes the three faults behind decision 4:
+
+- `PredGeomPredictor` and `MotionParameters` initialise every member, so a
+  decoder whose first frame is not frame 0 no longer reads garbage.
+- After `tmc3_decoder_end_frame` the next data starts a new frame whatever
+  its frame counter, so one decoder takes frames of several encoders
+  interleaved.
+- A manual sequence box (`autoSeqBbox=0`) without `seqSizeWhd` takes the
+  default size before the box is derived from it, instead of a size of 0.
+
+A C test of all three crashed every time against the unfixed library and
+passes, valgrind-clean, against the fixed one.
+
+Decision 4 therefore changes in how, not in what: every frame is still coded
+on its own (no inter prediction, parameter sets in every frame), but the
+lidar client, the edge and the renderer now keep **one encoder or decoder
+per run** instead of one per frame. That saves about 1 ms per side per frame
+in the ROS image (`lidar_scan` at 1 mm: 4.3 ms to encode, 3.7 ms to decode,
+against 5.4 and 4.7; the downlink 0.3 and 0.4 ms, against 1.3 and 1.4). A
+decoder given a bad frame still starts afresh. The consequence below that
+asked the fork for the fix is met.
 
 ## Context
 

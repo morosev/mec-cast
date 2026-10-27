@@ -159,6 +159,7 @@ class RenderNode(MecCastNode):
         self.frames = 0
         self.drawn = 0
         self.decode_errors = 0
+        self.decoder = None
         self.seq_gaps = 0
         self.last_seq: int | None = None
         self._progress_mark = 0
@@ -226,6 +227,7 @@ class RenderNode(MecCastNode):
         self.frames = 0
         self.drawn = 0
         self.decode_errors = 0
+        self.decoder = gpcc.Decoder() if self.codec == "gpcc" else None
         self.seq_gaps = 0
         self.last_seq = None
         self._progress_mark = 0
@@ -273,6 +275,9 @@ class RenderNode(MecCastNode):
         if self.sink is not None:
             self.sink.close()
             self.sink = None
+        if self.decoder is not None:
+            self.decoder.close()
+            self.decoder = None
         report = self._close_recorder()
         self.get_logger().info(
             f"render stopped run {self.run_id}: frames={self.frames} "
@@ -330,7 +335,7 @@ class RenderNode(MecCastNode):
         def points() -> np.ndarray:
             # Decoding is this node's processing, like drawing: it happens
             # between recv_ns and process_done_ns.
-            voxels = gpcc.decode(bytes(msg.data), dtype=np.int32)
+            voxels = self.decoder.decode(bytes(msg.data), dtype=np.int32)
             return ((voxels.astype(np.float32) + 0.5) * msg.voxel_size_m).astype(np.float32)
 
         self._draw_and_record(msg.envelope, recv_ns, len(msg.data), points)

@@ -11,7 +11,7 @@ cycle colcon refuses.
 import numpy as np
 import pytest
 
-from mec_cast_codec.gpcc import Encoder, decode
+from mec_cast_codec.gpcc import Decoder, Encoder, decode
 from mec_cast_edge.edge_node import VOXEL_SIZE, process_cloud
 from mec_cast_lidar_client.publisher_node import PATTERNS, PointCloudPublisher
 
@@ -89,32 +89,38 @@ def test_lidar_scan_codes_well_below_raw():
 
 
 def test_every_frame_decodes_on_its_own_in_any_order():
+    """No inter prediction, parameter sets in every frame: one decoder, or a
+    fresh one, decodes any frame without those before it."""
     pts = list(clouds("lidar_scan"))
     enc = Encoder(0.001)
     packets = [enc.encode(p) for p in pts]
+    dec = Decoder()
     for i in (2, 0, 1, 1):
+        assert dec.decode(packets[i]).shape == pts[i].shape
         assert decode(packets[i]).shape == pts[i].shape
 
 
-def test_a_frame_codes_the_same_whatever_came_before():
-    """Every frame is frame 0 of its own stream: the encoder keeps no state
-    from one frame to the next."""
+def test_a_frame_decodes_the_same_whatever_came_before():
+    """The encoder keeps no state that changes a frame's points: only its
+    frame counter differs from one frame to the next."""
     a, b = list(clouds("sphere", 2))
     enc = Encoder(0.001)
-    first = enc.encode(b)
+    first = decode(enc.encode(b))
     enc.encode(a)
-    assert enc.encode(b) == first
+    np.testing.assert_array_equal(decode(enc.encode(b)), first)
 
 
-def test_two_interleaved_streams_decode_as_they_would_alone():
-    """Several lidar instances publish on one topic, so the edge sees their
-    frames interleaved. A long-lived reference decoder folds frames with
-    equal counters into one, and has crashed on it; per-frame codecs do not."""
+def test_one_decoder_takes_interleaved_streams():
+    """Several lidar instances publish on one topic, each counting frames
+    from 0, so the edge's one decoder sees their frames interleaved with
+    equal counters. The reference decoder folded those into one frame, and
+    crashed on it; our fork starts a new frame after each one ended."""
     a, b = list(clouds("lidar_scan", 10)), list(clouds("sphere", 10))
     ea, eb = Encoder(0.001), Encoder(0.001)
+    dec = Decoder()
     for pa, pb in zip(a, b):
         for pts, data in ((pa, ea.encode(pa)), (pb, eb.encode(pb))):
-            out = decode(data)
+            out = dec.decode(data)
             assert out.shape == pts.shape
             assert max_error(out, pts) <= 0.001 + 1e-5
 
