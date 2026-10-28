@@ -23,10 +23,12 @@ flowchart TB
     UEPTP["device PTP_DEVICE → /dev/ptp0<br/>(host index varies; default ptp0)"]:::vol
     UEVOL["volume ../../runs → /runs"]:::vol
     RENC["container: render<br/>ros2 run mec_cast_ue ue_agent<br/>RENDER_INSTANCES=M · RENDER_SINK=null | rerun | ros<br/>published :9876+2j page · :9877+2j stream"]:::ctr
+    WEBC["media profile: WebRTC client · runs natively, not deployed<br/>node client.js · mode relay · role send | recv<br/>prebuilt libwebrtc · make fetch-libwebrtc build-client<br/>ADMIN_URL · RUNS_DIR · LOGGING_URL"]:::ext
     UEC --- UEENV
     UEC --- UEPTP
     UEC --- UEVOL
     RENC --- UEVOL
+    WEBC --- UEVOL
   end
 
   subgraph H2["HOST — role: gnb &nbsp;&nbsp; compose.gnb.yml &nbsp;&nbsp; network_mode: host"]
@@ -47,6 +49,13 @@ flowchart TB
     EDGEC --- EDGEVOL
   end
 
+  subgraph H5["HOST — role: relay &nbsp;&nbsp; compose.relay.yml"]
+    direction TB
+    RELAYC["container: media-relay · usually on the edge host<br/>network_mode: host · image mec-cast-relay<br/>str0m, RTP mode, ICE-lite<br/>published :8090 tcp WHIP/WHEP · :8090 udp media<br/>RELAY_PUBLIC_IP = its one ICE candidate · RELAY_PORT<br/>forwards without decoding · records between run.start and run.stop"]:::ctr
+    RELAYVOL["volume ../../runs → /runs<br/>device PTP_DEVICE → /dev/ptp0"]:::vol
+    RELAYC --- RELAYVOL
+  end
+
   subgraph H4["HOST — role: infra &nbsp;&nbsp; compose.infra.yml"]
     direction TB
     LOGC["container: logging<br/>uvicorn → FastAPI<br/>published :8000<br/>MECLOG_AUTO_MIGRATE=true<br/>restart: unless-stopped"]:::ctr
@@ -63,6 +72,8 @@ flowchart TB
   RICC -.->|"ws :8099 · ADMIN_URL"| ADMC
   SRSRAN -.->|"E2 · SCTP :36421"| RICC
   RENC -.->|"ws :8099 · ADMIN_URL"| ADMC
+  WEBC -.->|"ws :8099 · ADMIN_URL"| ADMC
+  RELAYC -.->|"ws :8099 · ADMIN_URL"| ADMC
 
   subgraph NET5G["5G NETWORK — user plane"]
     direction TB
@@ -75,11 +86,16 @@ flowchart TB
   UPF ==>|"Zenoh :7448 / :7449 · DDS discovery :11811"| ZR
   UPF ==>|"DDS only: RTPS data peer to peer<br/>udp 7400+ or tcp :7410"| EDGEC
 
+  WEBC ==>|"WebRTC video, sender to relay to receiver<br/>WHIP/WHEP tcp :8090 · RTP + send-timestamp-ns ext udp :8090, the UE dials OUT"| RAN
+  UPF ==>|"media profile: tcp + udp :8090"| RELAYC
+
   EDGEC ==>|"mec_cast/result · voxel cloud, or result_gpcc coded<br/>publish_result, off by default"| RENC
   UEC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
   RENC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
   EDGEC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
   RANC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
+  WEBC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
+  RELAYC -.->|"HTTP POST :8000 /api/v1/logs"| LOGC
 
   subgraph MGMT["MANAGEMENT / BACKHAUL LAN — separate from the 5G user plane"]
     direction TB
@@ -90,14 +106,16 @@ flowchart TB
   GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H1
   GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H2
   GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H3
+  GM -.->|"ptp4l → PHC · phc2sys or chrony → clock"| H5
 
   OPS["Operator workstation<br/>bash deploy/lab/deploy.sh ROLE user@host<br/>rsync + docker compose up -d --build"]:::ext
   OPS -.->|"ssh"| H1
   OPS -.->|"ssh"| H2
   OPS -.->|"ssh"| H3
   OPS -.->|"ssh"| H4
+  OPS -.->|"ssh"| H5
   OPS -.->|"pgAdmin via ssh -L 5433:localhost:5433<br/>(expose-db.yml binds loopback)"| PGC
 
-  ORDER["Deploy order: infra → edge → gnb → ue<br/>everything posts to the logging service, and the UE dials the edge's middleware centre"]:::vol
+  ORDER["Deploy order: infra → edge → gnb → ue, and relay beside the edge<br/>everything posts to the logging service; the UE dials the edge's middleware centre or the relay"]:::vol
 
-  class H1,H2,H3,H4,NET5G,MGMT host
+  class H1,H2,H3,H4,H5,NET5G,MGMT host

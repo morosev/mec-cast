@@ -232,11 +232,11 @@ function bullets(s, x, y, w, h, items, size) {
   ], 11.5);
 }
 
-// ================================================== 4. EDGE SERVICES
+// ================================================== 4. INFRA SERVICES
 {
   const s = slideBase(
-    "Edge services — logging and admin",
-    "Two first-party services on the edge host. Logging is where aggregated results land; admin is where runs are started and stopped."
+    "Infra services — logging and admin",
+    "Two first-party services on the infra host. Logging is where aggregated results land; admin is where runs are started and stopped."
   );
 
   box(s, { x: M, y: TOP, w: 5.90, h: 2.50, title: "HTTP API  (/api/v1)", lines: [
@@ -389,68 +389,69 @@ function bullets(s, x, y, w, h, items, size) {
   ], 11.5);
 }
 
-// ============================================= 8. PROFILE B — CURRENT
+// ============================================= 8. PROFILE B — AS BUILT
 {
   const s = slideBase(
-    "Profile B — WebRTC, current model",
-    "The platform's second transport profile: real-time media over WebRTC, measured with the same telemetry spine."
+    "Profile B — WebRTC through a relay on the edge",
+    "Video for teleoperation, from a sender on one UE to a receiver on another, measured where the 5G legs meet (ADR-0015)."
   );
 
   const y = TOP, h = 1.30;
-  box(s, { x: M, y, w: 3.75, h, title: "Native client", lines: ["Node.js console app", "C++ N-API addon"] });
-  box(s, { x: M + 4.25, y, w: 3.75, h, title: "Signaling server", lines: ["WebSocket, JSON", "offer / answer / ICE"] });
-  box(s, { x: M + 8.5, y, w: 3.73, h, title: "Peer client", lines: ["P2P after ICE", "renders + measures"] });
-  arrow(s, M + 3.81, y + h / 2, M + 4.19, y + h / 2);
-  arrow(s, M + 8.06, y + h / 2, M + 8.44, y + h / 2);
-
-  box(s, { x: M, y: 3.28, w: 5.90, h: 1.95, title: "How the timing gets across", lines: [
-    "A patched libwebrtc fork adds a custom 16-byte RTP header",
-    "extension carrying capture_ns and send_ns, and forces every",
-    "frame to be a timing frame — upstream only samples",
-    "periodically, which is useless per-frame.",
-  ], fs: 11 });
-
-  box(s, { x: M + 6.33, y: 3.28, w: 5.90, h: 1.95, title: "Attached to the shared spine", lines: [
-    "The addon links the telemetry crate over a C ABI and records",
-    "one sample per rendered frame, so media runs land in the same",
-    "CSV schema and the same database as the point-cloud profile.",
-    "One RUN_ID joins both.",
-  ], fs: 11 });
-
-  note(s, M, 5.45, CW, 1.4, [
-    "The cost of this approach: the fork is a ~20 GB source tree that takes hours to build, and the measurement points are only as good as the places the patch can reach. Encode duration, for example, arrives quantised to whole milliseconds in a system that otherwise measures in nanoseconds.",
-  ], 11.5);
-}
-
-// ============================================== 9. PROFILE B — PLANNED
-{
-  const s = slideBase(
-    "Profile B — planned: str0m with an SFU",
-    "Replacing the patched fork with a sans-IO library, so precise timestamps fall out of the architecture instead of a patch."
-  );
-
-  const y = TOP, h = 1.30;
-  box(s, { x: M, y, w: 3.4, h, title: "Publisher", lines: ["encodes and sends"] });
-  box(s, { x: M + 3.9, y, w: 4.3, h, dark: true, title: "SFU on the MEC edge", lines: [
-    "str0m state machine, owns its UDP socket", "selective forwarding — one upstream, many down"], fs: 10.5 });
-  box(s, { x: M + 8.7, y, w: 3.53, h, title: "Subscribers", lines: ["many receivers", "no mesh, no re-encode"] });
+  box(s, { x: M, y, w: 3.4, h, title: "Sender — UE", lines: ["Node app + C++ addon", "synthetic or camera video", "WHIP, over the 5G uplink"] });
+  box(s, { x: M + 3.9, y, w: 4.3, h, dark: true, title: "Relay on the MEC edge", lines: [
+    "str0m, unmodified: RTP mode, ICE-lite, one UDP port", "forwards without decoding"], fs: 10.5 });
+  box(s, { x: M + 8.7, y, w: 3.53, h, title: "Receiver — UE", lines: ["same client, role recv", "renders or headless", "WHEP, over the 5G downlink"] });
   arrow(s, M + 3.46, y + h / 2, M + 3.84, y + h / 2);
   arrow(s, M + 8.26, y + h / 2, M + 8.64, y + h / 2);
 
-  bullets(s, M, 3.28, 5.90, 2.1, [
-    "Sans-IO: the application owns the socket and the event loop.",
-    "send_ns is stamped at the actual socket write, recv_ns at the socket read.",
-    "No forked media stack to maintain, and no 20 GB build.",
+  box(s, { x: M, y: 3.28, w: 5.90, h: 1.95, title: "A patched libwebrtc, prebuilt", lines: [
+    "The fork stamps every packet with a 16-byte RTP header",
+    "extension, capture_ns and send_ns, and makes every frame a",
+    "timing frame. Its release workflow builds linux-x64 and",
+    "macos-arm64; make fetch-libwebrtc downloads the pinned one.",
+  ], fs: 11 });
+
+  box(s, { x: M + 6.33, y: 3.28, w: 5.90, h: 1.95, title: "The relay stays out of the measurement", lines: [
+    "It writes the sender's extension back unchanged, so the",
+    "receiver measures as it would with no relay, and passes",
+    "keyframe requests back to the sender. Clients dial out to it;",
+    "it forwards a frame in tens of microseconds.",
+  ], fs: 11 });
+
+  note(s, M, 5.45, CW, 1.4, [
+    "Limits: no arm64 Linux clients (Chromium ships no clang for that host), no camera on macOS yet, and the relay advertises one address, RELAY_PUBLIC_IP. Peer-to-peer calls through the signaling server stay, as the baseline a relayed call is compared with.",
+  ], 11.5);
+}
+
+// ============================================== 9. PROFILE B — MEASURED
+{
+  const s = slideBase(
+    "Profile B — three measuring points per frame",
+    "Joined on the frame's RTP timestamp, so one video frame splits into its uplink, forwarding, downlink and playout."
+  );
+
+  const y = TOP, h = 1.50;
+  box(s, { x: M, y, w: 3.4, h, title: "Sender", lines: ["capture_ns, send_ns", "in the RTP extension", "WebRTC stats: bitrate, estimate"] });
+  box(s, { x: M + 3.9, y, w: 4.3, h, dark: true, title: "Relay — site 3", lines: [
+    "network_ns: the uplink alone", "processing_ns: its forwarding", "jitter, loss and RTT of both legs"], fs: 10.5 });
+  box(s, { x: M + 8.7, y, w: 3.53, h, title: "Receiver — site 4", lines: ["e2e_ns: glass-to-glass", "jitter buffer, decode, render", "freezes, NACKs, PLIs"] });
+  arrow(s, M + 3.46, y + h / 2, M + 3.84, y + h / 2);
+  arrow(s, M + 8.26, y + h / 2, M + 8.64, y + h / 2);
+
+  bullets(s, M, 3.48, 5.90, 1.5, [
+    "Per frame: the platform's CSV schema, at the relay and the receiver.",
+    "Per stream, every second: WebRTC's own statistics in webrtc.csv at all three, and in the logging service.",
+    "tools/media_join.py splits each frame into its legs and attaches the streams' state.",
   ], 11.5);
 
-  bullets(s, M + 6.33, 3.28, 5.90, 2.1, [
-    "An SFU scales to many viewers — the natural shape for teleoperation and multi-operator monitoring.",
-    "Feeds the identical recorder, so media and point-cloud runs stay directly comparable.",
-    "The SFU is a MEC server component; the library fork stays vendored separately.",
+  bullets(s, M + 6.33, 3.48, 5.90, 1.5, [
+    "Under the admin, a run with profile media recruits the relay, a sender and a receiver; the RAN sources join too.",
+    "The run's params set the stream and the video's size and rate.",
+    "run.json records the stream, the video and the libwebrtc release.",
   ], 11.5);
 
-  note(s, M, 5.60, CW, 1.3, [
-    "Open design point: the 64-byte envelope exceeds the 16-byte limit of the one-byte RTP extension format, so either the two-byte format is used or the extension carries the timestamps only, with the rest inferred per session. The CSV and snapshot contract is unaffected either way.",
+  note(s, M, 5.2, CW, 1.2, [
+    "Every cross-host figure needs PTP on both hosts. WebRTC's clock is not CLOCK_MONOTONIC on macOS, so the fork converts against WebRTC's own clock; a Mac rarely has PTP, the lab's Linux hosts and edge do.",
   ], 11.5);
 }
 

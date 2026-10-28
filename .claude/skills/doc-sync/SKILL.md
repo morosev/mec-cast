@@ -180,12 +180,12 @@ docs do not say, that is a Stage-1 gap — fix it there first.
 | 1 | Architecture overview | `architecture/overview.md` |
 | 2 | Deployment — local | `deploy/compose/local.yml`, `deploy/README.md`, `guides/local-development.md` |
 | 3 | Deployment — lab | `deploy/lab/`, `operations/lab-topology.md`, `operations/deploy-manual.md` |
-| 4 | Edge services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `operations/admin-manual.md`, `services/README.md` |
+| 4 | Infra services — logging and admin | `operations/logging-submodule.md`, `operations/admin-service.md`, `operations/admin-manual.md`, `services/README.md` |
 | 5 | ROS2 on the UE — client and renderer | `ros2/README.md`, `adr/0009-render-return-path.md` |
 | 6 | Edge | `ros2/README.md`, `telemetry/README.md` |
 | 7 | Middleware — Zenoh or Fast DDS | `adr/0001-zenoh-over-dds.md`, `adr/0013-two-middlewares.md`, `architecture/middleware.md` |
-| 8 | Profile B — current | `clients/webrtc_native/README.md` |
-| 9 | Profile B — planned str0m | `architecture/str0m-profile.md` |
+| 8 | Profile B — WebRTC through the relay, as built | `architecture/str0m-profile.md`, `clients/webrtc_native/README.md`, `edge/README.md`, ADR-0015 |
+| 9 | Profile B — three measuring points per frame | `architecture/str0m-profile.md`, `operations/admin-service.md`, `tools/README.md` |
 | 10 | RAN — two sources and run-scoped control | `ran/collector/README.md`, `ran/xapp/README.md`, `ran/schema/metrics.md`, ADR-0010, ADR-0011 |
 | 11 | Applications and future work | `research/README.md`, ADR-0011 |
 
@@ -211,9 +211,9 @@ The 10 slides are stable, not frozen. When the system outgrows them, **notice
 it and argue the case** — never silently cram content in, never silently add a
 slide. Signals:
 
-- a component exists that no slide owns (a compression stage, a str0m SFU once built)
+- a component exists that no slide owns (a compression stage once, the media relay until slides 8–9 were rewritten for it)
 - one slide's word count climbs well past its neighbours (QA prints these)
-- a slide describes something now retired — Profile B, once str0m lands
+- a slide describes something now retired — slide 9 described a str0m SFU replacing the fork until ADR-0015 kept the fork and built a relay
 - two unrelated ideas share a slide because there was nowhere else
 
 Bring the user: what changed, which slide is strained, what you propose (add /
@@ -535,8 +535,21 @@ ignore is worth less than no finding at all.
   ```
 - `node` comes from nvm and is absent in non-interactive shells — source
   `~/.nvm/nvm.sh` first.
-- LibreOffice is not installed, so the deck cannot be rendered to images.
-  `qa_pptx.py` substitutes geometric checks; say so when reporting.
+- **Look at changed slides, not just the geometry.** `qa_pptx.py` checks
+  overflow and overlap; it missed arrow labels wider than their gap and a
+  half-empty slide, both obvious in a render. With LibreOffice
+  (`brew install --cask libreoffice`), render one slide N to an image — no
+  poppler needed, since `sips` renders a PDF's first page:
+
+  ```bash
+  soffice --headless --convert-to 'pdf:impress_pdf_Export:{"PageRange":{"type":"string","value":"N"}}' --outdir <scratch> docs/slides/mec-cast-architecture.pptx
+  ```
+
+  ```bash
+  sips -s format png -Z 2000 <scratch>/mec-cast-architecture.pdf --out <scratch>/slideN.png
+  ```
+
+  Without LibreOffice, say that only the geometric checks ran.
 
 ## Committing
 
