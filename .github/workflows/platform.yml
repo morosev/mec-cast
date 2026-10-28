@@ -92,6 +92,15 @@ jobs:
       # wire format; its tests assert against the shared fixture.
       - run: pip install "websockets>=12" pytest
       - run: pytest ros2/src/mec_cast_admin_client/test -q
+      # So is the WebRTC client's (clients/webrtc_native/admin_client.js), in
+      # Node. Its tests need only `ws`: no native addon, no libwebrtc.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install --ignore-scripts --no-audit --no-fund
+        working-directory: clients/webrtc_native
+      - run: npm test
+        working-directory: clients/webrtc_native
 
   # The RAN data model and the E2 xApp, on Python 3.8: the O-RAN SC RIC's
   # xApp runner is python:3.8-slim, and the xApp runs inside it. 22.04 because

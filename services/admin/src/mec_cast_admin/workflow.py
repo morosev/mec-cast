@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .protocol import MIDDLEWARE_NODE_TYPES, NodeState, NodeType, middleware_of
+from .protocol import MIDDLEWARE_NODE_TYPES, NodeState, NodeType, middleware_of, profile_of
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
@@ -102,6 +102,21 @@ _ABSENCE_PROSE: dict[NodeType, tuple[str, str]] = {
         "infra host. Local: "
         "`make up-ran-admin`. The JSON tap still records RAN KPIs without it.",
     ),
+    NodeType.RELAY: (
+        "No media relay is connected, so nothing can forward the video.",
+        "Lab: `RELAY_PUBLIC_IP=<N6 address> bash deploy/lab/deploy.sh relay <user@host>`. "
+        "If it is running, check that its ADMIN_URL points at this service.",
+    ),
+    NodeType.SENDER: (
+        "No media sender is connected, so no video is being produced.",
+        "On the sending UE: `node client.js <config>` with role send, mode relay, and "
+        "ADMIN_URL (or admin_url) pointing at this service.",
+    ),
+    NodeType.RECEIVER: (
+        "No media receiver is connected, so nothing measures the video's arrival.",
+        "On the receiving UE: `node client.js <config>` with role recv, mode relay, and "
+        "ADMIN_URL (or admin_url) pointing at this service.",
+    ),
     NodeType.GNB: (
         "No gNB collector is connected; this run will have no RAN KPIs.",
         "Deploy the gnb role with `bash deploy/lab/deploy.sh gnb <user@host>`, "
@@ -163,7 +178,9 @@ def diagnose(
     for zone in zones:
         in_zone = [r for r in online if zone_of(r) == zone]
         present = {role: [r for r in in_zone if r.node_type == role] for role in NodeType}
-        for role_spec in spec.roles:
+        # Only the roles of the run's profile: a media run lacks no lidar.
+        roles = spec.roles_for(profile_of(run.params)) if run is not None else spec.roles
+        for role_spec in roles:
             if role_spec.absence is None or present.get(role_spec.role):
                 continue
             if not run_is_active:
@@ -542,6 +559,98 @@ def diagnose(
                         zone=zone_of(client),
                     )
                 )
+
+    # --- the media profile (ADR-0015) -------------------------------------
+    relays = [r for r in online if r.node_type == NodeType.RELAY]
+    senders = [r for r in online if r.node_type == NodeType.SENDER]
+    receivers = [r for r in online if r.node_type == NodeType.RECEIVER]
+
+    # A client whose WebRTC connection to the relay failed: the WHIP/WHEP
+    # exchange worked (HTTP), the media path did not (UDP). The relay offers
+    # one ICE candidate, RELAY_PUBLIC_IP, and a UE that cannot reach it gets
+    # nothing -- the client says so only in its own console.
+    for c in senders + receivers:
+        state = (c.params or {}).get("connection")
+        if not run_is_active or c.state is not NodeState.RUNNING:
+            continue
+        if state in ("failed", "disconnected"):
+            findings.append(
+                Finding(
+                    "WF_MEDIA_NOT_CONNECTED",
+                    "error",
+                    c.node_id,
+                    f"{c.node_id}'s WebRTC connection to the relay is {state}: "
+                    "signalling reached the relay, the media did not.",
+                    "The relay offers exactly one address, RELAY_PUBLIC_IP: it must be "
+                    "the one this UE reaches (the N6 address in the lab, a real "
+                    "interface address on one machine -- libwebrtc gathers no "
+                    "loopback), and UDP on RELAY_PORT (8090) must be open from the UE.",
+                    zone=zone_of(c),
+                )
+            )
+
+    # A receiver playing a stream no sender in its zone publishes receives
+    # nothing, and nothing anywhere fails.
+    for rcv in receivers:
+        if not run_is_active or rcv.state is not NodeState.RUNNING:
+            continue
+        wanted = (rcv.params or {}).get("stream")
+        published = {
+            (s.params or {}).get("stream")
+            for s in senders
+            if zone_of(s) == zone_of(rcv) and s.state is NodeState.RUNNING
+        }
+        if wanted and published and wanted not in published:
+            findings.append(
+                Finding(
+                    "WF_STREAM_MISMATCH",
+                    "error",
+                    rcv.node_id,
+                    f"{rcv.node_id} plays stream {wanted!r}, which no sender publishes "
+                    f"(published: {', '.join(sorted(map(str, published)))}).",
+                    "Name the stream in the run (params.stream) -- it is applied to every "
+                    "sender and receiver -- or set the same `stream` in their configs.",
+                    zone=zone_of(rcv),
+                )
+            )
+
+    # Where the video stops: frames encoded at the sender and not reaching
+    # the relay is the uplink; frames at the relay and not decoded at the
+    # receiver is the downlink.
+    for relay in relays:
+        if not run_is_active:
+            continue
+        zone_senders = [s for s in senders if zone_of(s) == zone_of(relay)]
+        zone_receivers = [c for c in receivers if zone_of(c) == zone_of(relay)]
+        relay_up = _rising(relay, "frames")
+        if any(_rising(s, "frames") for s in zone_senders) and relay_up is False:
+            findings.append(
+                Finding(
+                    "WF_MEDIA_NO_FRAMES",
+                    "error",
+                    relay.node_id,
+                    f"The sender is encoding frames but {relay.node_id}'s frame count "
+                    "is not moving.",
+                    "The video is not crossing the uplink. Check the sender's connection "
+                    "(WF_MEDIA_NOT_CONNECTED) and, under netem or a congested cell, whether "
+                    "the link carries the sender's bitrate at all.",
+                    zone=zone_of(relay),
+                )
+            )
+        elif relay_up:
+            for rcv in zone_receivers:
+                if rcv.state is NodeState.RUNNING and _rising(rcv, "frames") is False:
+                    findings.append(
+                        Finding(
+                            "WF_MEDIA_NO_FRAMES",
+                            "error",
+                            rcv.node_id,
+                            f"{relay.node_id} is forwarding frames but {rcv.node_id} decodes none.",
+                            "The video is not crossing the downlink, or the receiver plays "
+                            "another stream (WF_STREAM_MISMATCH). Check its connection.",
+                            zone=zone_of(rcv),
+                        )
+                    )
 
     # --- the gNB ----------------------------------------------------------
     for gnb in gnbs:

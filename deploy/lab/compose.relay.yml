@@ -8,6 +8,8 @@
 #   RELAY_PUBLIC_IP   the address the clients reach it at (the N6 address);
 #                     the one ICE candidate it offers. REQUIRED.
 #   RELAY_PORT        WHIP/WHEP on TCP and media on UDP (default 8090)
+#   ADMIN_URL         the admin, which starts and stops its runs (default the
+#                     infra host's); set it empty to record RUN_ID standalone
 #
 # Required env: RELAY_PUBLIC_IP, INFRA_HOST
 services:
@@ -26,6 +28,10 @@ services:
       RELAY_UDP: 0.0.0.0:${RELAY_PORT:-8090}
       RELAY_PUBLIC_IP: ${RELAY_PUBLIC_IP:?set RELAY_PUBLIC_IP, the address clients reach the relay at}
       RUN_ID: ${RUN_ID:-}
+      # `-` not `:-`: an explicitly empty ADMIN_URL means "no control
+      # plane" (record RUN_ID from start to exit), which must survive.
+      ADMIN_URL: ${ADMIN_URL-ws://${INFRA_HOST:?set INFRA_HOST}:8099/ws/node}
+      ZONE: ${ZONE:-}
       RUNS_DIR: /runs
       LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
       # The host PHC, always /dev/ptp0 inside, as for the other roles.

@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared protocol fixtures. Read by services/admin/tests/test_protocol.py AND by ran/collector/tests/admin_ws.rs, so the Python and Rust implementations cannot drift apart silently. Timestamps and ids are frozen so the file diffs cleanly.",
+  "_comment": "Shared protocol fixtures. Read by services/admin/tests/test_protocol.py, ran/collector/tests/admin_ws.rs AND clients/webrtc_native/test/admin_client.test.js, so the Python, Rust and Node implementations cannot drift apart silently. Timestamps and ids are frozen so the file diffs cleanly.",
 
   "hello_client": {
     "v": 1, "type": "hello", "msg_id": "00000000-0000-4000-8000-000000000001",
@@ -71,6 +71,49 @@
                  "capabilities": ["kpm_monitor", "rc_control"]},
       "counters": {"indications": 42, "rows": 168, "controls_sent": 0, "controls_failed": 0,
                    "ue_dl_throughput_bps": 118000000, "ue_ul_throughput_bps": 21000000},
+      "autostart": true, "last_error": null, "report": {}
+    }
+  },
+
+
+  "hello_sender": {
+    "v": 1, "type": "hello", "msg_id": "00000000-0000-4000-8000-000000000011",
+    "ts_ns": 1787000000000000011, "node_id": "sender-ue01-0",
+    "payload": {
+      "node_type": "sender", "node_id": "sender-ue01-0", "host": "ue01", "zone": "zone-a", "pid": 51,
+      "version": {"sha": "f398ec6", "tag": ""},
+      "state": "idle", "run_id": null, "autostart": true,
+      "params": {"role": "send", "stream": "default", "relay_url": "http://10.45.0.1:8090",
+                 "connection": "closed", "libwebrtc": "webrtc-c7f637a-4", "out_leaf": "sender",
+                 "video": {"source": "synthetic", "width": 640, "height": 480, "fps": 30}}
+    }
+  },
+
+  "status_receiver": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000012",
+    "ts_ns": 1787000000000000012, "node_id": "receiver-ue02-0",
+    "payload": {
+      "node_type": "receiver", "state": "running", "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": false, "subscribed": true,
+      "params": {"role": "recv", "stream": "default", "relay_url": "http://10.45.0.1:8090",
+                 "connection": "connected", "libwebrtc": "webrtc-c7f637a-4", "out_leaf": "receiver"},
+      "counters": {"frames": 540, "packets": 3535, "bytes": 3764820, "packets_lost": 0,
+                   "nacks": 0, "plis": 1, "freezes": 0},
+      "last_error": null, "report": {}
+    }
+  },
+
+  "status_relay": {
+    "v": 1, "type": "status", "msg_id": "00000000-0000-4000-8000-000000000013",
+    "ts_ns": 1787000000000000013, "node_id": "relay-mec01-0",
+    "payload": {
+      "node_type": "relay", "state": "running", "run_id": "0190d1f2-0000-7000-8000-000000000000",
+      "streaming": false, "subscribed": false,
+      "peers": [{"peer_id": "publisher-1", "detail": {"stream": "default", "connected": true}},
+                {"peer_id": "subscriber-2", "detail": {"stream": "default", "connected": true}}],
+      "params": {"public_addr": "10.45.0.1:8090",
+                 "streams": {"default": {"publishers": 1, "subscribers": 1}}, "out_leaf": "relay"},
+      "counters": {"frames": 742, "frames_recorded": 700, "clients": 2, "unclaimed": 0},
       "autostart": true, "last_error": null, "report": {}
     }
   },

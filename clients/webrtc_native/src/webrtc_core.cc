@@ -332,7 +332,9 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
 // and logging service as the ROS2/Zenoh profile, so media and point-cloud
 // runs are directly comparable.
 //
-// Configured entirely by environment, matching the ROS2 nodes:
+// Configured entirely by environment, matching the ROS2 nodes, read when a
+// connection's first frame arrives -- so each connection records under the
+// RUN_ID of its time, and under the admin one process records run after run:
 //   RUN_ID       experiment run id (joins profiles; default "dev-run")
 //   RUNS_DIR     base output directory (default "runs")
 //   LOGGING_URL  logging service base URL (optional; CSV always written)
@@ -347,8 +349,12 @@ namespace {
 // the relay's samples and these join per frame.
 constexpr uint8_t kSiteReceiver = 4;
 
+// One recorder per connection: opened on its first frame, closed with it
+// (webrtc_destroy). The mutex covers opening and closing; OnFrame reads the
+// pointer under it too, which costs nothing next to a decoded frame.
+std::mutex g_telemetry_mutex;
 MctRecorder* g_telemetry = nullptr;
-std::once_flag g_telemetry_once;
+bool g_telemetry_tried = false;
 
 const char* EnvOr(const char* name, const char* fallback) {
   const char* v = std::getenv(name);
@@ -356,6 +362,8 @@ const char* EnvOr(const char* name, const char* fallback) {
 }
 
 void ShutdownTelemetry() {
+  std::lock_guard<std::mutex> lock(g_telemetry_mutex);
+  g_telemetry_tried = false;
   if (!g_telemetry) return;
   MctReport r{};
   mct_recorder_stop(g_telemetry, &r);
@@ -367,10 +375,12 @@ void ShutdownTelemetry() {
 }
 
 MctRecorder* Telemetry() {
-  std::call_once(g_telemetry_once, [] {
+  std::lock_guard<std::mutex> lock(g_telemetry_mutex);
+  if (!g_telemetry_tried) {
+    g_telemetry_tried = true;
     if (std::strcmp(EnvOr("MEC_CAST_TELEMETRY", "1"), "0") == 0) {
       DEMO_LOG("telemetry: disabled via MEC_CAST_TELEMETRY=0");
-      return;
+      return nullptr;
     }
     const char* run_id = EnvOr("RUN_ID", "dev-run");
     std::string out_dir =
@@ -381,12 +391,13 @@ MctRecorder* Telemetry() {
                                      logging_url, 0.0);
     if (g_telemetry) {
       DEMO_LOG("telemetry: recording to %s (run_id=%s)", out_dir.c_str(), run_id);
-      std::atexit(ShutdownTelemetry);
+      static std::once_flag at_exit;
+      std::call_once(at_exit, [] { std::atexit(ShutdownTelemetry); });
     } else {
       DEMO_LOG("telemetry: WARNING failed to start (is %s writable?)",
                out_dir.c_str());
     }
-  });
+  }
   return g_telemetry;
 }
 
@@ -891,6 +902,9 @@ void webrtc_destroy(WebrtcPeer* peer) {
     std::lock_guard<std::mutex> lock(peer->renderer_mutex);
     peer->video_renderer.reset();
   }
+  // No frame can arrive now: close this connection's recording, so the next
+  // one opens its own under the RUN_ID of its time.
+  ShutdownTelemetry();
   peer->video_source = nullptr;
   peer->factory = nullptr;
   if (peer->log_sink) {

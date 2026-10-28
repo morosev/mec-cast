@@ -38,6 +38,7 @@ logging service every second.
 | `RELAY_HTTP` | `0.0.0.0:8090` | WHIP/WHEP, TCP |
 | `RELAY_UDP` | `0.0.0.0:8090` | media, UDP |
 | `RELAY_PUBLIC_IP` | `RELAY_UDP`'s address | the one ICE candidate offered; required when listening on 0.0.0.0 |
+| `ADMIN_URL` | none | the admin: it starts and stops the relay's runs (node type `relay`); without it, the relay records `RUN_ID` from start to exit |
 | `RUN_ID`, `RUNS_DIR`, `LOGGING_URL` | | as every node |
 | `PTP_DEVICE` | none | PHC to monitor (Linux) |
 | `RELAY_STATS_INTERVAL_MS` | `1000` | WebRTC stats interval; `0` off |

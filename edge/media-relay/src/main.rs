@@ -15,8 +15,11 @@
 //!   RELAY_PUBLIC_IP  the address clients reach the media address at; it is
 //!                    the one ICE candidate offered (default: RELAY_UDP's IP,
 //!                    which must then not be 0.0.0.0)
+//!   ADMIN_URL        the admin service (ws://<infra>:8099/ws/node): the relay
+//!                    joins it as node type `relay` and records the runs it
+//!                    starts. Unset, it records RUN_ID from start to exit.
 //!   RUN_ID, RUNS_DIR, LOGGING_URL   as every mec-cast node; samples go to
-//!                    <RUNS_DIR>/<RUN_ID>/relay/samples.csv
+//!                    <RUNS_DIR>/<run>/relay/samples.csv
 //!   PTP_DEVICE       PTP hardware clock to monitor (Linux; default none)
 //!   RELAY_STATS_INTERVAL_MS  WebRTC stats per stream to relay/webrtc.csv and
 //!                    the logging service, every so often (default 1000; 0 off)
@@ -26,6 +29,7 @@
 
 mod ext;
 mod record;
+mod session;
 mod stats;
 
 use std::collections::HashMap;
@@ -37,7 +41,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use mec_cast_telemetry::{monitor_from_device, spawn_recorder, RecorderConfig};
+use mec_cast_telemetry::admin::{self, AdminConfig, AdminHandle, Command};
+use serde_json::{json, Value};
 use str0m::change::SdpOffer;
 use str0m::format::CodecSpec;
 use str0m::media::{Direction, KeyframeRequestKind, MediaKind, Mid};
@@ -46,8 +51,8 @@ use str0m::rtp::{Extension, RtpPacket, RtpWrite, Ssrc};
 use str0m::stats::{MediaEgressStats, MediaIngressStats};
 use str0m::{Candidate, Event, Input, Output, Rtc};
 
-use record::FrameRecorder;
-use stats::{Row, StatsLog};
+use session::{Recording, Settings};
+use stats::Row;
 
 const DEFAULT_ADDR: &str = "0.0.0.0:8090";
 /// Free in str0m's default extension map (ext::ID is 12).
@@ -156,34 +161,16 @@ fn main() {
     let socket = UdpSocket::bind(udp).expect("binding the media socket");
     let candidate_addr = SocketAddr::new(public_ip, socket.local_addr().unwrap().port());
 
-    // The recorder: the same CSV and snapshots as every other node.
-    let run_id = env_or("RUN_ID", "dev-run");
-    let out_dir = std::path::Path::new(&env_or("RUNS_DIR", "runs"))
-        .join(&run_id)
-        .join("relay");
-    let mut cfg = RecorderConfig::new(&run_id, "mec-cast-relay", &out_dir);
-    cfg.logging_url = std::env::var("LOGGING_URL").ok().filter(|v| !v.is_empty());
-    let ptp_device = std::env::var("PTP_DEVICE").ok();
-    let (ptp, ptp_ok, ptp_why) = monitor_from_device(ptp_device.as_deref());
-    if !ptp_ok {
-        log!("PTP monitor off: {ptp_why}");
-    }
-    let (samples, recorder) = match spawn_recorder(cfg, ptp) {
-        Ok((s, h)) => (Some(s), Some(h)),
-        Err(e) => {
-            log!("WARNING: recording off, {}: {e}", out_dir.display());
-            (None, None)
-        }
-    };
-    log!("run {run_id}: samples to {}", out_dir.display());
-
     let stats_ms: u64 = env_or("RELAY_STATS_INTERVAL_MS", "1000")
         .parse()
         .expect("RELAY_STATS_INTERVAL_MS: milliseconds");
     let stats_interval = (stats_ms > 0).then(|| Duration::from_millis(stats_ms));
-    let logging_url = std::env::var("LOGGING_URL").ok().filter(|v| !v.is_empty());
-    let stats_log =
-        stats_interval.map(|every| StatsLog::new(&out_dir, &run_id, logging_url.as_deref(), every));
+    let settings = Settings {
+        runs_dir: env_or("RUNS_DIR", "runs").into(),
+        logging_url: std::env::var("LOGGING_URL").ok().filter(|v| !v.is_empty()),
+        ptp_device: std::env::var("PTP_DEVICE").ok().filter(|v| !v.is_empty()),
+        stats_interval,
+    };
 
     let stop = Arc::new(AtomicBool::new(false));
     {
@@ -191,22 +178,174 @@ fn main() {
         ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst)).expect("a signal handler");
     }
 
+    // Under the admin the relay records the runs it is told to; standalone,
+    // RUN_ID from start to exit.
+    let admin = std::env::var("ADMIN_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|url| {
+            let cfg = AdminConfig::new(url.clone(), "relay", hostname(), 0);
+            log!("admin at {url}, as {}", cfg.node_id);
+            admin::spawn(cfg, stop.clone())
+        });
+    let recording = match admin {
+        Some(_) => None,
+        None => Some(Recording::open(&settings, &env_or("RUN_ID", "dev-run"))),
+    };
+
     let (tx, rx) = mpsc::channel();
     let server = tiny_http::Server::http(http).expect("binding the WHIP/WHEP address");
     log!("WHIP http://{http}/whip/<stream>, WHEP http://{http}/whep/<stream>; media {candidate_addr}/udp");
     thread::spawn(move || serve(server, candidate_addr, stats_interval, tx));
 
-    let recorder_out = FrameRecorder::new(samples, record::trace_id(&run_id));
-    run(socket, candidate_addr, rx, recorder_out, stats_log, &stop);
+    let node = Node {
+        settings,
+        recording,
+        admin,
+        public_addr: candidate_addr,
+        frames_forwarded: 0,
+        unclaimed_total: 0,
+    };
+    run(socket, candidate_addr, rx, node, &stop);
+}
 
-    if let Some(h) = recorder {
-        let r = h.shutdown();
-        log!(
-            "stopped: {} samples written, {} dropped, {} snapshots posted",
-            r.samples_written,
-            r.samples_dropped,
-            r.snapshots_posted
-        );
+/// This machine's name, for the stable node id the admin addresses: the
+/// short name, as the clients on the same host report it.
+fn hostname() -> String {
+    full_hostname()
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn full_hostname() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+        })
+        .unwrap_or_else(|| "unknown".into())
+}
+
+/// What the loop keeps besides its clients: the run being recorded, if any,
+/// and the admin connection, if any.
+struct Node {
+    settings: Settings,
+    recording: Option<Recording>,
+    admin: Option<(AdminHandle, Receiver<Command>)>,
+    public_addr: SocketAddr,
+    /// Video frames forwarded since start, recorded or not: what tells the
+    /// admin the relay is passing video (WF_MEDIA_NO_FRAMES).
+    frames_forwarded: u64,
+    unclaimed_total: u64,
+}
+
+impl Node {
+    /// Follow the admin's commands. A start opens the run's recording
+    /// (closing any other); a stop closes it and reports.
+    fn follow_admin(&mut self, clients: &[Client]) {
+        let Some((_, commands)) = &self.admin else {
+            return;
+        };
+        let mut pending = Vec::new();
+        while let Ok(c) = commands.try_recv() {
+            pending.push(c);
+        }
+        for command in pending {
+            match command {
+                Command::Start { run_id } => {
+                    if self.recording.as_ref().map(|r| r.run_id.as_str()) == Some(run_id.as_str()) {
+                        continue;
+                    }
+                    if let Some(previous) = self.recording.take() {
+                        previous.close();
+                    }
+                    self.recording = Some(Recording::open(&self.settings, &run_id));
+                    if let Some((h, _)) = &self.admin {
+                        h.set_identity("running", Some(&run_id));
+                    }
+                    self.status(clients, json!({}));
+                }
+                Command::Stop => {
+                    let report = self.recording.take().map(Recording::close);
+                    if let Some((h, _)) = &self.admin {
+                        h.set_identity("idle", None);
+                    }
+                    self.status(clients, report.unwrap_or_else(|| json!({})));
+                }
+            }
+        }
+    }
+
+    fn status(&self, clients: &[Client], report: Value) {
+        let Some((handle, _)) = &self.admin else {
+            return;
+        };
+        let mut streams: HashMap<&str, (u32, u32)> = HashMap::new();
+        for c in clients {
+            let e = streams.entry(c.stream.as_str()).or_default();
+            match c.role {
+                Role::Publisher => e.0 += 1,
+                Role::Subscriber => e.1 += 1,
+            }
+        }
+        let streams: serde_json::Map<String, Value> = streams
+            .into_iter()
+            .map(|(name, (p, s))| (name.to_string(), json!({"publishers": p, "subscribers": s})))
+            .collect();
+        let peers: Vec<Value> = clients
+            .iter()
+            .map(|c| {
+                json!({
+                    "peer_id": c.label(),
+                    "detail": {"stream": c.stream, "connected": c.rtc.is_connected()},
+                })
+            })
+            .collect();
+        let (state, run_id) = match &self.recording {
+            Some(r) => ("running", Some(r.run_id.as_str())),
+            None => ("idle", None),
+        };
+        let recorded = self
+            .recording
+            .as_ref()
+            .map_or(0, |r| r.frames.frames_recorded);
+        handle.status(admin::status_payload(
+            "relay",
+            state,
+            run_id,
+            json!({
+                "public_addr": self.public_addr.to_string(),
+                "streams": streams,
+                "out_leaf": "relay",
+            }),
+            peers,
+            json!({
+                "frames": self.frames_forwarded,
+                "frames_recorded": recorded,
+                "clients": clients.len(),
+                "unclaimed": self.unclaimed_total,
+            }),
+            report,
+        ));
+    }
+
+    fn shutdown(mut self) {
+        let report = self.recording.take().map(Recording::close);
+        if let Some((handle, _)) = self.admin.take() {
+            handle.goodbye(None, report.unwrap_or_else(|| json!({})));
+            // Give the socket thread a moment to send it.
+            thread::sleep(Duration::from_millis(200));
+            handle.shutdown();
+        }
     }
 }
 
@@ -308,10 +447,10 @@ fn run(
     socket: UdpSocket,
     local: SocketAddr,
     rx: Receiver<Control>,
-    mut frames: FrameRecorder,
-    mut stats_log: Option<StatsLog>,
+    mut node: Node,
     stop: &AtomicBool,
 ) {
+    let mut last_status = Instant::now() - Duration::from_secs(10);
     let mut clients: Vec<Client> = Vec::new();
     let mut buf = vec![0u8; 2000];
     // Datagrams no client claimed: reported every few seconds, since a
@@ -344,8 +483,16 @@ fn run(
                     }
                 }
                 Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return,
+                Err(TryRecvError::Disconnected) => {
+                    node.shutdown();
+                    return;
+                }
             }
+        }
+        node.follow_admin(&clients);
+        if last_status.elapsed() >= Duration::from_secs(2) {
+            last_status = Instant::now();
+            node.status(&clients, json!({}));
         }
         clients.retain(|c| {
             let alive = c.rtc.is_alive();
@@ -369,23 +516,36 @@ fn run(
                 &mut stat_events,
             ));
         }
-        if let Some(log) = stats_log.as_mut() {
-            for s in stat_events {
-                let row = match &s.stats {
-                    StreamStats::In(i) => {
-                        Row::ingress(frames.realtime_ns(i.timestamp), &s.peer, s.kind, s.ssrc, i)
-                    }
-                    StreamStats::Out(o) => {
-                        Row::egress(frames.realtime_ns(o.timestamp), &s.peer, s.kind, s.ssrc, o)
-                    }
-                };
-                log.record(row);
+        if let Some(rec) = node.recording.as_mut() {
+            if let Some(log) = rec.stats.as_mut() {
+                for s in stat_events {
+                    let row = match &s.stats {
+                        StreamStats::In(i) => Row::ingress(
+                            rec.frames.realtime_ns(i.timestamp),
+                            &s.peer,
+                            s.kind,
+                            s.ssrc,
+                            i,
+                        ),
+                        StreamStats::Out(o) => Row::egress(
+                            rec.frames.realtime_ns(o.timestamp),
+                            &s.peer,
+                            s.kind,
+                            s.ssrc,
+                            o,
+                        ),
+                    };
+                    log.record(row);
+                }
+                log.maybe_flush(Instant::now());
             }
-            log.maybe_flush(Instant::now());
         }
 
         for f in forwards {
-            forward(&f, &mut clients, &mut frames);
+            let forwarded = forward(&f, &mut clients, node.recording.as_mut());
+            if forwarded && f.kind == MediaKind::Video && f.pkt.header.marker {
+                node.frames_forwarded += 1;
+            }
         }
         for (stream, kind, req) in keyframes {
             for c in clients
@@ -422,6 +582,7 @@ fn run(
                         let _ = c.rtc.handle_input(input);
                     } else {
                         unclaimed += 1;
+                        node.unclaimed_total += 1;
                     }
                 }
             }
@@ -438,13 +599,8 @@ fn run(
             unclaimed_report = now;
         }
     }
-    log!("stopping, {} frames recorded", frames.frames_recorded);
-    if let Some(log) = stats_log {
-        let rows = log.rows_written;
-        let dropped = log.posts_dropped;
-        let (posted, failed) = log.finish();
-        log!("webrtc stats: {rows} rows, {posted} posts, {failed} failed, {dropped} dropped");
-    }
+    log!("stopping, {} video frames forwarded", node.frames_forwarded);
+    node.shutdown();
 }
 
 /// Poll a client until it waits; returns when it next needs a timeout.
@@ -562,8 +718,9 @@ fn drain(
     }
 }
 
-/// Write one publisher packet to every subscriber of its stream.
-fn forward(f: &Forward, clients: &mut [Client], frames: &mut FrameRecorder) {
+/// Write one publisher packet to every subscriber of its stream, and record
+/// it when a run is being recorded. Whether any subscriber took it.
+fn forward(f: &Forward, clients: &mut [Client], recording: Option<&mut Recording>) -> bool {
     let mut forwarded = false;
     for c in clients
         .iter_mut()
@@ -613,7 +770,8 @@ fn forward(f: &Forward, clients: &mut [Client], frames: &mut FrameRecorder) {
         );
         forwarded = true;
     }
-    if f.kind == MediaKind::Video {
+    if let (MediaKind::Video, Some(rec)) = (f.kind, recording) {
+        let frames = &mut rec.frames;
         let done = if forwarded {
             frames.realtime_ns(Instant::now())
         } else {
@@ -634,4 +792,5 @@ fn forward(f: &Forward, clients: &mut [Client], frames: &mut FrameRecorder) {
                 .copied(),
         );
     }
+    forwarded
 }

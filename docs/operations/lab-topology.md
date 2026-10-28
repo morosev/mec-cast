@@ -235,8 +235,10 @@ export RELAY_PUBLIC_IP=10.45.0.1  # relay role only: the address UEs reach it at
 ```
 
 The relay listens on `RELAY_PORT` (default 8090), TCP for WHIP/WHEP and UDP
-for all media; open both from the UE pool. It takes no admin yet: set the
-same `RUN_ID` on it and on the receiving client.
+for all media; open both from the UE pool. Under the admin a media run
+(profile `media`) starts and stops it with its sender and receiver; without
+the admin (`ADMIN_URL=`), set the same `RUN_ID` on it and on the receiving
+client.
 
 `INFRA_HOST` names the **host**, not one service on it. Every measuring role
 posts telemetry to `:8000` there and connects its control plane to `:8099`.

@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const WebSocket = require("ws");
 const { StatsLog } = require("./stats_log");
+const { AdminClient } = require("./admin_client");
 
 // --- File logging ---
 const LOG_DIR = path.join(__dirname, "log");
@@ -88,6 +89,14 @@ function loadConfig() {
 }
 
 // --- State ---
+// The admin (ADR-0015): with ADMIN_URL (or admin_url) and mode relay, the
+// admin starts and stops this client's runs; see startAdmin below.
+let admin = null;
+// The run the admin started, and the config as loaded, which a run's own
+// params override for its duration.
+let adminRun = null;
+let baseConfig = null;
+let connectionState = "new";
 let ws = null;
 let pc = null;
 // Relay mode (WHIP/WHEP): { verb: "whip"|"whep", stream, resource } while a
@@ -212,6 +221,7 @@ function handlePeerEvent(evt) {
       break;
 
     case "connection_state":
+      connectionState = data.state;
       log(`Connection state: ${data.state}`);
       if (data.state === "connected") {
         log("P2P connection established!");
@@ -885,6 +895,9 @@ Config (client-config.json):
   role: send|recv          - What this client does: send video, or receive it
   relay_url, stream        - The relay (default http://localhost:8090) and
                              stream name (default "default")
+  admin_url                - The admin (ws://<infra>:8099/ws/node; or ADMIN_URL):
+                             it starts and stops this client's runs (relay mode)
+  instance                 - This client's instance on its host (default 0)
   stats_interval_ms: N     - WebRTC stats to runs/<RUN_ID>/<node>/webrtc.csv
                              every N ms while connected (default 1000; 0 off)
   send_audio: true|false   - Send microphone audio (default: true)
@@ -899,6 +912,7 @@ Config (client-config.json):
     }
 
     case "quit": {
+      const report = adminRun ? adminStop() : {};
       if (inCall) {
         sendSignal({ type: "hangup" });
         endCall();
@@ -907,7 +921,13 @@ Config (client-config.json):
       if (ws) ws.close();
       stopPolling();
       rl.close();
-      process.exit(0);
+      if (admin) {
+        // The goodbye needs a moment on the wire before the process ends.
+        admin.stop(report);
+        setTimeout(() => process.exit(0), 300);
+      } else {
+        process.exit(0);
+      }
       break;
     }
 
@@ -930,6 +950,7 @@ function startStatsLog() {
 }
 
 function endCall() {
+  connectionState = "new";
   if (statsLog) {
     statsLog.stop();
     statsLog = null;
@@ -947,12 +968,116 @@ function endCall() {
   pendingOffer = null;
 }
 
+// --- The admin -----------------------------------------------------------
+//
+// A media run's start publishes (sender) or plays (receiver) under the run's
+// id; its stop ends the session and reports. The run's params override the
+// config for its duration: stream, video_source, video_width, video_height,
+// video_fps. While a run is on and the session is down -- the relay was not
+// up yet, or restarted -- it is retried every few seconds.
+
+const RUN_PARAMS = ["stream", "video_source", "video_width", "video_height", "video_fps"];
+const RETRY_SESSION_MS = 5000;
+let sessionRetry = null;
+
+function libwebrtcRelease() {
+  try {
+    return fs.readFileSync(path.join(__dirname, "build/Release/libwebrtc.txt"), "utf-8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function adminStart(runId, args) {
+  if (adminRun === runId) return;
+  if (adminRun) adminStop();
+  config = { ...baseConfig };
+  for (const key of RUN_PARAMS) if (args[key] !== undefined) config[key] = args[key];
+  // The addon's recorder and stats_log.js read RUN_ID when a session opens.
+  process.env.RUN_ID = runId;
+  adminRun = runId;
+  log(`Admin: run ${runId} started`);
+  adminSession();
+}
+
+function adminSession() {
+  if (!adminRun || inCall) return;
+  handleCommand(config.role === "recv" ? "play" : "publish");
+}
+
+function adminStop() {
+  if (!adminRun) return {};
+  const report = statsLog ? statsLog.report() : {};
+  log(`Admin: run ${adminRun} stopped`);
+  adminRun = null;
+  if (inCall) endCall();
+  config = { ...baseConfig };
+  return report;
+}
+
+function adminStatus() {
+  const running = Boolean(adminRun && inCall);
+  const connected = connectionState === "connected";
+  const video = (statsLog ? statsLog.lastRows : []).find((r) => r.kind === "video") || {};
+  const counters = {};
+  for (const key of ["frames", "packets", "bytes", "packets_lost", "nacks", "plis", "freezes"]) {
+    if (typeof video[key] === "number") counters[key] = video[key];
+  }
+  const params = {
+    role: config.role,
+    stream: config.stream || "default",
+    relay_url: relayUrl(),
+    connection: inCall ? connectionState : "closed",
+    libwebrtc: libwebrtcRelease(),
+    out_leaf: config.role === "recv" ? "receiver" : "sender",
+  };
+  if (config.role !== "recv") {
+    params.video = {
+      source: config.video_source === "synthetic" ? "synthetic" : "camera",
+      width: config.video_width || 640,
+      height: config.video_height || 480,
+      fps: config.video_fps || 30,
+    };
+  }
+  return {
+    state: running ? "running" : "idle",
+    run_id: running ? adminRun : null,
+    streaming: config.role !== "recv" && connected,
+    subscribed: config.role === "recv" && connected,
+    params,
+    counters,
+    last_error: inCall && ["failed", "disconnected"].includes(connectionState)
+      ? `WebRTC connection ${connectionState}` : null,
+  };
+}
+
+function startAdmin(url) {
+  if (config.mode !== "relay" || !["send", "recv"].includes(config.role)) {
+    console.error("Config error: the admin drives relay mode only: set mode relay and role send or recv.");
+    process.exit(1);
+  }
+  baseConfig = { ...config };
+  admin = new AdminClient({
+    url,
+    nodeType: config.role === "recv" ? "receiver" : "sender",
+    instance: config.instance || 0,
+    version: { sha: process.env.VCS_REF || "", tag: process.env.VERSION || "" },
+    handlers: { onStart: adminStart, onStop: adminStop, status: adminStatus },
+    log,
+  });
+  admin.start();
+  sessionRetry = setInterval(adminSession, RETRY_SESSION_MS);
+}
+
 // --- Main ---
 loadConfig();
 console.log("=== mec-cast WebRTC client ===");
 console.log('Type "help" for available commands.\n');
 
-if (config.auto_connect && config.mode === "relay") {
+const adminUrl = process.env.ADMIN_URL ?? config.admin_url;
+if (adminUrl) {
+  startAdmin(adminUrl);
+} else if (config.auto_connect && config.mode === "relay") {
   // Relay mode: a sender publishes, a receiver plays, at once.
   handleCommand(config.role === "recv" ? "play" : "publish");
 } else if (config.auto_connect) {

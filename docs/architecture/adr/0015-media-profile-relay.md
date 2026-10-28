@@ -46,8 +46,14 @@ own: it does not interoperate with the ROS profile.
      so `network_ns` there is the uplink alone;
    - the receiver (site 4): arrival, decode, render; `e2e_ns` is
      glass-to-glass.
-6. **Standalone runs first.** Runs take `RUN_ID` from the environment; the
-   admin control plane comes later.
+6. **Runs under the admin, as a profile.** A run's `params.profile` is
+   `robotics` (the default) or `media`. The profile decides which node types
+   a run recruits and what its quorum is: the relay, a sender and a receiver
+   for a media run; the gNB tap and the xApp join runs of both. The relay
+   and the clients join the admin as node types `relay`, `sender` and
+   `receiver`, record a run between its `run.start` and `run.stop`, and take
+   the stream and the video's format from the run's params. Without
+   `ADMIN_URL` each still records `RUN_ID` standalone.
 
 ## Rationale
 
@@ -78,7 +84,15 @@ own: it does not interoperate with the ROS profile.
   One-way figures need PTP on both ends: a Mac rarely has it, the lab's Linux
   hosts and edge do.
 - **Two mec-cast Cargo workspaces:** the relay builds against str0m, which the
-  ROS and RAN images do not carry.
+  ROS and RAN images do not carry. The Rust admin client moved into the
+  telemetry crate (feature `admin`) so the relay and the gNB collector share
+  it.
+- **A zone runs one profile at a time:** the robotics and media nodes of a zone
+  share its gNB, and a zone has one active run. A media run beside a
+  robotics run needs a second zone.
+- **A fourth protocol implementation:** the Node client's
+  (`clients/webrtc_native/admin_client.js`), tested against the shared
+  fixture like the others.
 - **The fork carries a CI workflow and a clock fix** beside the extension, and
   a change to it means a new tag, release and lock entry.
 - **Peer-to-peer mode stays**, through `edge/signaling`, as the baseline a

@@ -22,6 +22,10 @@
 mod envelope;
 mod stats;
 
+/// Admin control-plane client for the Rust nodes. Behind a feature so the
+/// staticlib, the wheel and `--no-default-features` stay free of websockets.
+#[cfg(feature = "admin")]
+pub mod admin;
 pub mod clock;
 pub mod ffi;
 pub mod ptp;

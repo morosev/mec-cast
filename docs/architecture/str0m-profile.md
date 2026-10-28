@@ -72,6 +72,22 @@ Through the relay, a client that sends no audio (`send_audio: false`, or
 crosses the link. Peer to peer it still adds a muted track, which sends
 silent Opus frames.
 
+## Running it
+
+Under the admin, which is how the lab runs it: the relay, the sender and the
+receiver join it as node types `relay`, `sender` and `receiver` and wait. A
+run with profile `media` recruits them -- and the RAN sources, not the lidar
+nodes -- and is running once all three are; its params (`stream`,
+`video_source`, `video_width`, `video_height`, `video_fps`) apply to the
+sender and receiver for the run. Each records only between the run's start
+and stop, into the run's directory, and `run.json` records what was measured:
+`media: {stream, video, libwebrtc, relay}`. The admin's media findings say
+where the video stops: no WebRTC connection (`WF_MEDIA_NOT_CONNECTED`), a
+stream nobody publishes (`WF_STREAM_MISMATCH`), frames lost on the uplink or
+the downlink (`WF_MEDIA_NO_FRAMES`) -- [admin-service.md](../operations/admin-service.md#diagnostics).
+
+Without `ADMIN_URL`, each records `RUN_ID` from start to exit.
+
 ## Peer to peer
 
 The client still calls a peer directly through `edge/signaling`, the

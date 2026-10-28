@@ -52,14 +52,14 @@ class TestDefaults:
     def test_no_path_yields_the_built_in_rules(self):
         spec = topo.load(None)
         assert not spec.declared
-        assert spec.required_roles == (NodeType.CLIENT, NodeType.EDGE)
+        assert spec.required_roles_for("robotics") == (NodeType.CLIENT, NodeType.EDGE)
 
     def test_a_missing_file_is_not_an_error(self, tmp_path):
         # Declaring is opt-in: an absent file means "the platform's own
         # rules", which is how every deployment behaved before this existed.
         spec = topo.load(tmp_path / "nope.yml")
         assert not spec.declared
-        assert spec.required_roles == (NodeType.CLIENT, NodeType.EDGE)
+        assert spec.required_roles_for("robotics") == (NodeType.CLIENT, NodeType.EDGE)
 
     def test_the_gnb_is_optional_but_still_reported(self):
         # The combination a single required/optional flag cannot express.
@@ -71,6 +71,23 @@ class TestDefaults:
         render = topo.TopologySpec().role(NodeType.RENDER)
         assert render.required is False
         assert render.absence is None
+
+    def test_a_media_run_needs_the_relay_a_sender_and_a_receiver(self):
+        # ADR-0015: no lidar client, no edge -- those are the robotics run's.
+        spec = topo.TopologySpec()
+        assert spec.required_roles_for("media") == (
+            NodeType.RELAY,
+            NodeType.SENDER,
+            NodeType.RECEIVER,
+        )
+
+    def test_the_ran_sources_serve_both_profiles(self):
+        spec = topo.TopologySpec()
+        for profile in ("robotics", "media"):
+            roles = {s.role for s in spec.roles_for(profile)}
+            assert {NodeType.GNB, NodeType.XAPP} <= roles
+        assert NodeType.CLIENT not in {s.role for s in spec.roles_for("media")}
+        assert NodeType.SENDER not in {s.role for s in spec.roles_for("robotics")}
 
 
 class TestParsing:
@@ -113,7 +130,7 @@ roles:
 """,
             )
         )
-        assert spec.required_roles == (NodeType.CLIENT, NodeType.EDGE, NodeType.GNB)
+        assert spec.required_roles_for("robotics") == (NodeType.CLIENT, NodeType.EDGE, NodeType.GNB)
         assert spec.role(NodeType.EDGE).required is True
 
     def test_a_duplicate_node_id_is_refused(self, tmp_path):

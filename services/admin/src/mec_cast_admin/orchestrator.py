@@ -214,6 +214,10 @@ class Orchestrator:
                 f"Declared zones: {', '.join(self.topology.zones)}."
             )
         params = dict(params or {})
+        if p.profile_of(params) not in p.PROFILES:
+            raise OrchestratorError(
+                f"No profile {params['profile']!r}. Profiles: {', '.join(p.PROFILES)}."
+            )
         if params.get("ran_policy"):
             params["ran_policy"] = self.resolve_ran_policy(params["ran_policy"], zone)
         run = Run(
@@ -434,7 +438,15 @@ class Orchestrator:
         if run is None:
             return [r.node_id for r in online]
 
-        in_zone = [r for r in online if (r.zone or DEFAULT_ZONE) == run.zone]
+        # Only the node types of the run's profile, and the RAN sources: a
+        # lidar client must not start recording a media run beside it, nor a
+        # WebRTC sender a robotics run (ADR-0015).
+        profile = p.profile_of(run.params)
+        in_zone = [
+            r
+            for r in online
+            if (r.zone or DEFAULT_ZONE) == run.zone and p.serves(r.node_type, profile)
+        ]
         if not by_membership:
             return [r.node_id for r in in_zone]
 
@@ -489,7 +501,11 @@ class Orchestrator:
         # and recorded a stopped run indefinitely.
         run = self.active_run_in(record.zone or DEFAULT_ZONE)
         active = None
-        if run is not None and run.state in ACCEPTS_PARTICIPANTS:
+        if (
+            run is not None
+            and run.state in ACCEPTS_PARTICIPANTS
+            and p.serves(record.node_type, p.profile_of(run.params))
+        ):
             active = p.ActiveRun(run_id=run.run_id, label=run.label, params=run.params)
             if record.autostart or record.node_type is p.NodeType.EDGE:
                 run.participants.setdefault(
@@ -585,6 +601,13 @@ class Orchestrator:
                 entry["codec"] = str(params["codec"])
                 if params["codec"] != "none" and params.get("codec_precision_m") is not None:
                     entry["codec_precision_m"] = float(params["codec_precision_m"])
+            # The media profile's participants: what each ran -- the stream,
+            # the video, the libwebrtc build, the relay -- as reported while
+            # running, so run.json says what was measured (ADR-0015).
+            if record.node_type in p.MEDIA_NODE_TYPES and record.state is p.NodeState.RUNNING:
+                for key in p.MEDIA_PARAMS:
+                    if params.get(key) is not None and key not in entry:
+                        entry[key] = params[key]
             # Keyed by node_id, and the node REPORTS its own directory leaf
             # (params.out_leaf, e.g. "pub-0") rather than the admin deriving
             # it from node_type. The old shape keyed a constant site string
@@ -600,6 +623,9 @@ class Orchestrator:
                     "gnb": "ran",
                     "render": "render",
                     "xapp": "ran-kpm",
+                    "relay": "relay",
+                    "sender": "sender",
+                    "receiver": "receiver",
                 }.get(role)
                 if leaf:
                     run.sites[node_id] = {
@@ -727,7 +753,8 @@ class Orchestrator:
         # Judged among THIS run's participants, which are already scoped to
         # the run — so a client in zone B cannot satisfy zone A's quorum.
         has_quorum = all(
-            any(r.node_type == role for r in running) for role in self.topology.required_roles
+            any(r.node_type == role for r in running)
+            for role in self.topology.required_roles_for(p.profile_of(run.params))
         )
 
         before = run.state

@@ -18,11 +18,16 @@ pyo3 = { version = "0.23", optional = true, features = ["abi3-py310"] }
 rtrb = "0.3"
 serde_json = { version = "1", optional = true }
 ureq = { version = "2", optional = true }
+# The admin client's socket: synchronous, not tokio-tungstenite, and no TLS --
+# ws:// on the management LAN (ADR-0007).
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"], optional = true }
 
 [features]
 default = ["http"]
 # Ship aggregated snapshots to the mec-cast-logging-service over HTTP.
 http = ["dep:ureq", "dep:serde_json"]
+# The admin control-plane client (src/admin.rs).
+admin = ["dep:tungstenite", "dep:serde_json"]
 # PTP Hardware Clock support (/dev/ptpN). Linux-only.
 linux-ptp = []
 # Python bindings (abi3, one wheel for py3.10+).

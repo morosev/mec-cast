@@ -13,7 +13,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::process::{Child, Command};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use str0m::change::{SdpAnswer, SdpOffer};
@@ -74,6 +74,10 @@ struct Relay {
 
 impl Relay {
     fn start() -> Self {
+        Self::start_with(&[("RUN_ID", "relay-test")])
+    }
+
+    fn start_with(env: &[(&str, &str)]) -> Self {
         let port = free_port();
         let runs = std::env::temp_dir().join(format!("mec-cast-relay-test-{port}"));
         let _ = std::fs::remove_dir_all(&runs);
@@ -82,10 +86,12 @@ impl Relay {
             // As the lab runs it: media on every address, one candidate.
             .env("RELAY_UDP", format!("0.0.0.0:{port}"))
             .env("RELAY_PUBLIC_IP", "127.0.0.1")
-            .env("RUN_ID", "relay-test")
             .env("RUNS_DIR", &runs)
             .env("RELAY_STATS_INTERVAL_MS", "100")
             .env_remove("LOGGING_URL")
+            .env_remove("ADMIN_URL")
+            .env_remove("RUN_ID")
+            .envs(env.iter().copied())
             .spawn()
             .expect("the relay binary");
         let relay = Relay { child, port, runs };
@@ -212,6 +218,67 @@ impl Peer {
     }
 }
 
+/// Send `count` frames of PACKETS_PER_FRAME packets from the publisher,
+/// frame numbers from `first`, each carrying its send stamps, and pump until
+/// the subscriber has every packet. What was sent.
+fn send_frames(
+    publisher: &mut Peer,
+    subscriber: &mut Peer,
+    first: u32,
+    count: u32,
+) -> Vec<(u32, Vec<u8>, Option<SendTimes>)> {
+    // The send stream the offer announced, as a real sender uses.
+    let mid = publisher.mid;
+    let ssrc: Ssrc = publisher
+        .rtc
+        .direct_api()
+        .stream_tx_by_mid(mid, None)
+        .expect("the announced stream")
+        .ssrc();
+    let pt = publisher
+        .rtc
+        .codec_config()
+        .params()
+        .iter()
+        .find(|p| p.spec().codec == Codec::Vp8)
+        .expect("VP8 negotiated")
+        .pt();
+
+    let mut sent = Vec::new();
+    let already = subscriber.received.len();
+    for frame in first..first + count {
+        let ts = 90_000 + frame * 3000;
+        let times = SendTimes(
+            1_000_000_000 + u64::from(frame),
+            2_000_000_000 + u64::from(frame),
+        );
+        for k in 0..PACKETS_PER_FRAME {
+            let payload: Vec<u8> = vec![frame as u8, k as u8, 0xAB, 0xCD];
+            let mut ev = ExtensionValues::default();
+            ev.user_values.set(times);
+            let seq = u64::from(1000 + frame * PACKETS_PER_FRAME + k);
+            publisher
+                .rtc
+                .direct_api()
+                .stream_tx(&ssrc)
+                .unwrap()
+                .write_rtp(
+                    RtpWrite::new(pt, seq.into(), ts, Instant::now(), payload.clone())
+                        .marker(k + 1 == PACKETS_PER_FRAME)
+                        .ext_vals(ev),
+                );
+            sent.push((ts, payload, Some(times)));
+        }
+        let want = already + sent.len();
+        pump_until(
+            &mut [&mut *publisher, &mut *subscriber],
+            &format!("frame {frame} to pass ({want} packets)"),
+            |p| p[1].received.len() >= want,
+        );
+    }
+    sent
+}
+
 fn pump_until(peers: &mut [&mut Peer], what: &str, done: impl Fn(&[&mut Peer]) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while !done(peers) {
@@ -241,55 +308,7 @@ fn the_relay_forwards_packets_with_the_send_stamps_and_records_each_frame() {
         |p| p.iter().all(|p| p.connected),
     );
 
-    // The send stream the offer announced, as a real sender uses.
-    let mid = publisher.mid;
-    let ssrc: Ssrc = publisher
-        .rtc
-        .direct_api()
-        .stream_tx_by_mid(mid, None)
-        .expect("the announced stream")
-        .ssrc();
-    let pt = publisher
-        .rtc
-        .codec_config()
-        .params()
-        .iter()
-        .find(|p| p.spec().codec == Codec::Vp8)
-        .expect("VP8 negotiated")
-        .pt();
-
-    let mut sent = Vec::new();
-    let mut seq: u64 = 1000;
-    for frame in 0..FRAMES {
-        let ts = 90_000 + frame * 3000;
-        let times = SendTimes(
-            1_000_000_000 + u64::from(frame),
-            2_000_000_000 + u64::from(frame),
-        );
-        for k in 0..PACKETS_PER_FRAME {
-            let payload: Vec<u8> = vec![frame as u8, k as u8, 0xAB, 0xCD];
-            let mut ev = ExtensionValues::default();
-            ev.user_values.set(times);
-            publisher
-                .rtc
-                .direct_api()
-                .stream_tx(&ssrc)
-                .unwrap()
-                .write_rtp(
-                    RtpWrite::new(pt, seq.into(), ts, Instant::now(), payload.clone())
-                        .marker(k + 1 == PACKETS_PER_FRAME)
-                        .ext_vals(ev),
-                );
-            seq += 1;
-            sent.push((ts, payload, Some(times)));
-        }
-        let want = sent.len();
-        pump_until(
-            &mut [&mut publisher, &mut subscriber],
-            &format!("frame {frame} to pass ({want} packets)"),
-            |p| p[1].received.len() >= want,
-        );
-    }
+    let sent = send_frames(&mut publisher, &mut subscriber, 0, FRAMES);
 
     let mut got = subscriber.received.clone();
     got.sort();
@@ -338,4 +357,143 @@ fn the_relay_forwards_packets_with_the_send_stamps_and_records_each_frame() {
             "{direction} packets"
         );
     }
+}
+
+// --- under the admin ---------------------------------------------------------
+
+/// A WebSocket admin just capable enough to drive the relay: frames queued on
+/// the returned sender go out, frames from the relay come back on the receiver.
+fn stub_admin() -> (
+    String,
+    mpsc::Sender<String>,
+    mpsc::Receiver<serde_json::Value>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let (out_tx, out_rx) = mpsc::channel::<String>();
+    let (in_tx, in_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let Ok((stream, _)) = listener.accept() else {
+            return;
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+        let Ok(mut socket) = tungstenite::accept(stream) else {
+            return;
+        };
+        loop {
+            while let Ok(frame) = out_rx.try_recv() {
+                let _ = socket.send(tungstenite::Message::Text(frame));
+            }
+            match socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    if let Ok(v) = serde_json::from_str(&text) {
+                        if in_tx.send(v).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+        }
+    });
+    (url, out_tx, in_rx)
+}
+
+fn command(name: &str, run_id: &str) -> String {
+    serde_json::json!({
+        "v": 1, "type": "command", "msg_id": name, "ts_ns": 1, "node_id": null,
+        "payload": {"command": name, "run_id": run_id, "args": {}},
+    })
+    .to_string()
+}
+
+/// The first frame from the relay that `pred` accepts, pumping the peers
+/// meanwhile so their connections stay up.
+fn await_frame(
+    rx: &mpsc::Receiver<serde_json::Value>,
+    peers: &mut [&mut Peer],
+    what: &str,
+    pred: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no {what} from the relay");
+        while let Ok(v) = rx.try_recv() {
+            if pred(&v) {
+                return v;
+            }
+        }
+        for p in peers.iter_mut() {
+            p.pump();
+        }
+    }
+}
+
+#[test]
+fn under_the_admin_the_relay_records_exactly_the_run_it_was_told_to() {
+    str0m::crypto::from_feature_flags().install_process_default();
+    let (url, to_relay, from_relay) = stub_admin();
+    let mut relay = Relay::start_with(&[("ADMIN_URL", &url), ("RUN_ID", "ignored")]);
+
+    let hello = await_frame(&from_relay, &mut [], "hello", |v| v["type"] == "hello");
+    assert_eq!(hello["payload"]["node_type"], "relay");
+    assert_eq!(hello["payload"]["state"], "idle");
+
+    let mut publisher = Peer::new(relay.port, "/whip/test", Direction::SendOnly);
+    let mut subscriber = Peer::new(relay.port, "/whep/test", Direction::RecvOnly);
+    pump_until(
+        &mut [&mut publisher, &mut subscriber],
+        "both peers to connect",
+        |p| p.iter().all(|p| p.connected),
+    );
+
+    // Before the run: forwarded, not recorded.
+    send_frames(&mut publisher, &mut subscriber, 0, 5);
+
+    to_relay.send(command("run.start", "admin-run")).unwrap();
+    await_frame(
+        &from_relay,
+        &mut [&mut publisher, &mut subscriber],
+        "a running status",
+        |v| v["type"] == "status" && v["payload"]["run_id"] == "admin-run",
+    );
+    send_frames(&mut publisher, &mut subscriber, 5, FRAMES);
+
+    to_relay.send(command("run.stop", "admin-run")).unwrap();
+    let stopped = await_frame(
+        &from_relay,
+        &mut [&mut publisher, &mut subscriber],
+        "the stop's report",
+        |v| v["type"] == "status" && v["payload"]["report"]["frames"].is_u64(),
+    );
+    assert_eq!(stopped["payload"]["state"], "idle");
+    assert_eq!(stopped["payload"]["report"]["frames"], FRAMES);
+    // What the status says the relay is doing: its forwarding, both peers.
+    assert_eq!(stopped["payload"]["counters"]["frames"], 5 + FRAMES);
+    assert_eq!(stopped["payload"]["peers"].as_array().unwrap().len(), 2);
+
+    relay.stop();
+    let csv = std::fs::read_to_string(relay.runs.join("admin-run/relay/samples.csv"))
+        .expect("the run's samples");
+    assert_eq!(
+        csv.lines().count() as u32,
+        1 + FRAMES,
+        "only the run's frames:\n{csv}"
+    );
+    assert!(
+        relay.runs.join("admin-run/relay/webrtc.csv").exists(),
+        "and its WebRTC stats"
+    );
+    assert!(
+        !relay.runs.join("ignored").exists(),
+        "RUN_ID is the admin's to name"
+    );
 }

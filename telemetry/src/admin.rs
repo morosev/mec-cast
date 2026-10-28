@@ -1,6 +1,8 @@
-//! Admin control-plane client for the gNB collector.
+//! Admin control-plane client for the Rust nodes: the gNB collector
+//! (`ran/collector`) and the media relay (`edge/media-relay`). Each says what
+//! it is with `node_type`; the protocol is the same for all.
 //!
-//! Synchronous throughout, because this crate is: one thread owns the socket,
+//! Synchronous throughout, as the nodes are: one thread owns the socket,
 //! a bounded channel carries frames out, another carries commands back, and a
 //! `stop` flag is observed through a read timeout. That is the same shape the
 //! telemetry recorder already uses for its writer and uploader threads
@@ -31,7 +33,7 @@ const READ_TIMEOUT: Duration = Duration::from_millis(200);
 /// The requirement: retry every 30 s while the admin is unreachable.
 pub const RETRY: Duration = Duration::from_secs(30);
 
-/// What the admin asked this collector to do.
+/// What the admin asked this node to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     /// Begin recording under this run id.
@@ -49,6 +51,8 @@ pub struct AdminReport {
 
 pub struct AdminConfig {
     pub url: String,
+    /// `gnb`, `relay`: the admin's NodeType.
+    pub node_type: String,
     pub node_id: String,
     pub host: String,
     /// Zone, from `ZONE`: a gNB, its UEs and
@@ -63,11 +67,18 @@ pub struct AdminConfig {
 }
 
 impl AdminConfig {
-    pub fn new(url: impl Into<String>, host: impl Into<String>, instance: u32) -> Self {
+    pub fn new(
+        url: impl Into<String>,
+        node_type: impl Into<String>,
+        host: impl Into<String>,
+        instance: u32,
+    ) -> Self {
         let host = host.into();
+        let node_type = node_type.into();
         Self {
             url: url.into(),
-            node_id: format!("gnb-{host}-{instance}"),
+            node_id: format!("{node_type}-{host}-{instance}"),
+            node_type,
             host,
             zone: std::env::var("ZONE").unwrap_or_default(),
             version_sha: std::env::var("VCS_REF").unwrap_or_default(),
@@ -95,7 +106,7 @@ struct Identity {
 }
 
 pub fn now_ns() -> i64 {
-    use mec_cast_telemetry::{Clock, RealtimeClock};
+    use crate::{Clock, RealtimeClock};
     RealtimeClock.now_ns()
 }
 
@@ -115,7 +126,7 @@ fn envelope(message_type: &str, node_id: &str, payload: Value) -> String {
 
 impl AdminHandle {
     /// Queue a status frame. Drops rather than blocking: the control plane
-    /// must never be able to stall the metrics loop.
+    /// must never be able to stall the node's own loop.
     pub fn status(&self, payload: Value) {
         self.send(envelope("status", &self.node_id, payload));
     }
@@ -215,7 +226,7 @@ fn socket_loop(
                         "hello",
                         &cfg.node_id,
                         json!({
-                            "node_type": "gnb",
+                            "node_type": cfg.node_type,
                             "node_id": cfg.node_id,
                             "host": cfg.host,
                             "zone": cfg.zone,
@@ -330,8 +341,10 @@ fn interpret(text: &str, socket: &mut Socket, cfg: &AdminConfig) -> Option<Comma
     }
 }
 
-/// The status payload shape the admin expects from a gNB collector.
+/// The status payload shape the admin expects from a node that neither
+/// streams nor subscribes (the gNB collector, the relay).
 pub fn status_payload(
+    node_type: &str,
     state: &str,
     run_id: Option<&str>,
     params: Value,
@@ -340,7 +353,7 @@ pub fn status_payload(
     report: Value,
 ) -> Value {
     json!({
-        "node_type": "gnb",
+        "node_type": node_type,
         "state": state,
         "run_id": run_id,
         "streaming": false,

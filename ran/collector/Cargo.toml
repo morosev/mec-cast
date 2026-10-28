@@ -11,7 +11,7 @@ description = "srsRAN gNB metrics tap: UDP JSON in, per-datagram timing CSV + KP
 # WebSocket metrics. CI also builds with --no-default-features, which must
 # stay free of the websocket dependency: that build reads UDP only.
 default = ["admin", "ws"]
-admin = ["dep:tungstenite"]
+admin = ["mec-cast-telemetry/admin"]
 # srsRAN's `remote_control` WebSocket metrics source (25.04+ removed the UDP
 # `metrics.addr/port` export). Same synchronous client as `admin`.
 ws = ["dep:tungstenite"]

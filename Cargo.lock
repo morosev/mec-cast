@@ -397,6 +397,7 @@ dependencies = [
  "pyo3",
  "rtrb",
  "serde_json",
+ "tungstenite",
  "ureq",
 ]
 

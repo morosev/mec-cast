@@ -205,7 +205,13 @@ admin:
   # active Recorder per node process (ADR-0007), which is per-node and so
   # per-zone, never global.
   concurrent_runs: "1 per zone"
-  protocol_fixture: "services/admin/tests/vectors.json (asserted by all three implementations)"
+  protocol_fixture: "services/admin/tests/vectors.json (asserted by all four implementations: the service, the Python, Rust and Node node clients)"
+  node_types: [client, edge, render, gnb, xapp, relay, sender, receiver]
+  # A run's params.profile picks the node types it recruits and its quorum
+  # (ADR-0015); gnb and xapp serve both.
+  profiles:
+    robotics: {default: true, quorum: [client, edge], also: [render, gnb, xapp]}
+    media:    {quorum: [relay, sender, receiver], also: [gnb, xapp]}
 
 # --- logging service contract ----------------------------------------------
 logging_service:

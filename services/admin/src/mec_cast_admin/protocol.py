@@ -38,6 +38,12 @@ class NodeType(StrEnum):
     #: source beside the gNB's JSON collector.
     XAPP = "xapp"
     RENDER = "render"
+    #: The media profile (ADR-0015): the str0m relay on the edge, and the
+    #: WebRTC client as a sender or a receiver on a UE. Named after their
+    #: output directories (relay/, sender/, receiver/).
+    RELAY = "relay"
+    SENDER = "sender"
+    RECEIVER = "receiver"
 
 
 #: The node types that run a ROS middleware session -- Zenoh or Fast DDS
@@ -45,6 +51,48 @@ class NodeType(StrEnum):
 #: `params.transport`. The gNB collector and the xApp have none: a transport
 #: they report (the collector's udp/ws metrics feed) is not a middleware link.
 MIDDLEWARE_NODE_TYPES = frozenset({NodeType.CLIENT, NodeType.EDGE, NodeType.RENDER})
+
+#: What a run measures, from its params.profile: the robotics profile's
+#: point clouds over ROS (the default, and every run before profiles), or the
+#: media profile's WebRTC video through the relay (ADR-0015). A run recruits
+#: the node types of its profile, and its quorum is theirs.
+PROFILES = ("robotics", "media")
+DEFAULT_PROFILE = "robotics"
+
+#: The profile each node type serves. The RAN sources are in neither: they
+#: measure the radio under whatever runs over it, so they join both.
+NODE_PROFILE: dict[NodeType, str | None] = {
+    NodeType.CLIENT: "robotics",
+    NodeType.EDGE: "robotics",
+    NodeType.RENDER: "robotics",
+    NodeType.RELAY: "media",
+    NodeType.SENDER: "media",
+    NodeType.RECEIVER: "media",
+    NodeType.GNB: None,
+    NodeType.XAPP: None,
+}
+
+
+#: The media profile's node types, and what each reports in params that
+#: run.json keeps per participant: the stream, the video it sent, the
+#: libwebrtc release it was built on, the relay's address.
+MEDIA_NODE_TYPES = frozenset({NodeType.RELAY, NodeType.SENDER, NodeType.RECEIVER})
+MEDIA_PARAMS = ("stream", "video", "libwebrtc", "relay_url", "public_addr")
+
+
+def profile_of(params: dict[str, Any] | None) -> str:
+    """A run's profile: params.profile, else the robotics default."""
+    return str((params or {}).get("profile") or DEFAULT_PROFILE)
+
+
+def serves(node_type: NodeType | str, profile: str) -> bool:
+    """Whether a node of this type takes part in a run of this profile."""
+    try:
+        own = NODE_PROFILE[NodeType(node_type)]
+    except ValueError:
+        return False
+    return own is None or own == profile
+
 
 #: The RMW each middleware runs on, as run.json records it.
 MIDDLEWARE_RMW = {"zenoh": "rmw_zenoh_cpp", "dds": "rmw_fastrtps_cpp"}

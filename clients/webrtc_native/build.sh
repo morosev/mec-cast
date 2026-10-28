@@ -141,4 +141,11 @@ echo "Linking webrtc_addon.node ..."
 "$CRCXX" $LINK -o build/Release/webrtc_addon.node $OBJECTS \
   $WEBRTC_LIBS "$TELEMETRY_LIB" $SDL_LIBS $PLATFORM_LIBS
 
+# Which libwebrtc this addon is linked against, for the client to report to
+# the admin (run.json `media.libwebrtc`): the release tag when it was fetched,
+# else the fork commit it was built from.
+{ cut -d' ' -f1 "$LIBWEBRTC_DIR/.fetched" 2>/dev/null \
+    || sed -n 's/^commit: //p' "$LIBWEBRTC_DIR/BUILD_INFO" 2>/dev/null; } \
+  | head -1 > build/Release/libwebrtc.txt
+
 echo "=== Build successful: build/Release/webrtc_addon.node ==="

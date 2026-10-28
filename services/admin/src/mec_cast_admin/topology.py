@@ -36,7 +36,7 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from .protocol import NodeType
+from .protocol import NODE_PROFILE, NodeType
 
 #: Where a declared topology is looked for when none is configured. Relative
 #: to the repo root, matching the compose files it sits beside.
@@ -71,9 +71,19 @@ class RoleSpec:
     min_per_zone: int = 0
     max_per_zone: int | None = None
 
+    @property
+    def profile(self) -> str | None:
+        """The run profile this role serves; None for the RAN sources, which
+        serve both. Architectural, so derived rather than declarable."""
+        return NODE_PROFILE.get(self.role)
+
+    def serves(self, profile: str) -> bool:
+        return self.profile is None or self.profile == profile
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "role": str(self.role),
+            "profile": self.profile,
             "required": self.required,
             "absence": self.absence,
             "min_per_zone": self.min_per_zone,
@@ -81,8 +91,10 @@ class RoleSpec:
         }
 
 
-#: The architecture's own rules. Quorum is one client and one edge — the same
-#: rule ADR-0007 states and `_supervise_once` used to spell out inline.
+#: The architecture's own rules. A required role is required by runs of its
+#: profile: a robotics run's quorum is one client and one edge -- the rule
+#: ADR-0007 states -- and a media run's is the relay, a sender and a receiver
+#: (ADR-0015).
 DEFAULT_ROLES: tuple[RoleSpec, ...] = (
     RoleSpec(NodeType.CLIENT, required=True, absence="error", min_per_zone=1),
     RoleSpec(NodeType.EDGE, required=True, absence="error", min_per_zone=1, max_per_zone=1),
@@ -92,6 +104,9 @@ DEFAULT_ROLES: tuple[RoleSpec, ...] = (
     # absent by default, since most runs are JSON-tap only. A study that needs
     # KPM declares `roles: {xapp: {required: true}}` in topology.yml.
     RoleSpec(NodeType.XAPP, required=False, absence=None, max_per_zone=1),
+    RoleSpec(NodeType.RELAY, required=True, absence="error", min_per_zone=1, max_per_zone=1),
+    RoleSpec(NodeType.SENDER, required=True, absence="error", min_per_zone=1),
+    RoleSpec(NodeType.RECEIVER, required=True, absence="error", min_per_zone=1),
 )
 
 
@@ -141,11 +156,14 @@ class TopologySpec:
                 return spec
         return None
 
-    @property
-    def required_roles(self) -> tuple[NodeType, ...]:
-        """The roles quorum needs. Read by the orchestrator instead of the
-        hand-written `any(CLIENT) and any(EDGE)`."""
-        return tuple(s.role for s in self.roles if s.required)
+    def roles_for(self, profile: str) -> tuple[RoleSpec, ...]:
+        """The roles a run of this profile involves, its own and the RAN's."""
+        return tuple(s for s in self.roles if s.serves(profile))
+
+    def required_roles_for(self, profile: str) -> tuple[NodeType, ...]:
+        """The roles a run of this profile needs for quorum. Read by the
+        orchestrator instead of the hand-written `any(CLIENT) and any(EDGE)`."""
+        return tuple(s.role for s in self.roles_for(profile) if s.required)
 
     @property
     def declared(self) -> bool:

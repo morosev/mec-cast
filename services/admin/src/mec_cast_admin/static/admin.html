@@ -47,10 +47,17 @@
         <input id="f_label" class="wide" placeholder="baseline" maxlength="200">
       </div>
       <div class="field">
+        <label for="f_profile" title="What the run measures, and so which nodes it recruits (ADR-0015)">Profile</label>
+        <select id="f_profile">
+          <option value="robotics" selected>robotics — point clouds over ROS</option>
+          <option value="media">media — WebRTC video via the relay</option>
+        </select>
+      </div>
+      <div class="field robotics">
         <label for="f_points">Points</label>
         <input id="f_points" type="number" min="1" value="5000">
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_pattern">Shape</label>
         <select id="f_pattern">
           <option value="uniform_cube" selected>uniform_cube — noise, 1.4×</option>
@@ -65,38 +72,61 @@
           <option value="cube_edges">cube_edges — wireframe, 23.5×</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_rate">Rate (Hz)</label>
         <input id="f_rate" type="number" min="0.1" step="0.1" value="10">
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_seed">Seed</label>
         <input id="f_seed" type="number" value="42">
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_reliability">Reliability</label>
         <select id="f_reliability">
           <option value="reliable" selected>reliable</option>
           <option value="best_effort">best_effort</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_depth">QoS depth</label>
         <input id="f_depth" type="number" min="1" value="10">
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_codec" title="G-PCC codes the clouds both ways, and the edge's result losslessly (ADR-0014)">Codec</label>
         <select id="f_codec">
           <option value="none" selected>none — raw PointCloud2</option>
           <option value="gpcc">gpcc — G-PCC both ways</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field robotics">
         <label for="f_precision" title="The uplink's coded position step. Both divide the edge's 0.5 m voxels, so its result is unchanged">Precision</label>
         <select id="f_precision" disabled>
           <option value="0.001" selected>1 mm</option>
           <option value="0.01">1 cm</option>
         </select>
+      </div>
+      <div class="field media hidden">
+        <label for="f_stream" title="The relay stream the sender publishes and the receivers play">Stream</label>
+        <input id="f_stream" value="default" maxlength="64">
+      </div>
+      <div class="field media hidden">
+        <label for="f_vsource">Video</label>
+        <select id="f_vsource">
+          <option value="synthetic" selected>synthetic — seeded test pattern</option>
+          <option value="camera">camera — V4L2 (Linux)</option>
+        </select>
+      </div>
+      <div class="field media hidden">
+        <label for="f_vsize">Size</label>
+        <select id="f_vsize">
+          <option value="640x480" selected>640×480</option>
+          <option value="1280x720">1280×720</option>
+          <option value="1920x1080">1920×1080</option>
+        </select>
+      </div>
+      <div class="field media hidden">
+        <label for="f_vfps">FPS</label>
+        <input id="f_vfps" type="number" min="1" max="120" value="30">
       </div>
       <div class="field hidden" id="f_zone_field">
         <label for="f_zone">Zone</label>

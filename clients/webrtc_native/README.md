@@ -14,6 +14,7 @@
 - [Prerequisites](#prerequisites)
 - [Building](#building)
 - [Running](#running)
+  - [Under the admin](#under-the-admin)
   - [Through the relay](#through-the-relay)
   - [Peer to peer](#peer-to-peer)
 - [Client Commands](#client-commands)
@@ -77,6 +78,26 @@ locally ([building libwebrtc](../../docs/guides/building-libwebrtc.md)).
 The output is `build/Release/webrtc_addon.node`.
 
 ## Running
+
+### Under the admin
+
+How the lab runs it. With `ADMIN_URL` (or `admin_url` in the config), a
+relay-mode client joins the admin as node type `sender` (role `send`) or
+`receiver` (role `recv`) and waits:
+
+```bash
+ADMIN_URL=ws://INFRA:8099/ws/node node client.js sender.json    # {"mode":"relay","role":"send","relay_url":"http://EDGE:8090","video_source":"synthetic"}
+ADMIN_URL=ws://INFRA:8099/ws/node node client.js receiver.json  # {"mode":"relay","role":"recv","relay_url":"http://EDGE:8090","render":false}
+```
+
+A run with profile `media` starts them: the sender publishes and the receiver
+plays, under the run's id, with the run's `stream`, `video_source`,
+`video_width`, `video_height` and `video_fps` in place of the config's for
+the run. Its stop ends the session, and the client reports what it recorded.
+A session the relay refuses -- it is not up yet, or restarted -- is retried
+every 5 s while the run lasts. The client reports its connection state, the
+libwebrtc release it was built on, and its video stream's counters, which the
+admin's media findings read.
 
 ### Through the relay
 
@@ -148,6 +169,8 @@ fully manual interactive console.
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `mode` | string | (peer to peer) | `relay` to use the relay instead of signaling |
+| `admin_url` | string | `ADMIN_URL` | The admin; with it, runs are the admin's to start and stop (relay mode only) |
+| `instance` | int | 0 | This client's instance on its host, for its admin node id |
 | `role` | string | (both) | `send`: send video (and audio if `send_audio`); `recv`: receive only |
 | `relay_url` | string | `"http://localhost:8090"` | The relay's HTTP address |
 | `stream` | string | `"default"` | The stream to publish or play |
@@ -418,7 +441,7 @@ clocks. The system uses the PTP Hardware Clock (PHC) exposed at `/dev/ptp0`.
 ## Shared telemetry
 
 The receiver records every rendered frame in the platform's telemetry, at
-site 4, so a run joins with the relay's samples (site 3) on `seq`, the
+site 4, one recording per session (so under the admin, one per run), so a run joins with the relay's samples (site 3) on `seq`, the
 frame's RTP timestamp. This runs *alongside* the in-process
 `DelayMeasurement` above — the console `delay` commands are unchanged.
 

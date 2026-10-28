@@ -6,6 +6,7 @@
   "scripts": {
     "install": "echo Skipping native build. Run ./build.sh manually.",
     "start": "node client.js",
+    "test": "node --test test/",
     "build": "./build.sh",
     "clean": "rm -rf build/Release"
   },

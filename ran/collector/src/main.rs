@@ -79,7 +79,7 @@ fn main() -> std::io::Result<()> {
                 metrics,
                 cfg,
                 Arc::clone(&stop),
-                ran_collector::admin::AdminConfig::new(admin_url, host, 0),
+                mec_cast_telemetry::admin::AdminConfig::new(admin_url, "gnb", host, 0),
             )?
         }
         #[cfg(not(feature = "admin"))]

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ran_collector::admin::{self, Command};
+use mec_cast_telemetry::admin::{self, Command};
 use serde_json::Value;
 
 /// The fixture the Python side asserts against too.
@@ -161,7 +161,7 @@ fn it_subscribes_on_startup_and_delivers_commands() {
     let url = start_stub(tx, vec![start]);
 
     let stop = Arc::new(AtomicBool::new(false));
-    let mut cfg = admin::AdminConfig::new(url, "gnb01", 0);
+    let mut cfg = admin::AdminConfig::new(url, "gnb", "gnb01", 0);
     cfg.retry = Duration::from_millis(200);
     let (handle, commands) = admin::spawn(cfg, Arc::clone(&stop));
 
@@ -196,7 +196,7 @@ fn it_answers_pings_and_says_goodbye() {
     let url = start_stub(tx, vec![ping]);
 
     let stop = Arc::new(AtomicBool::new(false));
-    let mut cfg = admin::AdminConfig::new(url, "gnb01", 0);
+    let mut cfg = admin::AdminConfig::new(url, "gnb", "gnb01", 0);
     cfg.retry = Duration::from_millis(200);
     let (handle, _commands) = admin::spawn(cfg, Arc::clone(&stop));
 
@@ -216,7 +216,7 @@ fn an_unreachable_admin_is_retried_not_fatal() {
     // Nothing is listening on this port. The client must keep trying rather
     // than failing the collector, which has measurements to take regardless.
     let stop = Arc::new(AtomicBool::new(false));
-    let mut cfg = admin::AdminConfig::new("ws://127.0.0.1:1", "gnb01", 0);
+    let mut cfg = admin::AdminConfig::new("ws://127.0.0.1:1", "gnb", "gnb01", 0);
     cfg.retry = Duration::from_millis(100);
     let (handle, _commands) = admin::spawn(cfg, Arc::clone(&stop));
 
@@ -317,7 +317,7 @@ fn two_admin_runs_land_in_two_directories() {
     // RUN_ID empty, exactly as the lab compose passes it under the admin.
     let cfg = ran_collector::CollectorConfig::new("", &dir);
     let stop = Arc::new(AtomicBool::new(false));
-    let mut admin_cfg = admin::AdminConfig::new(admin_url, "gnb01", 0);
+    let mut admin_cfg = admin::AdminConfig::new(admin_url, "gnb", "gnb01", 0);
     admin_cfg.retry = Duration::from_millis(100);
     let collector = {
         let stop = Arc::clone(&stop);

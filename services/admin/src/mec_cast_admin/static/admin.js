@@ -166,11 +166,13 @@ function roleChips(run, nodes, topology) {
   // topology spec — the same source the quorum rule and the WF_*_ABSENT
   // findings read, so the page cannot disagree with the service about what
   // the fleet needs. The fallback covers a snapshot from an older server.
-  const roles = (topology && topology.roles) || [
+  // Only the roles of the run's profile, and the RAN sources that serve both:
+  // a media run lacks no lidar client (ADR-0015).
+  const roles = ((topology && topology.roles) || [
     { role: 'client', required: true }, { role: 'edge', required: true },
     { role: 'gnb', required: false }, { role: 'render', required: false },
     { role: 'xapp', required: false },
-  ];
+  ]).filter((r) => !r.profile || r.profile === (run.profile || 'robotics'));
   const participants = Object.values(run.participants || {});
   const counts = {};
   for (const r of roles) counts[r.role] = 0;
@@ -530,11 +532,25 @@ $('addToggle').addEventListener('click', () => $('addForm').classList.toggle('op
 $('f_codec').addEventListener('change', () => {
   $('f_precision').disabled = $('f_codec').value === 'none';
 });
+// Each profile has its own knobs; show the chosen one's.
+$('f_profile').addEventListener('change', () => {
+  const media = $('f_profile').value === 'media';
+  for (const el of document.querySelectorAll('#addForm .robotics')) el.classList.toggle('hidden', media);
+  for (const el of document.querySelectorAll('#addForm .media')) el.classList.toggle('hidden', !media);
+});
 $('addCancel').addEventListener('click', () => $('addForm').classList.remove('open'));
 
 $('addForm').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const params = {
+  const [width, height] = $('f_vsize').value.split('x').map(Number);
+  const params = $('f_profile').value === 'media' ? {
+    profile: 'media',
+    stream: $('f_stream').value.trim() || 'default',
+    video_source: $('f_vsource').value,
+    video_width: width,
+    video_height: height,
+    video_fps: Number($('f_vfps').value),
+  } : {
     num_points: Number($('f_points').value),
     pattern: $('f_pattern').value,
     rate_hz: Number($('f_rate').value),
@@ -543,7 +559,7 @@ $('addForm').addEventListener('submit', async (event) => {
     qos_depth: Number($('f_depth').value),
     codec: $('f_codec').value,
   };
-  if (params.codec !== 'none') params.codec_precision_m = Number($('f_precision').value);
+  if (params.codec && params.codec !== 'none') params.codec_precision_m = Number($('f_precision').value);
   try {
     const zone = $('f_zone').value || 'default';
     await call('POST', '/runs', { label: $('f_label').value.trim(), zone, params });

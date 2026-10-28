@@ -20,10 +20,8 @@
 //! The reports arrive over UDP or srsRAN's `remote_control` WebSocket,
 //! whichever the gNB's release speaks — see [`source`].
 
-/// Control-plane client. Behind a feature so `--no-default-features` stays
-/// free of the websocket dependency, which CI builds to prove.
 #[cfg(feature = "admin")]
-pub mod admin;
+use mec_cast_telemetry::admin;
 pub mod normalise;
 pub mod source;
 
@@ -739,6 +737,7 @@ fn send_status(
         ),
     };
     handle.status(admin::status_payload(
+        "gnb",
         state,
         run_id,
         params,

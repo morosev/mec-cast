@@ -51,9 +51,19 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 | `#` | Monotonic run number, for talking about a run out loud |
 | Run | Last eight characters of the id; click to copy the whole thing |
 | Status | The state machine's current state |
-| Participants | client / edge / gnb / render / xapp counts, red when a *required* role is missing |
+| Participants | the counts of the run's roles -- client / edge / gnb / render / xapp for a robotics run, relay / sender / receiver / gnb / xapp for a media run -- red when a *required* role is missing |
 | Started | When the run began. **Rows are ordered newest first by this**, not by id |
 | Findings | Count of errors currently detected for the active run |
+
+**A run has a profile**, picked in the Add form and stored as
+`params.profile`: `robotics` (the default; point clouds over ROS) or `media`
+(WebRTC video through the relay, [ADR-0015](../architecture/adr/0015-media-profile-relay.md)).
+The profile decides which nodes a start recruits -- a lidar client never
+joins a media run, nor a WebRTC sender a robotics one -- and what quorum is:
+one client and one edge, or the relay, a sender and a receiver. The gNB tap
+and the xApp join both. A media run's params also carry `stream`,
+`video_source`, `video_width`, `video_height` and `video_fps`, which the
+sender and receiver apply for the run.
 
 **logs ↗** on each row opens that run's session in the logging dashboard —
 `/dashboard?run=<run_id>`, since the run id is the `trace_id` every component
@@ -165,6 +175,10 @@ nothing.
 | `WF_VERSION_SKEW` | A node is on a different commit from the admin |
 | `WF_TRANSPORT_MISMATCH` | The ROS nodes of a zone run different middlewares or links (`zenoh/tcp`, `zenoh/quic`, `dds/udp`, `dds/tcp`): nothing flows across middlewares, and a run would mix links. Each node reports `middleware` and `transport`; runs record `middleware: {name, rmw, link}`, and the page shows a badge per zone (ADR-0013) |
 | `WF_CODEC_MISMATCH` | The lidar client, edge or renderer of a zone use different point-cloud codecs (`none`, `gpcc`): each listens only on its codec's topics, so nothing flows between them. A warning while idle (only the `CODEC` defaults differ, and a run naming its codec sets every node), an error while running (ADR-0014) |
+| `WF_RELAY_ABSENT`, `WF_SENDER_ABSENT`, `WF_RECEIVER_ABSENT` | A media run is active and its relay, sender or receiver is not connected |
+| `WF_MEDIA_NOT_CONNECTED` | A sender or receiver reached the relay over HTTP but its WebRTC connection failed: the UE cannot reach `RELAY_PUBLIC_IP` over UDP, or that address is wrong |
+| `WF_STREAM_MISMATCH` | A receiver plays a stream no sender in its zone publishes |
+| `WF_MEDIA_NO_FRAMES` | The sender encodes and the relay's frame count is flat (the uplink), or the relay forwards and the receiver decodes nothing (the downlink) |
 | `WF_PARTICIPANT_LOST` | A participant stopped answering mid-run |
 | `WF_LOGGING_UNREACHABLE` | Snapshots are not reaching the logging service |
 | `WF_TOPOLOGY_UNDECLARED` | A node connected that the declared topology does not list |
@@ -295,12 +309,14 @@ not answer pings separately. An envelope on a different `v` is answered with an
 `error` frame naming the supported version, then closed — visible in both logs
 rather than a silent drop.
 
-**Three implementations, one fixture.** The service
+**Four implementations, one fixture.** The service
 (`services/admin/src/mec_cast_admin/protocol.py`), the Python node client
-(`ros2/src/mec_cast_admin_client/`) and the Rust node client
-(`ran/collector/src/admin.rs`) are separate implementations. All three test
-suites read `services/admin/tests/vectors.json`, so they cannot drift apart in
-silence. **Change that file and all three when the protocol changes.**
+(`ros2/src/mec_cast_admin_client/`), the Rust node client
+(`telemetry/src/admin.rs`, the gNB collector's and the media relay's) and the
+WebRTC client's (`clients/webrtc_native/admin_client.js`) are separate
+implementations. All four test suites read
+`services/admin/tests/vectors.json`, so they cannot drift apart in silence.
+**Change that file and all four when the protocol changes.**
 
 ## Ordering
 
@@ -340,6 +356,11 @@ e.g. `{"name": "dds", "rmw": "rmw_fastrtps_cpp", "link": "udp"}`. The admin
 takes it from what the participants reported, and writes `name: "mixed"` when
 they disagreed; `run-experiment.sh` takes it from `MIDDLEWARE` and
 `MIDDLEWARE_LINK`. It replaces the former `transport` and `zenoh_link` fields.
+
+**Each run records its profile**, as `profile`, and a media run what it
+measured, as `media: {stream, video, libwebrtc, relay}` -- from what its
+sender, receiver and relay reported while running, a list where they
+disagreed; per node in `participants`. Its `workload.modality` is `video`.
 
 **Each participant records its point-cloud codec** (ADR-0014): `codec`, and
 for the lidar client `codec_precision_m`, taken from its first report while

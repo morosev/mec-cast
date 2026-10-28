@@ -31,11 +31,12 @@ it is a starting point, not a substitute for reading the diff.
 | `deploy/docker/` | `deploy/README.md`, `ros2/README.md` | Image names and entrypoints |
 | `Makefile` | `README.md`, `operations/admin-manual.md`, most component READMEs | Every doc that shows a `make` command |
 | `scripts/` | `guides/running-an-experiment.md`, `operations/admin-manual.md`, `README.md` | Flags and output layout |
-| `clients/webrtc_native/` | `clients/README.md` + its own README, PPT slide 8 | Note the camera limitation stays stated |
+| `clients/webrtc_native/` | `clients/README.md` + its own README, `architecture/str0m-profile.md`, ADR-0015, PPT slide 8 | Note the camera limitation stays stated. `stats_log.js` and the relay's `stats.rs` share the `webrtc.csv` columns; `admin_client.js` reads `vectors.json` |
+| `edge/media-relay/` | `edge/README.md`, `architecture/str0m-profile.md`, ADR-0015, `operations/deploy-manual.md` and `lab-topology.md` (relay role), `_facts.yml` (`media_relay`, `RELAY_*`, sites) | Its env names, port and output files are quoted in the deploy docs; the media findings in `admin-service.md` read its status counters |
 | `services/logging` (SHA bump) | `operations/logging-submodule.md`, `services/README.md`, PPT slide 4, `_facts.yml` | Schema changes are breaking — `extra="forbid"` |
 | `services/admin/**` | `operations/admin-service.md`, `services/README.md`, root README, `_facts.yml`, PPT slide 4 | Port, protocol version, keepalive/timeout numbers, run states |
-| `ros2/src/mec_cast_admin_client/` | `ros2/README.md`, `operations/admin-service.md`, ADR-0007 | The Python and Rust clients must agree on the envelope — check both, and `vectors.json` |
-| `ran/collector/src/admin.rs` | `ran/collector/README.md`, `operations/admin-service.md`, ADR-0007 | Feature gate: `--no-default-features` must still build without tungstenite |
+| `ros2/src/mec_cast_admin_client/` | `ros2/README.md`, `operations/admin-service.md`, ADR-0007 | The Python, Rust and Node clients must agree on the envelope — check all three, and `vectors.json` |
+| `telemetry/src/admin.rs` | `ran/collector/README.md`, `edge/README.md`, `operations/admin-service.md`, ADR-0007 | The gNB collector's and the relay's admin client, behind telemetry's `admin` feature: the collector's `--no-default-features` must still build without tungstenite |
 | `services/admin/src/mec_cast_admin/topology.py` | `operations/admin-service.md`, `deploy/lab/topology.example.yml`, `_facts.yml` | Role cardinality lives here now — the quorum rule, the `WF_*_ABSENT` findings and the page's role chips all read it, so a change touches all three |
 | `ros2/src/mec_cast_ue/` | `ros2/README.md`, `guides/local-development.md`, `_facts.yml` (`LIDAR_INSTANCES`, `RENDER_INSTANCES`), `lab-deployment.mmd`, `dataflow-runtime-topology.mmd` | The UE agent replaced two separate services; **both diagrams name it**, and diagrams are checked now |
 | `scripts/version.sh`, `deploy/lab/deploy.sh` | `operations/deploy-manual.md`, `deploy/README.md` | The version report and the deploy procedure are quoted almost verbatim |

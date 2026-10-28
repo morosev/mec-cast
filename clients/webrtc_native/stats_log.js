@@ -39,6 +39,8 @@ class StatsLog {
     this.timer = null;
     this.fd = null;
     this.rowsWritten = 0;
+    // The latest sample's rows: what the admin status reports as counters.
+    this.lastRows = [];
     this.posts = { ok: 0, failed: 0, skipped: 0 };
     this.inFlight = false;
   }
@@ -74,6 +76,7 @@ class StatsLog {
     }));
     fs.writeSync(this.fd, rows.map((r) => COLUMNS.map((c) => csvField(r[c])).join(",") + "\n").join(""));
     this.rowsWritten += rows.length;
+    this.lastRows = rows;
     this.post(rows, report.ts_ns);
   }
 
@@ -104,6 +107,15 @@ class StatsLog {
       .then((res) => { res.ok ? this.posts.ok++ : this.posts.failed++; })
       .catch(() => { this.posts.failed++; })
       .finally(() => { this.inFlight = false; });
+  }
+
+  // What the admin keeps in run.json for this node.
+  report() {
+    return {
+      webrtc_rows: this.rowsWritten,
+      webrtc_posts: this.posts.ok,
+      webrtc_post_failures: this.posts.failed + this.posts.skipped,
+    };
   }
 
   stop() {

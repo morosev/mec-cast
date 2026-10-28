@@ -342,16 +342,19 @@ git submodule update --init third_party/str0m
 ```
 
 ```bash
-RELAY_PUBLIC_IP=10.45.0.1 RUN_ID=media-01 INFRA_HOST=10.0.0.10 \
+RELAY_PUBLIC_IP=10.45.0.1 INFRA_HOST=10.0.0.10 \
   bash deploy/lab/deploy.sh relay ops@edge-host
 ```
 
 It listens on `RELAY_PORT` (default 8090), TCP and UDP. The sender and
 receiver are the WebRTC client on two UEs, run natively, not deployed:
 `make fetch-libwebrtc build-client` there, then `node client.js <config>`
-with `mode` `relay` and `relay_url` `http://<RELAY_PUBLIC_IP>:8090`
-([client README](../../clients/webrtc_native/README.md#through-the-relay)).
-Give the receiver the relay's `RUN_ID`.
+with `mode` `relay`, `relay_url` `http://<RELAY_PUBLIC_IP>:8090`, and
+`ADMIN_URL=ws://<infra>:8099/ws/node` in their environment
+([client README](../../clients/webrtc_native/README.md#under-the-admin)).
+All three then wait for a run: create one with profile `media` on the admin
+page and press Start. Without the admin (`ADMIN_URL=` on the relay, none on
+the clients), give the relay and the receiver the same `RUN_ID`.
 
 ### Without the admin service
 

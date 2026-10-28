@@ -172,11 +172,15 @@ test-python: ## PyO3 binding smoke tests
 # These run in CI's `admin` job. Mirrored here so a green local `make test`
 # means the same thing as a green pipeline — otherwise the first sign of a
 # break is a failed push.
-test-admin: ## Admin control-plane tests + the shared ROS2 client
+test-admin: ## Admin control-plane tests + the node clients (ROS2, Node)
 	@test -x $(ADMIN_PYTEST) || { \
 	  echo "ERROR: $(ADMIN_VENV) missing. Run: make bootstrap"; exit 1; }
 	$(ADMIN_PYTEST) services/admin/tests -q
 	$(ADMIN_PYTEST) ros2/src/mec_cast_admin_client/test -q
+	@# The WebRTC client's admin client: Node, against the same fixture.
+	@test -d clients/webrtc_native/node_modules/ws || { \
+	  echo "ERROR: clients/webrtc_native has no node_modules. Run: cd clients/webrtc_native && npm install"; exit 1; }
+	cd clients/webrtc_native && npm test --silent
 
 # The RAN data model (ran/py) and the E2 xApp (ran/xapp), against gnb-sim's E2
 # feed in-process. Run with the admin venv, which has pytest and websockets;

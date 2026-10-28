@@ -20,7 +20,8 @@ path = "src/main.rs"
 # The vendored str0m, unmodified: RTP mode and user header extensions are
 # upstream features. aws-lc-rs for DTLS/SRTP, as str0m's default.
 str0m = { path = "../../third_party/str0m", default-features = false, features = ["aws-lc-rs"] }
-mec-cast-telemetry = { path = "../../telemetry" }
+# The admin client too: the relay joins the admin as node type `relay`.
+mec-cast-telemetry = { path = "../../telemetry", features = ["admin"] }
 tiny_http = "0.12"
 # WebRTC stats to the logging service, as the RAN tap posts its KPIs.
 ureq = "2"
@@ -32,4 +33,9 @@ ctrlc = { version = "3", features = ["termination"] }
 
 # PTP hardware clock monitoring is a Linux device.
 [target.'cfg(target_os = "linux")'.dependencies]
-mec-cast-telemetry = { path = "../../telemetry", features = ["linux-ptp"] }
+mec-cast-telemetry = { path = "../../telemetry", features = ["admin", "linux-ptp"] }
+
+[dev-dependencies]
+# A stub admin for the relay's admin-mode test; the same client library the
+# relay uses through mec-cast-telemetry.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }

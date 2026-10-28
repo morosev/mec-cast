@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from .protocol import MIDDLEWARE_RMW
+from .protocol import MIDDLEWARE_RMW, profile_of
 from .state import RunState
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,34 @@ class Run:
         name, link = seen.pop()
         return {"name": name, "rmw": MIDDLEWARE_RMW.get(name), "link": link or None}
 
+    @property
+    def profile(self) -> str:
+        return profile_of(self.params)
+
+    def media(self) -> dict[str, Any] | None:
+        """What a media run measured (ADR-0015), from what its participants
+        reported: the stream, the sender's video and the libwebrtc builds.
+        None for a robotics run. A value the participants disagreed on is a
+        list of them; per-node values are in ``participants``."""
+        if self.profile != "media":
+            return None
+
+        def agreed(key: str, roles: tuple[str, ...]) -> Any:
+            values: list[Any] = []
+            for q in self.participants.values():
+                if q.get("role") in roles and q.get(key) is not None and q[key] not in values:
+                    values.append(q[key])
+            if not values:
+                return None
+            return values[0] if len(values) == 1 else values
+
+        return {
+            "stream": agreed("stream", ("sender", "receiver")),
+            "video": agreed("video", ("sender",)),
+            "libwebrtc": agreed("libwebrtc", ("sender", "receiver")),
+            "relay": agreed("public_addr", ("relay",)),
+        }
+
     def to_manifest(self) -> dict[str, Any]:
         """The on-disk shape, compatible with the experiment script's."""
         return {
@@ -155,7 +183,7 @@ class Run:
                 "num_points": self.params.get("num_points"),
                 "rate_hz": self.params.get("rate_hz"),
                 "seed": self.params.get("seed"),
-                "modality": "pointcloud",
+                "modality": "video" if self.profile == "media" else "pointcloud",
             },
             # --- admin additions, all optional to older readers ---
             "seq": self.seq,
@@ -173,6 +201,8 @@ class Run:
             "removed": self.removed,
             "ue_map": self.ue_map,
             "middleware": self.middleware(),
+            "profile": self.profile,
+            "media": self.media(),
         }
 
     @classmethod
@@ -212,6 +242,7 @@ class Run:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["state"] = str(self.state)
+        d["profile"] = self.profile
         return d
 
 

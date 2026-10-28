@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .protocol import CODECS
+from .protocol import CODECS, PROFILES
 from .ranpolicy import validate_ran_policy
 
 
@@ -34,7 +34,10 @@ class RunCreate(BaseModel):
         description="Workload knobs carried to the nodes with run.start: "
         "num_points, rate_hz, seed, pattern, reliability, qos_depth; codec "
         "(none | gpcc) and codec_precision_m (ADR-0014); and for the E2 xApp, "
-        "kpm_style, kpm_metrics, kpm_ue_ids, e2_node_id and ran_policy (ADR-0011).",
+        "kpm_style, kpm_metrics, kpm_ue_ids, e2_node_id and ran_policy (ADR-0011). "
+        "profile (robotics | media) picks what the run measures and which nodes it "
+        "recruits; a media run (ADR-0015) takes stream, video_source (camera | "
+        "synthetic), video_width, video_height and video_fps.",
     )
 
     @field_validator("params")
@@ -48,6 +51,21 @@ class RunCreate(BaseModel):
         codec = params.get("codec")
         if codec is not None and codec not in CODECS:
             raise ValueError(f"codec must be one of {CODECS}, got {codec!r}")
+        profile = params.get("profile")
+        if profile is not None and profile not in PROFILES:
+            raise ValueError(f"profile must be one of {PROFILES}, got {profile!r}")
+        stream = params.get("stream")
+        if stream is not None and (not isinstance(stream, str) or not stream.strip()):
+            raise ValueError(f"stream must be a non-empty name, got {stream!r}")
+        source = params.get("video_source")
+        if source is not None and source not in ("camera", "synthetic"):
+            raise ValueError(f"video_source must be camera or synthetic, got {source!r}")
+        for key in ("video_width", "video_height", "video_fps"):
+            value = params.get(key)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{key} must be a positive integer, got {value!r}")
         precision = params.get("codec_precision_m")
         if precision is not None and (
             isinstance(precision, bool)
