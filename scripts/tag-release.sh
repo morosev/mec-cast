@@ -97,6 +97,10 @@ SUBMODULES=$(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}'
     printf '| `%s` | `%s` |\n' "$path" "${sha:0:12}"
   done)
 
+# The prebuilt libwebrtc the media clients build against, as the tagged
+# commit's lock pins it (RELEASING.md: the notes say which one).
+LIBWEBRTC=$(git show HEAD:third_party/webrtc.lock 2>/dev/null | sed -n 's/^tag=//p')
+
 NOTES=$(cat <<EOF
 ${DESCRIPTION}
 
@@ -107,7 +111,7 @@ commit, it does not trigger a build.
 
 \`\`\`bash
 git fetch --tags && git checkout ${TAG}
-bash deploy/lab/deploy.sh <role> <user@host>   # ue | edge | infra | gnb
+bash deploy/lab/deploy.sh <role> <user@host>   # ue | edge | infra | gnb | relay
 \`\`\`
 
 Then confirm what the host is actually running:
@@ -138,6 +142,7 @@ page. This release is \`${SHORT}\` with:
 | Submodule | Commit |
 |---|---|
 ${SUBMODULES}
+$([ -n "$LIBWEBRTC" ] && printf '\nThe media clients build against the prebuilt libwebrtc `%s`\n(`third_party/webrtc.lock`; `make fetch-libwebrtc`).\n' "$LIBWEBRTC")
 
 ### ${RANGE_LABEL}
 
