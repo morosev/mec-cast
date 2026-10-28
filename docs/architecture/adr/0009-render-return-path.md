@@ -2,6 +2,33 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-24
+- **Amended:** 2026-10-28 (the return path under Fast DDS)
+
+## Amendment, 2026-10-28 — the return path under Fast DDS
+
+The data plane runs on Zenoh or Fast DDS since
+[ADR-0013](0013-two-middlewares.md). Two statements below hold for Zenoh
+only: that the return path shares the Zenoh session and the router with the
+uplink, and that the edge publishes back over the session the UE dialled out
+on. How the result reaches the renderer depends on the middleware and link:
+
+| Link | How the result reaches the UE | Survives a NAT at the UPF |
+|---|---|---|
+| `zenoh/tcp`, `zenoh/quic` | Relayed by the router, over the session the UE dialled out on, as below | Yes |
+| `dds/tcp` | Over the TCP connection the UE's participant dialled out to the edge's listening port (7410) | Yes |
+| `dds/udp` | Sent by the edge's participant straight to the renderer's own address; the Discovery Server only introduces them | No: the UE must be routable from the edge |
+
+So under `dds/udp` the reverse routing this ADR calls load-bearing is not the
+dial-out property of ADR-0001 but plain routability. The lab's UPF does not
+NAT the UE pool, which is what ADR-0013 rests on; a deployment that does NAT
+it carries the return path on `dds/tcp` or Zenoh. Under DDS the downlink also
+shares no router with the uplink: it competes for the radio, not for a relay.
+
+The renderer's decision, its timing (one clock, no PTP) and its loss
+attribution are unchanged on every link. The render loop is verified on all
+three links CI runs (`zenoh/tcp`, `dds/udp`, `dds/tcp`, in
+`tests/e2e/test_render_loop.py`) and locally on `dds/udp`; the UPF case, with
+or without NAT, remains to be confirmed in the lab, as below.
 
 ## Context
 
