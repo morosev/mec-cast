@@ -21,6 +21,7 @@ class PeerConnectionWrapper
   Napi::Value GetAudioInfo(const Napi::CallbackInfo& info);
   Napi::Value GetVideoInfo(const Napi::CallbackInfo& info);
   Napi::Value GetStats(const Napi::CallbackInfo& info);
+  Napi::Value GetStatsRows(const Napi::CallbackInfo& info);
   Napi::Value GetDelayReport(const Napi::CallbackInfo& info);
   Napi::Value GetPtpStatus(const Napi::CallbackInfo& info);
   Napi::Value ConfigureDelay(const Napi::CallbackInfo& info);

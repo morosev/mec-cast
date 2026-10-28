@@ -4,7 +4,8 @@
 //! - every packet the publisher sends reaches the subscriber with its payload,
 //!   and the mec-cast header extension -- the sender's capture and send
 //!   stamps -- unchanged;
-//! - the relay records the frames at site 3, with those stamps.
+//! - the relay records the frames at site 3, with those stamps;
+//! - and the streams' WebRTC stats, both legs, in webrtc.csv.
 //!
 //! No libwebrtc is involved, so this runs in plain `cargo test`. The real
 //! clients are covered where libwebrtc is.
@@ -83,6 +84,7 @@ impl Relay {
             .env("RELAY_PUBLIC_IP", "127.0.0.1")
             .env("RUN_ID", "relay-test")
             .env("RUNS_DIR", &runs)
+            .env("RELAY_STATS_INTERVAL_MS", "100")
             .env_remove("LOGGING_URL")
             .spawn()
             .expect("the relay binary");
@@ -295,6 +297,14 @@ fn the_relay_forwards_packets_with_the_send_stamps_and_records_each_frame() {
     want.sort();
     assert_eq!(got, want, "payloads and send stamps arrive unchanged");
 
+    // Long enough for a few stats intervals, and the receiver reports they
+    // carry on the subscriber's leg.
+    let settle = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < settle {
+        publisher.pump();
+        subscriber.pump();
+    }
+
     relay.stop();
     let csv = std::fs::read_to_string(relay.runs.join("relay-test/relay/samples.csv"))
         .expect("the relay's samples");
@@ -305,4 +315,27 @@ fn the_relay_forwards_packets_with_the_send_stamps_and_records_each_frame() {
     assert_eq!(first[3], "3", "site 3 is the relay");
     assert_eq!(first[4], "1000000000", "capture_ns from the extension");
     assert_eq!(first[5], "2000000000", "send_ns from the extension");
+
+    let stats = std::fs::read_to_string(relay.runs.join("relay-test/relay/webrtc.csv"))
+        .expect("the relay's webrtc stats");
+    let mut lines = stats.lines();
+    let header: Vec<&str> = lines.next().unwrap().split(',').collect();
+    let col = |name: &str| header.iter().position(|c| *c == name).unwrap();
+    let rows: Vec<Vec<&str>> = lines.map(|l| l.split(',').collect()).collect();
+    for (direction, peer) in [("in", "publisher-"), ("out", "subscriber-")] {
+        let last = rows
+            .iter()
+            .rev()
+            .find(|r| r[col("direction")] == direction)
+            .unwrap_or_else(|| panic!("no {direction} row:\n{stats}"));
+        assert!(last[col("peer")].starts_with(peer), "{direction}: {last:?}");
+        assert_eq!(last[col("kind")], "video");
+        assert_eq!(last[col("node")], "relay");
+        let packets: u64 = last[col("packets")].parse().unwrap();
+        assert_eq!(
+            packets,
+            u64::from(FRAMES * PACKETS_PER_FRAME),
+            "{direction} packets"
+        );
+    }
 }

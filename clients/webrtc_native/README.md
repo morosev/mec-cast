@@ -156,12 +156,13 @@ fully manual interactive console.
 | `auto_connect` | bool | `false` | Connect on startup; in relay mode, publish or play |
 | `auto_answer` | bool | `false` | Automatically answer incoming calls |
 | `auto_stats_on` | bool | `false` | Enable live stats display when a call connects |
-| `send_audio` | bool | `true` | Capture and send microphone audio |
+| `send_audio` | bool | `true` | Capture and send microphone audio; off, audio is receive-only through the relay, a muted track peer to peer |
 | `send_video` | bool | `true` | Send video |
 | `video_source` | string | `"camera"` | `camera` (Linux only) or `synthetic`: a seeded moving gradient with the frame number drawn in |
 | `video_width`, `video_height`, `video_fps` | int | 640, 480, 30 | The video's format |
 | `video_seed` | int | 42 | The synthetic source's seed |
 | `render` | bool | `true` | Show received video in an SDL2 window; `false` runs headless |
+| `stats_interval_ms` | int | 1000 | WebRTC stats to `webrtc.csv` and the logging service every N ms while connected; 0 turns them off |
 
 **Validation rules:**
 - Peer to peer, `auto_connect` requires both `server_address` and `username` to be set.
@@ -437,6 +438,14 @@ are those of its last packet, as at the relay.
 The addon links `libmec_cast_telemetry.a` over the C ABI in
 [`telemetry/include/mec_cast_telemetry.h`](../../telemetry/include/mec_cast_telemetry.h);
 `build.sh` builds it automatically when `cargo` is on PATH.
+
+WebRTC's own statistics -- bitrate, bandwidth estimate, loss, jitter,
+NACKs/PLIs, frames, jitter buffer, freezes -- are recorded by every client
+while it is connected, sender included: one row per RTP stream every
+`stats_interval_ms`, in `<RUNS_DIR>/<RUN_ID>/<node>/webrtc.csv` (`sender`,
+`receiver`, or `peer` peer to peer), posted to `LOGGING_URL` too
+([stats_log.js](stats_log.js); columns in
+[the media profile](../../docs/architecture/str0m-profile.md#webrtcs-own-statistics)).
 
 ## Logging
 

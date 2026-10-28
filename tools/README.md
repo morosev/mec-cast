@@ -25,6 +25,23 @@ its cell.
   coupling to the network at all, r(cqi, network) still came out -0.69 over
   45 s. Compare runs; do not read one. Tested in `ran/py/tests`.
 
+## media_join.py — a media run's frames, leg by leg
+
+```bash
+python3 tools/media_join.py runs/<run_id>                   # summary
+python3 tools/media_join.py runs/<run_id> -o joined.csv     # one row per frame
+```
+
+Joins `relay/samples.csv` and `receiver/samples.csv` on the frame's RTP
+timestamp and splits each frame into uplink, relay forwarding, downlink,
+receiver pipeline and glass-to-glass. Each frame also gets, as of its
+capture, the video stream's WebRTC state from the three nodes' `webrtc.csv`:
+the sender's bandwidth estimate, target and actual bitrate; the uplink's
+jitter, loss and RTT at the relay; the receiver's jitter, jitter buffer and
+freezes. A row older than twice the stats period is left blank. For the same
+frames against the RAN, run `ran_join.py --site relay` (or `--site
+receiver`). Tested in `ran/py/tests`.
+
 ## Still to come
 
 - Notebooks plotting latency vs. payload size, rate, and impairment.

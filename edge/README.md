@@ -22,7 +22,9 @@ forwards the sender's RTP to them as it is, without decoding: str0m in RTP
 mode, ICE-lite, one UDP port. It writes the sender's timing extension back
 unchanged and records every frame at site 3 in
 `<RUNS_DIR>/<RUN_ID>/relay/samples.csv`: `network_ns` is the uplink alone,
-`processing_ns` the forwarding (tens of µs).
+`processing_ns` the forwarding (tens of µs). WebRTC stats per stream --
+both legs' jitter, loss, RTT, NACKs/PLIs -- go to `relay/webrtc.csv` and the
+logging service every second.
 
 | Endpoint | |
 |---|---|
@@ -38,6 +40,7 @@ unchanged and records every frame at site 3 in
 | `RELAY_PUBLIC_IP` | `RELAY_UDP`'s address | the one ICE candidate offered; required when listening on 0.0.0.0 |
 | `RUN_ID`, `RUNS_DIR`, `LOGGING_URL` | | as every node |
 | `PTP_DEVICE` | none | PHC to monitor (Linux) |
+| `RELAY_STATS_INTERVAL_MS` | `1000` | WebRTC stats interval; `0` off |
 
 It is a Cargo workspace of its own, since the ROS and RAN images do not carry
 str0m:

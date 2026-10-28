@@ -2,6 +2,7 @@ const readline = require("readline");
 const path = require("path");
 const fs = require("fs");
 const WebSocket = require("ws");
+const { StatsLog } = require("./stats_log");
 
 // --- File logging ---
 const LOG_DIR = path.join(__dirname, "log");
@@ -95,6 +96,8 @@ let relay = null;
 let myName = null;
 let remotePeer = null;
 let inCall = false;
+// WebRTC's statistics to webrtc.csv and the logging service, while connected.
+let statsLog = null;
 let heartbeatTimer = null;
 let heartbeatCheckTimer = null;
 let lastPong = 0;
@@ -159,6 +162,7 @@ function mediaOptions(username) {
     video_fps: config.video_fps || 30,
     video_seed: config.video_seed ?? 42,
     render: config.render !== false,
+    relay: config.mode === "relay",
   };
 }
 
@@ -211,6 +215,7 @@ function handlePeerEvent(evt) {
       log(`Connection state: ${data.state}`);
       if (data.state === "connected") {
         log("P2P connection established!");
+        startStatsLog();
         if (config.auto_stats_on && !statsTimer) {
           startStats();
           log("Stats display auto-enabled.");
@@ -880,6 +885,8 @@ Config (client-config.json):
   role: send|recv          - What this client does: send video, or receive it
   relay_url, stream        - The relay (default http://localhost:8090) and
                              stream name (default "default")
+  stats_interval_ms: N     - WebRTC stats to runs/<RUN_ID>/<node>/webrtc.csv
+                             every N ms while connected (default 1000; 0 off)
   send_audio: true|false   - Send microphone audio (default: true)
   send_video: true|false   - Send video (default: true)
   video_source: camera|synthetic - Camera, or deterministic synthetic frames
@@ -910,7 +917,23 @@ Config (client-config.json):
   }
 }
 
+function startStatsLog() {
+  if (statsLog || !pc || !StatsLog.enabled()) return;
+  const role = config.role;
+  statsLog = new StatsLog({
+    node: role === "send" ? "sender" : role === "recv" ? "receiver" : "peer",
+    peer: relay ? "relay" : remotePeer || "peer",
+    intervalMs: config.stats_interval_ms ?? 1000,
+    log,
+  });
+  statsLog.start(pc);
+}
+
 function endCall() {
+  if (statsLog) {
+    statsLog.stop();
+    statsLog = null;
+  }
   relayEnd();
   inCall = false;
   stopPolling();

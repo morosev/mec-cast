@@ -701,15 +701,15 @@ WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) 
   // A camera at 640x480 @ 30 fps and a window: the behaviour before
   // webrtc_create_ex existed.
   return webrtc_create_ex(send_audio, send_video, username, /*synthetic=*/0,
-                          640, 480, 30, 42, /*render=*/1);
+                          640, 480, 30, 42, /*render=*/1, /*relay=*/0);
 }
 
 WebrtcPeer* webrtc_create_ex(int send_audio, int send_video, const char* username,
                              int synthetic, int width, int height, int fps,
-                             unsigned int seed, int render) {
-  DEMO_LOG("webrtc_create(send_audio=%d, send_video=%d, user=%s, video=%s %dx%d@%d, render=%d) starting...",
+                             unsigned int seed, int render, int relay) {
+  DEMO_LOG("webrtc_create(send_audio=%d, send_video=%d, user=%s, video=%s %dx%d@%d, render=%d, relay=%d) starting...",
            send_audio, send_video, username ? username : "(null)",
-           synthetic ? "synthetic" : "camera", width, height, fps, render);
+           synthetic ? "synthetic" : "camera", width, height, fps, render, relay);
 
   // Initialize delay measurement infrastructure (once)
   static bool delay_initialized = false;
@@ -797,32 +797,46 @@ WebrtcPeer* webrtc_create_ex(int send_audio, int send_video, const char* usernam
   peer->pc = result.MoveValue();
   DEMO_LOG("PeerConnection created OK");
 
-  // Both sides add an audio track for proper SDP negotiation
-  webrtc::AudioOptions audio_opts;
-  if (!peer->send_audio) {
-    audio_opts.echo_cancellation = false;
-  }
-  auto audio_source = peer->factory->CreateAudioSource(audio_opts);
-  if (!audio_source) {
-    DEMO_LOG("ERROR: CreateAudioSource returned null");
-  } else {
-    DEMO_LOG("AudioSource created OK");
-  }
-  auto audio_track = peer->factory->CreateAudioTrack("audio_label", audio_source.get());
-  if (!audio_track) {
-    DEMO_LOG("ERROR: CreateAudioTrack returned null");
-  } else {
-    DEMO_LOG("AudioTrack created OK, enabled=%d", audio_track->enabled());
-    if (!peer->send_audio) {
-      audio_track->set_enabled(false);
-      DEMO_LOG("Audio track muted (receive only)");
+  if (relay && !send_audio) {
+    // Through the relay, a client that sends no audio offers receive-only
+    // audio: a muted track would still send silent Opus frames, ~50 packets
+    // a second on the link being measured.
+    webrtc::RtpTransceiverInit init;
+    init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
+    auto t = peer->pc->AddTransceiver(webrtc::MediaType::AUDIO, init);
+    if (!t.ok()) {
+      DEMO_LOG("ERROR: AddTransceiver audio recvonly: %s", t.error().message());
+    } else {
+      DEMO_LOG("Audio receive only: recvonly transceiver added");
     }
-  }
-  auto add_result = peer->pc->AddTrack(audio_track, {"stream_id"});
-  if (!add_result.ok()) {
-    DEMO_LOG("ERROR: AddTrack audio: %s", add_result.error().message());
   } else {
-    DEMO_LOG("AddTrack audio OK");
+    // Peer to peer, both sides add an audio track for proper SDP negotiation.
+    webrtc::AudioOptions audio_opts;
+    if (!peer->send_audio) {
+      audio_opts.echo_cancellation = false;
+    }
+    auto audio_source = peer->factory->CreateAudioSource(audio_opts);
+    if (!audio_source) {
+      DEMO_LOG("ERROR: CreateAudioSource returned null");
+    } else {
+      DEMO_LOG("AudioSource created OK");
+    }
+    auto audio_track = peer->factory->CreateAudioTrack("audio_label", audio_source.get());
+    if (!audio_track) {
+      DEMO_LOG("ERROR: CreateAudioTrack returned null");
+    } else {
+      DEMO_LOG("AudioTrack created OK, enabled=%d", audio_track->enabled());
+      if (!peer->send_audio) {
+        audio_track->set_enabled(false);
+        DEMO_LOG("Audio track muted (receive only)");
+      }
+    }
+    auto add_result = peer->pc->AddTrack(audio_track, {"stream_id"});
+    if (!add_result.ok()) {
+      DEMO_LOG("ERROR: AddTrack audio: %s", add_result.error().message());
+    } else {
+      DEMO_LOG("AddTrack audio OK");
+    }
   }
 
   // Video track — only added if send_video is enabled
@@ -1179,6 +1193,174 @@ char* webrtc_get_stats(WebrtcPeer* peer) {
 
   oss << "}";
   return strdup(oss.str().c_str());
+}
+
+// --- Stats rows: webrtc.csv (docs/architecture/str0m-profile.md) ---
+//
+// One row per RTP stream, in the column set the relay writes too. "out" is
+// what this peer sends, with what the far end reported about it (RTCP
+// receiver reports); "in" is what it receives. Counters are cumulative since
+// the stream began: rates are the analysis's to derive.
+
+}  // extern "C"
+
+namespace {
+
+class StatsRow {
+ public:
+  void Str(const char* k, const std::string& v) {
+    Sep();
+    oss_ << '"' << k << "\":\"";
+    for (char c : v) {
+      if (c == '"' || c == '\\') oss_ << '\\';
+      if (static_cast<unsigned char>(c) >= 0x20) oss_ << c;
+    }
+    oss_ << '"';
+  }
+  template <typename T>
+  void Num(const char* k, const std::optional<T>& v, double scale = 1.0) {
+    if (!v.has_value()) return;
+    Sep();
+    oss_ << '"' << k << "\":";
+    if (scale == 1.0)
+      oss_ << *v;
+    else
+      oss_ << static_cast<double>(*v) * scale;
+  }
+  template <typename T>
+  void Num(const char* k, T v) {
+    Sep();
+    oss_ << '"' << k << "\":" << v;
+  }
+  std::string Json() const { return "{" + oss_.str() + "}"; }
+
+ private:
+  void Sep() {
+    if (any_) oss_ << ',';
+    any_ = true;
+  }
+  std::ostringstream oss_;
+  bool any_ = false;
+};
+
+}  // namespace
+
+extern "C" {
+
+char* webrtc_get_stats_rows(WebrtcPeer* peer) {
+  if (!peer || !peer->pc) return strdup("{\"rows\":[]}");
+
+  auto collector = BlockingStatsCollector::Create();
+  peer->pc->GetStats(collector.get());
+  auto report = collector->WaitForReport();
+  if (!report) return strdup("{\"rows\":[]}");
+
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  uint64_t now_ns =
+      static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
+
+  std::map<std::string, std::string> codecs;
+  std::map<std::string, const webrtc::RTCRemoteInboundRtpStreamStats*> remote_in;
+  std::optional<double> rtt_s, bwe_bps;
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCCodecStats::kType) {
+      const auto& cs = stat.cast_to<webrtc::RTCCodecStats>();
+      if (cs.mime_type.has_value()) codecs[stat.id()] = *cs.mime_type;
+    } else if (stat.type() == webrtc::RTCRemoteInboundRtpStreamStats::kType) {
+      const auto& r = stat.cast_to<webrtc::RTCRemoteInboundRtpStreamStats>();
+      if (r.local_id.has_value()) remote_in[*r.local_id] = &r;
+    } else if (stat.type() == webrtc::RTCIceCandidatePairStats::kType) {
+      const auto& cp = stat.cast_to<webrtc::RTCIceCandidatePairStats>();
+      if (cp.nominated.value_or(false)) {
+        rtt_s = cp.current_round_trip_time;
+        bwe_bps = cp.available_outgoing_bitrate;
+      }
+    }
+  }
+  auto codec_of = [&](const std::optional<std::string>& id) {
+    if (!id.has_value()) return std::string();
+    auto it = codecs.find(*id);
+    return it == codecs.end() ? std::string() : it->second;
+  };
+
+  std::ostringstream rows;
+  bool first = true;
+  auto emit = [&](const StatsRow& r) {
+    rows << (first ? "" : ",") << r.Json();
+    first = false;
+  };
+
+  for (const auto& stat : *report) {
+    if (stat.type() == webrtc::RTCOutboundRtpStreamStats::kType) {
+      const auto& o = stat.cast_to<webrtc::RTCOutboundRtpStreamStats>();
+      StatsRow r;
+      r.Str("direction", "out");
+      r.Str("kind", o.kind.value_or(""));
+      r.Str("mid", o.mid.value_or(""));
+      r.Num("ssrc", o.ssrc);
+      r.Str("codec", codec_of(o.codec_id));
+      r.Num("packets", o.packets_sent);
+      r.Num("bytes", o.bytes_sent);
+      r.Num("retransmitted_packets", o.retransmitted_packets_sent);
+      auto ri = remote_in.find(stat.id());
+      if (ri != remote_in.end()) {
+        r.Num("packets_lost", ri->second->packets_lost);
+        r.Num("loss_fraction", ri->second->fraction_lost);
+        r.Num("jitter_ms", ri->second->jitter, 1000.0);
+        r.Num("rtt_ms", ri->second->round_trip_time, 1000.0);
+      } else {
+        r.Num("rtt_ms", rtt_s, 1000.0);
+      }
+      r.Num("nacks", o.nack_count);
+      r.Num("plis", o.pli_count);
+      r.Num("firs", o.fir_count);
+      r.Num("frames", o.frames_encoded);
+      r.Num("keyframes", o.key_frames_encoded);
+      r.Num("fps", o.frames_per_second);
+      r.Num("width", o.frame_width);
+      r.Num("height", o.frame_height);
+      r.Num("bwe_bps", bwe_bps);
+      r.Num("target_bps", o.target_bitrate);
+      r.Str("quality_limitation", o.quality_limitation_reason.value_or(""));
+      emit(r);
+    } else if (stat.type() == webrtc::RTCInboundRtpStreamStats::kType) {
+      const auto& in = stat.cast_to<webrtc::RTCInboundRtpStreamStats>();
+      StatsRow r;
+      r.Str("direction", "in");
+      r.Str("kind", in.kind.value_or(""));
+      r.Str("mid", in.mid.value_or(""));
+      r.Num("ssrc", in.ssrc);
+      r.Str("codec", codec_of(in.codec_id));
+      r.Num("packets", in.packets_received);
+      r.Num("bytes", in.bytes_received);
+      r.Num("retransmitted_packets", in.retransmitted_packets_received);
+      r.Num("packets_lost", in.packets_lost);
+      r.Num("jitter_ms", in.jitter, 1000.0);
+      r.Num("rtt_ms", rtt_s, 1000.0);
+      r.Num("nacks", in.nack_count);
+      r.Num("plis", in.pli_count);
+      r.Num("firs", in.fir_count);
+      r.Num("frames", in.frames_decoded);
+      r.Num("keyframes", in.key_frames_decoded);
+      r.Num("frames_dropped", in.frames_dropped);
+      r.Num("fps", in.frames_per_second);
+      r.Num("width", in.frame_width);
+      r.Num("height", in.frame_height);
+      if (in.jitter_buffer_delay.has_value() &&
+          in.jitter_buffer_emitted_count.value_or(0) > 0) {
+        r.Num("jitter_buffer_ms", *in.jitter_buffer_delay * 1000.0 /
+                                      *in.jitter_buffer_emitted_count);
+      }
+      r.Num("freezes", in.freeze_count);
+      r.Num("freeze_ms", in.total_freezes_duration, 1000.0);
+      emit(r);
+    }
+  }
+
+  std::string out = "{\"ts_ns\":" + std::to_string(now_ns) + ",\"rows\":[" +
+                    rows.str() + "]}";
+  return strdup(out.c_str());
 }
 
 // --- Delay measurement API ---

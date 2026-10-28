@@ -43,6 +43,35 @@ The relay-to-receiver leg is the receiver's `recv_ns` minus the relay's
 `process_done_ns` for the same frame. Every cross-host figure needs PTP on
 both hosts.
 
+### WebRTC's own statistics
+
+Every node also records WebRTC's view of each RTP stream, once a second, in
+`runs/<RUN_ID>/<node>/webrtc.csv` (`sender`, `relay`, `receiver`), and posts
+the same rows to the logging service (logger `webrtc.stats`, `trace_id` the
+run id). The clients take them from libwebrtc's `getStats()`, the relay from
+str0m's per-stream stats. Counters are cumulative; rates are derived.
+
+| Columns | `out` (this node sends) | `in` (this node receives) |
+|---|---|---|
+| `ts_ns`, `node`, `peer`, `direction`, `kind`, `mid`, `ssrc`, `codec` | | |
+| `packets`, `bytes`, `retransmitted_packets` | sent | received |
+| `packets_lost`, `loss_fraction`, `jitter_ms`, `rtt_ms` | as the far end reported (RTCP) | as measured here |
+| `nacks`, `plis`, `firs` | received from the far end | sent to it |
+| `frames`, `keyframes`, `fps`, `width`, `height` | encoded (sender) | decoded (receiver) |
+| `bwe_bps`, `target_bps`, `quality_limitation` | sender: bandwidth estimate, encoder target, why it is limited | |
+| `frames_dropped`, `jitter_buffer_ms`, `freezes`, `freeze_ms` | | receiver |
+
+Columns a source does not have are left empty: str0m reports no frames, and
+the relay runs no bandwidth estimation of its own.
+[`tools/media_join.py`](../../tools/README.md) joins a run's frames across
+the relay and receiver into their legs, and gives each frame the streams'
+state at its capture.
+
+Through the relay, a client that sends no audio (`send_audio: false`, or
+`role: recv`) offers receive-only audio, so nothing but the measured video
+crosses the link. Peer to peer it still adds a muted track, which sends
+silent Opus frames.
+
 ## Peer to peer
 
 The client still calls a peer directly through `edge/signaling`, the

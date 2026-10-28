@@ -107,6 +107,7 @@ env:
   LOGGING_URL: {default: null,      note: "optional; CSV is always written regardless"}
   MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the WebRTC addon"}
   RELAY_PUBLIC_IP: {default: null, note: "relay only, REQUIRED in the lab: the address clients reach it at (the N6 address); its one ICE candidate"}
+  RELAY_STATS_INTERVAL_MS: {default: 1000, note: "relay only: WebRTC stats per stream to relay/webrtc.csv and the logging service; 0 off. The clients' equivalent is the config key stats_interval_ms"}
   RELAY_PORT:  {default: 8090, note: "relay lab role: WHIP/WHEP (tcp) and media (udp); natively RELAY_HTTP and RELAY_UDP"}
   GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
@@ -171,6 +172,8 @@ outputs:
   # ros2/src/mec_cast_admin_client/mec_cast_admin_client/sites.py
   csv_header: "seq,modality,kind,site,capture_ns,send_ns,recv_ns,process_done_ns,payload_bytes,aux_ns,network_ns,e2e_ns,processing_ns,sender_ns"
   run_manifest: "runs/<RUN_ID>/run.json"
+  webrtc_stats_csv: "runs/<RUN_ID>/{sender,relay,receiver}/webrtc.csv -- WebRTC's own stats, one row per RTP stream per interval (default 1 s), cumulative counters; also posted to the logging service as logger webrtc.stats. Columns in clients/webrtc_native/stats_log.js and edge/media-relay/src/stats.rs, checked equal by a relay test"
+  webrtc_stats_header: "ts_ns,node,peer,direction,kind,mid,ssrc,codec,packets,bytes,retransmitted_packets,packets_lost,loss_fraction,jitter_ms,rtt_ms,nacks,plis,firs,frames,keyframes,frames_dropped,fps,width,height,bwe_bps,target_bps,quality_limitation,jitter_buffer_ms,freezes,freeze_ms"
   run_journal: "runs/admin-journal.jsonl"
   run_manifest_writers: >-
     Two: scripts/run-experiment.sh and the admin service. The `source` field

@@ -25,9 +25,11 @@ WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username);
 // synthetic: 1 = deterministic synthetic frames (no camera), 0 = a camera
 // width, height, fps: the source's format; seed: the synthetic frames' seed
 // render: 1 = show received video in a window, 0 = measure only
+// relay: 1 = through the relay (WHIP/WHEP): with send_audio 0, audio is
+//        receive-only rather than a muted track, which still sends silence
 WebrtcPeer* webrtc_create_ex(int send_audio, int send_video, const char* username,
                              int synthetic, int width, int height, int fps,
-                             unsigned int seed, int render);
+                             unsigned int seed, int render, int relay);
 void webrtc_destroy(WebrtcPeer* peer);
 
 // Draw the newest received frame. Call it from the app's main thread, about
@@ -38,6 +40,8 @@ void webrtc_render_pump(WebrtcPeer* peer);
 char* webrtc_get_audio_info(WebrtcPeer* peer);
 char* webrtc_get_video_info(WebrtcPeer* peer);
 char* webrtc_get_stats(WebrtcPeer* peer);
+// webrtc.csv rows for every RTP stream, JSON: {"ts_ns":N,"rows":[...]}.
+char* webrtc_get_stats_rows(WebrtcPeer* peer);
 
 // Delay measurement — returns JSON string (caller must free with free())
 char* webrtc_get_delay_report(WebrtcPeer* peer);

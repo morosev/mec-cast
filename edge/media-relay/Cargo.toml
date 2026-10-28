@@ -22,6 +22,9 @@ path = "src/main.rs"
 str0m = { path = "../../third_party/str0m", default-features = false, features = ["aws-lc-rs"] }
 mec-cast-telemetry = { path = "../../telemetry" }
 tiny_http = "0.12"
+# WebRTC stats to the logging service, as the RAN tap posts its KPIs.
+ureq = "2"
+serde_json = "1"
 # str0m's own diagnostics, on stderr when RUST_LOG asks for them.
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # SIGTERM too: `docker stop` must flush the samples like Ctrl-C.

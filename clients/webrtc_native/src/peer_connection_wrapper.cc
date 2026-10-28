@@ -21,6 +21,7 @@ Napi::Object PeerConnectionWrapper::Init(Napi::Env env,
           InstanceMethod("getAudioInfo", &PeerConnectionWrapper::GetAudioInfo),
           InstanceMethod("getVideoInfo", &PeerConnectionWrapper::GetVideoInfo),
           InstanceMethod("getStats", &PeerConnectionWrapper::GetStats),
+          InstanceMethod("getStatsRows", &PeerConnectionWrapper::GetStatsRows),
           InstanceMethod("getDelayReport", &PeerConnectionWrapper::GetDelayReport),
           InstanceMethod("getPtpStatus", &PeerConnectionWrapper::GetPtpStatus),
           InstanceMethod("configureDelay", &PeerConnectionWrapper::ConfigureDelay),
@@ -38,7 +39,7 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
   std::string username = "unknown";
   // The video source and the window: a camera at 640x480 @ 30 and a window
   // unless the options say otherwise.
-  int synthetic = 0, width = 640, height = 480, fps = 30, render = 1;
+  int synthetic = 0, width = 640, height = 480, fps = 30, render = 1, relay = 0;
   unsigned int seed = 42;
 
   if (info.Length() > 0 && info[0].IsObject()) {
@@ -70,6 +71,9 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
     if (opts.Has("render") && opts.Get("render").IsBoolean()) {
       render = opts.Get("render").As<Napi::Boolean>().Value() ? 1 : 0;
     }
+    if (opts.Has("relay") && opts.Get("relay").IsBoolean()) {
+      relay = opts.Get("relay").As<Napi::Boolean>().Value() ? 1 : 0;
+    }
   } else {
     // Legacy API: PeerConnection(role, username)
     if (info.Length() > 0 && info[0].IsNumber()) {
@@ -85,7 +89,7 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
   }
 
   peer_ = webrtc_create_ex(send_audio, send_video, username.c_str(), synthetic,
-                           width, height, fps, seed, render);
+                           width, height, fps, seed, render, relay);
   if (!peer_) {
     Napi::Error::New(info.Env(), "Failed to initialize PeerConnection")
         .ThrowAsJavaScriptException();
@@ -198,6 +202,15 @@ Napi::Value PeerConnectionWrapper::GetStats(const Napi::CallbackInfo& info) {
   if (!peer_) return Napi::String::New(env, "{}");
   char* json = webrtc_get_stats(peer_);
   Napi::String result = Napi::String::New(env, json ? json : "{}");
+  if (json) free(json);
+  return result;
+}
+
+Napi::Value PeerConnectionWrapper::GetStatsRows(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!peer_) return Napi::String::New(env, "{\"rows\":[]}");
+  char* json = webrtc_get_stats_rows(peer_);
+  Napi::String result = Napi::String::New(env, json ? json : "{\"rows\":[]}");
   if (json) free(json);
   return result;
 }

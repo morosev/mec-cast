@@ -18,12 +18,15 @@
 //!   RUN_ID, RUNS_DIR, LOGGING_URL   as every mec-cast node; samples go to
 //!                    <RUNS_DIR>/<RUN_ID>/relay/samples.csv
 //!   PTP_DEVICE       PTP hardware clock to monitor (Linux; default none)
+//!   RELAY_STATS_INTERVAL_MS  WebRTC stats per stream to relay/webrtc.csv and
+//!                    the logging service, every so often (default 1000; 0 off)
 //!
 //! Synchronous throughout, like the rest of mec-cast's Rust (ADR-0007): the
 //! HTTP server on its own thread, everything WebRTC on one loop thread.
 
 mod ext;
 mod record;
+mod stats;
 
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -40,9 +43,11 @@ use str0m::format::CodecSpec;
 use str0m::media::{Direction, KeyframeRequestKind, MediaKind, Mid};
 use str0m::net::{Protocol, Receive};
 use str0m::rtp::{Extension, RtpPacket, RtpWrite, Ssrc};
+use str0m::stats::{MediaEgressStats, MediaIngressStats};
 use str0m::{Candidate, Event, Input, Output, Rtc};
 
 use record::FrameRecorder;
+use stats::{Row, StatsLog};
 
 const DEFAULT_ADDR: &str = "0.0.0.0:8090";
 /// Free in str0m's default extension map (ext::ID is 12).
@@ -86,6 +91,30 @@ struct Client {
     tx: HashMap<MediaKind, (Mid, Ssrc)>,
     /// Publisher: the last receive SSRC per media kind, for keyframe requests.
     rx: HashMap<MediaKind, Ssrc>,
+}
+
+impl Client {
+    /// Who a stats row is about: `publisher-1`, `subscriber-2`.
+    fn label(&self) -> String {
+        let role = match self.role {
+            Role::Publisher => "publisher",
+            Role::Subscriber => "subscriber",
+        };
+        format!("{role}-{}", self.id)
+    }
+}
+
+/// A stats event of one client's stream, with what the row needs of it.
+enum StreamStats {
+    In(MediaIngressStats),
+    Out(MediaEgressStats),
+}
+
+struct Stat {
+    peer: String,
+    kind: MediaKind,
+    ssrc: Option<u32>,
+    stats: StreamStats,
 }
 
 /// A publisher's packet on its way to the stream's subscribers.
@@ -148,6 +177,14 @@ fn main() {
     };
     log!("run {run_id}: samples to {}", out_dir.display());
 
+    let stats_ms: u64 = env_or("RELAY_STATS_INTERVAL_MS", "1000")
+        .parse()
+        .expect("RELAY_STATS_INTERVAL_MS: milliseconds");
+    let stats_interval = (stats_ms > 0).then(|| Duration::from_millis(stats_ms));
+    let logging_url = std::env::var("LOGGING_URL").ok().filter(|v| !v.is_empty());
+    let stats_log =
+        stats_interval.map(|every| StatsLog::new(&out_dir, &run_id, logging_url.as_deref(), every));
+
     let stop = Arc::new(AtomicBool::new(false));
     {
         let stop = stop.clone();
@@ -157,10 +194,10 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let server = tiny_http::Server::http(http).expect("binding the WHIP/WHEP address");
     log!("WHIP http://{http}/whip/<stream>, WHEP http://{http}/whep/<stream>; media {candidate_addr}/udp");
-    thread::spawn(move || serve(server, candidate_addr, tx));
+    thread::spawn(move || serve(server, candidate_addr, stats_interval, tx));
 
     let recorder_out = FrameRecorder::new(samples, record::trace_id(&run_id));
-    run(socket, candidate_addr, rx, recorder_out, &stop);
+    run(socket, candidate_addr, rx, recorder_out, stats_log, &stop);
 
     if let Some(h) = recorder {
         let r = h.shutdown();
@@ -175,7 +212,12 @@ fn main() {
 
 // --- WHIP / WHEP -------------------------------------------------------------
 
-fn serve(server: tiny_http::Server, candidate: SocketAddr, tx: Sender<Control>) {
+fn serve(
+    server: tiny_http::Server,
+    candidate: SocketAddr,
+    stats_interval: Option<Duration>,
+    tx: Sender<Control>,
+) {
     let next_id = AtomicU64::new(1);
     for mut request in server.incoming_requests() {
         let method = request.method().as_str().to_string();
@@ -191,7 +233,7 @@ fn serve(server: tiny_http::Server, candidate: SocketAddr, tx: Sender<Control>) 
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);
                 let id = next_id.fetch_add(1, Ordering::SeqCst);
-                match answer(&body, candidate) {
+                match answer(&body, candidate, stats_interval) {
                     Ok((rtc, sdp)) => {
                         let _ = tx.send(Control::Add {
                             id,
@@ -238,13 +280,18 @@ fn text(
 }
 
 /// An Rtc for one client, and the SDP answer to its offer.
-fn answer(offer: &str, candidate: SocketAddr) -> Result<(Rtc, String), String> {
+fn answer(
+    offer: &str,
+    candidate: SocketAddr,
+    stats_interval: Option<Duration>,
+) -> Result<(Rtc, String), String> {
     let offer = SdpOffer::from_sdp_string(offer).map_err(|e| format!("not an SDP offer: {e}"))?;
     let mut rtc = Rtc::builder()
         .set_ice_lite(true)
         .set_rtp_mode(true)
         .set_extension(ext::ID, ext::extension())
         .set_extension(VIDEO_TIMING_ID, Extension::VideoTiming)
+        .set_stats_interval(stats_interval)
         .build(Instant::now());
     let c = Candidate::host(candidate, "udp").map_err(|e| format!("candidate: {e}"))?;
     rtc.add_local_candidate(c);
@@ -262,6 +309,7 @@ fn run(
     local: SocketAddr,
     rx: Receiver<Control>,
     mut frames: FrameRecorder,
+    mut stats_log: Option<StatsLog>,
     stop: &AtomicBool,
 ) {
     let mut clients: Vec<Client> = Vec::new();
@@ -310,9 +358,30 @@ fn run(
         // Drain every client's output: packets to send, events to act on.
         let mut forwards = Vec::new();
         let mut keyframes: Vec<(String, MediaKind, KeyframeRequestKind)> = Vec::new();
+        let mut stat_events = Vec::new();
         let mut timeout = Instant::now() + Duration::from_millis(100);
         for c in clients.iter_mut() {
-            timeout = timeout.min(drain(c, &socket, &mut forwards, &mut keyframes));
+            timeout = timeout.min(drain(
+                c,
+                &socket,
+                &mut forwards,
+                &mut keyframes,
+                &mut stat_events,
+            ));
+        }
+        if let Some(log) = stats_log.as_mut() {
+            for s in stat_events {
+                let row = match &s.stats {
+                    StreamStats::In(i) => {
+                        Row::ingress(frames.realtime_ns(i.timestamp), &s.peer, s.kind, s.ssrc, i)
+                    }
+                    StreamStats::Out(o) => {
+                        Row::egress(frames.realtime_ns(o.timestamp), &s.peer, s.kind, s.ssrc, o)
+                    }
+                };
+                log.record(row);
+            }
+            log.maybe_flush(Instant::now());
         }
 
         for f in forwards {
@@ -370,6 +439,12 @@ fn run(
         }
     }
     log!("stopping, {} frames recorded", frames.frames_recorded);
+    if let Some(log) = stats_log {
+        let rows = log.rows_written;
+        let dropped = log.posts_dropped;
+        let (posted, failed) = log.finish();
+        log!("webrtc stats: {rows} rows, {posted} posts, {failed} failed, {dropped} dropped");
+    }
 }
 
 /// Poll a client until it waits; returns when it next needs a timeout.
@@ -378,6 +453,7 @@ fn drain(
     socket: &UdpSocket,
     forwards: &mut Vec<Forward>,
     keyframes: &mut Vec<(String, MediaKind, KeyframeRequestKind)>,
+    stats: &mut Vec<Stat>,
 ) -> Instant {
     loop {
         let out = match c.rtc.poll_output() {
@@ -453,6 +529,32 @@ fn drain(
                         .map(|m| m.kind())
                         .unwrap_or(MediaKind::Video);
                     keyframes.push((c.stream.clone(), kind, req.kind));
+                }
+                Event::MediaIngressStats(s) => {
+                    let kind = c
+                        .rtc
+                        .media(s.mid)
+                        .map(|m| m.kind())
+                        .unwrap_or(MediaKind::Video);
+                    stats.push(Stat {
+                        peer: c.label(),
+                        kind,
+                        ssrc: c.rx.get(&kind).map(|s| **s),
+                        stats: StreamStats::In(s),
+                    });
+                }
+                Event::MediaEgressStats(s) => {
+                    let kind = c
+                        .rtc
+                        .media(s.mid)
+                        .map(|m| m.kind())
+                        .unwrap_or(MediaKind::Video);
+                    stats.push(Stat {
+                        peer: c.label(),
+                        kind,
+                        ssrc: c.tx.get(&kind).map(|(_, s)| **s),
+                        stats: StreamStats::Out(s),
+                    });
                 }
                 _ => {}
             },
