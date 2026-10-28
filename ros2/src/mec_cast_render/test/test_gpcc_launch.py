@@ -90,13 +90,17 @@ def generate_test_description():
     )
 
     # The publisher starts once both receivers have said they subscribed.
+    # Matched against each process's output so far, not one chunk: launch
+    # delivers output in chunks that can split a line anywhere, the run id
+    # included, and a missed readiness line means no publisher, ever.
     ready: set[str] = set()
     started = []
+    seen = {"edge": "", "render": ""}
 
     def on_output(name):
         def handler(event):
-            text = event.text.decode(errors="replace")
-            if f"recording run {RUN_ID}" in text:
+            seen[name] += event.text.decode(errors="replace")
+            if f"recording run {RUN_ID}" in seen[name]:
                 ready.add(name)
             if started or ready != {"edge", "render"}:
                 return None

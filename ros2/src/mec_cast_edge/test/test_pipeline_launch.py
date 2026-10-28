@@ -109,10 +109,14 @@ def generate_test_description():
     # — which is as early as the launch system can tell us anything.
     started = []
 
+    # Matched against the edge's output so far, not one chunk: launch
+    # delivers output in chunks that can split a line anywhere, the run id
+    # included, and a missed readiness line means no publisher, ever.
+    seen = [""]
+
     def on_edge_output(event):
-        if started or f"edge recording run {RUN_ID}" not in event.text.decode(
-            errors="replace"
-        ):
+        seen[0] += event.text.decode(errors="replace")
+        if started or f"edge recording run {RUN_ID}" not in seen[0]:
             return None
         started.append(True)
         return publisher
