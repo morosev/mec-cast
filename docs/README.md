@@ -13,7 +13,7 @@ code** — that is what keeps them from rotting:
 | Infra services (logging, admin) | [services/](../services/README.md) |
 | Third-party forks | [third_party/](../third_party/README.md) |
 | Deployment | [deploy/](../deploy/README.md) |
-| Releasing (legacy client only) | [RELEASING.md](../RELEASING.md) |
+| Releasing: images, platform tags, prebuilt libwebrtc | [RELEASING.md](../RELEASING.md) |
 
 ## I want to…
 

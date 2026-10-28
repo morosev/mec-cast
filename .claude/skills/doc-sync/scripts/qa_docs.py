@@ -24,8 +24,6 @@ EXCLUDE_DOCS = {"services/logging", "third_party"}
 # Keep this list SHORT and always with a reason — it is a suppression, and a
 # suppression nobody can justify is how a gate rots. (doc, path) pairs.
 KNOWN_CONTEXT_PATHS = {
-    ("RELEASING.md", "tests/e2e_local.sh"):
-        "path inside the release zip, whose layout differs from the repo",
     ("docs/guides/running-an-experiment.md", "ran/samples.csv"):
         "path inside runs/<RUN_ID>/",
     ("docs/guides/running-an-experiment.md", "ran/reports.jsonl"):

@@ -4,8 +4,8 @@
 #   bash scripts/tag-release.sh 0.2.0 "Version reporting and OCI image stamps"
 #   bash scripts/tag-release.sh 0.2.0 "..." --dry-run
 #
-# Tags are `platform-vX.Y.Z`, a separate namespace from the legacy client's
-# `vX.Y.Z` (scripts/release.sh). See RELEASING.md for what each MAJOR/MINOR/
+# Tags are `platform-vX.Y.Z`, a separate namespace from the retired client
+# zips' `vX.Y.Z` and the fork's `webrtc-*`. See RELEASING.md for what each MAJOR/MINOR/
 # PATCH bump means here — the short version is that MAJOR marks a change that
 # makes runs before and after it incomparable.
 #

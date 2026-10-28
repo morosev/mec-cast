@@ -6,24 +6,31 @@ Three artifact streams, deliberately different in cadence and effort.
 |---|---|---|---|---|
 | Container images | `ghcr.io/morosev/mec-cast-{ros,ran}` | — | every green push to `main` | none — CI |
 | Platform | tag + Release notes | `platform-vX.Y.Z` | per campaign or milestone | `scripts/tag-release.sh` |
-| Legacy WebRTC client | zips on a GitHub Release | `vX.Y.Z` | rare | `scripts/release.sh` |
+| Prebuilt libwebrtc | archives on a Release of the fork, [mec-cast-webrtc](https://github.com/morosev/mec-cast-webrtc) | `webrtc-<upstream>-<n>`, on the fork | when the fork changes | push a tag; CI builds |
 
-## Two tag namespaces, and why
+## Tag namespaces
 
-`v1.0.3` means the **legacy WebRTC client** — the two zips end users download.
-`platform-v0.2.0` means the **testbed**: telemetry crate, ROS2 packages, RAN
-collector, compose topologies, images. They version independently because they
-change independently, and a `v1.0.4` would advertise a client release that
-never happened.
+`platform-v0.7.0` means the **testbed**: the telemetry crate, the ROS 2
+packages, the RAN collector and xApp, the media profile's client and relay
+([ADR-0015](docs/architecture/adr/0015-media-profile-relay.md)), the admin,
+the compose topologies and the images. Both profiles release together.
 
-They converge when Profile B retires: once the str0m SFU reaches parity the
-`platform-` prefix is dropped and the line continues at `v2.0.0`.
+`webrtc-c7f637a-4` names one build of the patched libwebrtc, tagged on the
+fork, not here: the upstream commit it is based on, then a counter. mec-cast
+pins one in `third_party/webrtc.lock`, so a platform release names the
+libwebrtc its media clients build against.
+
+`v1.0.x` tags are the WebRTC client's former zip releases, retired; `v1.0.3`
+was the last. The client now builds in minutes on Linux and macOS from the
+prebuilt libwebrtc, so it ships as source in a platform release. No new `v`
+tags are made, and `scripts/version.sh` and `tag-release.sh` match
+`platform-v*` only.
 
 For platform versions:
 
 | Bump | Means |
 |---|---|
-| MAJOR | runs before and after **cannot be compared** — the `TimingEnvelope` wire format, the CSV schema, the logging-service `context` shape, or a metric definition changed |
+| MAJOR | runs before and after **cannot be compared** — the `TimingEnvelope` wire format, the CSV schema (`samples.csv` or `webrtc.csv`), the media profile's RTP header extension, the logging-service `context` shape, or a metric definition changed |
 | MINOR | new capability; existing runs stay comparable |
 | PATCH | fixes and docs |
 
@@ -41,6 +48,11 @@ recipe: [deploy/README.md](deploy/README.md#published-images-ghcr).
 
 Nothing to maintain per push. In a few months, set a package retention rule
 so `sha-` tags do not accumulate indefinitely.
+
+Not every role has a published image. The media relay's (`mec-cast-relay`)
+is built on its host by `deploy/lab/deploy.sh relay`, and the media clients
+are not containerised: each UE builds them with
+`make fetch-libwebrtc build-client`.
 
 ## Platform releases
 
@@ -64,6 +76,29 @@ published when it landed on `main`.
 
 Do not publish the crate to crates.io or the wheel to PyPI while neither has
 a consumer outside this repository.
+
+## Prebuilt libwebrtc
+
+The media clients link a patched libwebrtc that takes hours and ~20 GB to
+build, so it is built once per change, by the fork's release workflow, and
+downloaded everywhere else. To publish one:
+
+1. Commit the change to the fork's `mec-cast` branch and push it.
+2. Tag it `webrtc-<upstream-short-sha>-<n>`, the next `n`, and push the tag.
+   The workflow builds linux-x64 and macos-arm64 (about an hour) and attaches
+   one archive per platform, with its `.sha256`, to the tag's Release.
+3. In mec-cast, set `tag`, `commit` and each `sha256.<platform>` in
+   `third_party/webrtc.lock`, and commit the lock with the moved
+   `third_party/webrtc/src` submodule pointer.
+4. `make fetch-libwebrtc build-client`, and run a media run end to end.
+
+The details, and why the archive carries its own clang and libc++:
+[building libwebrtc](docs/guides/building-libwebrtc.md#publishing-a-prebuilt-release).
+
+A new libwebrtc can change what a media run measures -- its encoder, pacer
+and congestion control are the subject. Each media run records the release it
+used, as `media.libwebrtc` in `run.json`; say in the platform release notes
+when the lock moved.
 
 ## Knowing what a host is running
 
@@ -101,70 +136,6 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revisi
   ghcr.io/morosev/mec-cast-ros:main
 ```
 
-## Legacy WebRTC client — the rest of this document
-
-Everything below concerns Profile B only (`clients/webrtc_native/` +
-`edge/signaling/`, built against the libwebrtc fork). It predates the
-platform restructure and packages a two-binary zip for end users who do not
-want to compile WebRTC. It retires when str0m reaches parity.
-
-## Prerequisites
-
-1. All changes committed and pushed.
-2. libwebrtc built — see
-   [docs/guides/building-libwebrtc.md](docs/guides/building-libwebrtc.md):
-   ```bash
-   ninja -C third_party/webrtc/src/out/release_x64 webrtc
-   ```
-3. Client addon built:
-   ```bash
-   make build-client
-   ```
-4. Legacy e2e passes:
-   ```bash
-   make test-legacy
-   ```
-5. `gh` CLI authenticated (`gh auth status`).
-
-## Creating a release
-
-```bash
-./scripts/release.sh 1.0.4 "Audio delay measurement, CSV export"
-```
-
-This verifies prerequisites, packages both zips, appends a row to the
-version history below, commits and pushes it, creates and pushes an
-annotated tag `vX.Y.Z`, and creates a GitHub release with both zips
-attached.
-
-Dry run (packages only, no tag or push):
-
-```bash
-./scripts/release.sh 1.0.4 "Test release" --dry-run
-```
-
-## Package contents
-
-Paths below are **inside the zip**, which keeps the historical flat layout
-(`client/`, `server/`, `tests/`) rather than the repository layout.
-
-### Runtime — `mec-cast-vX.Y.Z-linux-x64.zip`
-
-- `client/build/Release/webrtc_addon.node` — prebuilt native addon
-- `client/client.js`, `client-config.json`, `package.json`
-- `server/server.js`, `package.json`
-- `tests/e2e_local.sh`
-- `LICENSE`, `INSTALL.md` (version and date injected)
-
-### Dev — `mec-cast-vX.Y.Z-linux-x64-dev.zip`
-
-Runtime contents plus:
-
-- `libwebrtc.a` — prebuilt static library
-- `client/src/*` — C++ sources and headers
-- `client/build.sh`
-- `INSTALL-DEV.md`
-
 ## Gaps
 
 Known and deliberate, recorded so they are not rediscovered:
@@ -173,13 +144,17 @@ Known and deliberate, recorded so they are not rediscovered:
   while neither has a consumer outside this repository; publishing would
   create a maintenance obligation for no reader. The container images and
   the git SHAs in `runs/<run_id>/run.json` cover reproducibility today.
-- **Zip layout diverges from repo layout**, kept for continuity with
-  released v1.0.x packages.
-- **This process retires with Profile B.** When the str0m SFU reaches
-  parity ([str0m-profile.md](docs/architecture/str0m-profile.md)), the
-  libwebrtc fork and this document go with it.
+- **The relay image is not in GHCR**, and the media clients are not packaged:
+  both build on their hosts from the release's source. The relay builds in
+  minutes; the clients' one heavy dependency, libwebrtc, is the prebuilt
+  archive.
+- **No arm64 Linux libwebrtc**: Chromium ships no clang for arm64 Linux hosts,
+  so the fork's workflow cannot build one.
 
-## Version history
+## Former client releases
+
+The WebRTC client's zips, retired. Kept for the record of what `v1.0.x` tags
+mean.
 
 | Version | Date | Highlights |
 |---------|------|------------|

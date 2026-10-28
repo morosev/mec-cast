@@ -50,8 +50,8 @@ if ! SHORT=$(git rev-parse --short HEAD 2>/dev/null); then
 fi
 if [ -z "${NO_GIT:-}" ]; then
   # Match platform tags only. Plain `git describe --tags` would latch onto
-  # v1.0.3 and report "17 commits after the legacy client release", which
-  # describes a different artifact's version line entirely.
+  # v1.0.3 and report "17 commits after the last client zip release", which
+  # describes a different, retired artifact's version line entirely.
   DESCRIBE=$(git describe --tags --match 'platform-v*' --always 2>/dev/null || echo "$SHORT")
   [ "$DESCRIBE" = "$SHORT" ] && DESCRIBE="$SHORT  ${DIM}(no platform tag yet)${RST}"
   BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
