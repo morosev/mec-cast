@@ -55,6 +55,11 @@ jobs:
       - run: cargo clippy -p mec-cast-telemetry --all-targets --features linux-ptp,pyo3 -- -D warnings
       - run: cargo test --workspace
       - run: cargo test --workspace --no-default-features
+      # The media relay: a workspace of its own, built against str0m.
+      - run: git submodule update --init third_party/str0m
+      - run: cargo fmt --manifest-path edge/media-relay/Cargo.toml --check
+      - run: cargo clippy --manifest-path edge/media-relay/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path edge/media-relay/Cargo.toml
 
   pybind:
     runs-on: ubuntu-latest

@@ -1,0 +1,32 @@
+[package]
+name = "mec-cast-relay"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/morosev/mec-cast"
+description = "The media profile's relay on the edge: forwards a WebRTC sender's RTP to its receivers without decoding, and measures each frame on the way (str0m)"
+
+# A workspace of its own, outside the repo's: see the root Cargo.toml.
+[workspace]
+
+[profile.release]
+lto = "thin"
+
+[[bin]]
+name = "mec-cast-relay"
+path = "src/main.rs"
+
+[dependencies]
+# The vendored str0m, unmodified: RTP mode and user header extensions are
+# upstream features. aws-lc-rs for DTLS/SRTP, as str0m's default.
+str0m = { path = "../../third_party/str0m", default-features = false, features = ["aws-lc-rs"] }
+mec-cast-telemetry = { path = "../../telemetry" }
+tiny_http = "0.12"
+# str0m's own diagnostics, on stderr when RUST_LOG asks for them.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# SIGTERM too: `docker stop` must flush the samples like Ctrl-C.
+ctrlc = { version = "3", features = ["termination"] }
+
+# PTP hardware clock monitoring is a Linux device.
+[target.'cfg(target_os = "linux")'.dependencies]
+mec-cast-telemetry = { path = "../../telemetry", features = ["linux-ptp"] }

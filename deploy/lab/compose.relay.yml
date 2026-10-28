@@ -1,0 +1,37 @@
+# Lab role: relay — the media profile's relay (edge/media-relay).
+#
+# A WebRTC sender publishes to it with WHIP and receivers play from it with
+# WHEP; it forwards their RTP without decoding and records every frame at
+# site 3. It usually shares the edge host, beside the edge role: on its N6
+# side, so a sender and a receiver on UEs both cross the 5G link.
+#
+#   RELAY_PUBLIC_IP   the address the clients reach it at (the N6 address);
+#                     the one ICE candidate it offers. REQUIRED.
+#   RELAY_PORT        WHIP/WHEP on TCP and media on UDP (default 8090)
+#
+# Required env: RELAY_PUBLIC_IP, INFRA_HOST
+services:
+  media-relay:
+    image: mec-cast-relay
+    build:
+      context: ../..
+      dockerfile: deploy/docker/relay.Dockerfile
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    # One UDP port for every client's media, and nothing to translate it.
+    network_mode: host
+    environment:
+      RELAY_HTTP: 0.0.0.0:${RELAY_PORT:-8090}
+      RELAY_UDP: 0.0.0.0:${RELAY_PORT:-8090}
+      RELAY_PUBLIC_IP: ${RELAY_PUBLIC_IP:?set RELAY_PUBLIC_IP, the address clients reach the relay at}
+      RUN_ID: ${RUN_ID:-}
+      RUNS_DIR: /runs
+      LOGGING_URL: http://${INFRA_HOST:?set INFRA_HOST}:8000
+      # The host PHC, always /dev/ptp0 inside, as for the other roles.
+      PTP_DEVICE: /dev/ptp0
+    devices:
+      - ${PTP_DEVICE:-/dev/ptp0}:/dev/ptp0
+    volumes:
+      - ../../runs:/runs
+    restart: unless-stopped

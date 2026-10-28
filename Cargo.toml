@@ -4,7 +4,10 @@ members = ["telemetry", "ran/collector"]
 # Vendored third-party crates carry their own Cargo.toml (and their own
 # workspace). Excluding the directory keeps cargo from ever trying to pull
 # them into this workspace.
-exclude = ["third_party"]
+# The media relay is a workspace of its own (edge/media-relay): it builds
+# against the vendored str0m, which the ROS and RAN images and their CI jobs
+# do not carry, and a member's path dependencies must exist for any build.
+exclude = ["third_party", "edge/media-relay"]
 
 [workspace.package]
 edition = "2021"

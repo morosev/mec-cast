@@ -5,6 +5,9 @@ third_party/
 # ...except the G-PCC codec, which the ROS image builds (ADR-0014). Its build
 # directories, if any were made in the checkout, stay out.
 !third_party/mpeg-pcc-tmc13/
+# ...and str0m, which the media relay image builds against.
+!third_party/str0m/
+third_party/str0m/target/
 third_party/mpeg-pcc-tmc13/build*/
 clients/
 edge/signaling/

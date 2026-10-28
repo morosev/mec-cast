@@ -99,7 +99,7 @@ bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
 
 # ─── build ────────────────────────────────────────────────────────────────
 ##@ Build — this machine
-.PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc
+.PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc build-relay build-relay-image
 
 # Stamp images with the commit they came from, so a container found running on
 # a lab host is traceable without trusting whatever the checkout beside it says.
@@ -109,6 +109,16 @@ build: build-telemetry build-ran build-python ## Build everything cheap (no dock
 
 build-telemetry: ## Rust telemetry crate
 	cargo build --release -p mec-cast-telemetry
+
+# The media relay is a Cargo workspace of its own (see the root Cargo.toml),
+# so it is built, tested and linted through its manifest.
+RELAY := --manifest-path edge/media-relay/Cargo.toml
+
+build-relay: ## Media relay (WHIP/WHEP, str0m) — needs third_party/str0m
+	cargo build --release $(RELAY)
+
+build-relay-image: ## Media relay image
+	docker build -f deploy/docker/relay.Dockerfile $(BUILD_LABELS) -t mec-cast-relay .
 
 build-ran: ## srsRAN metrics collector
 	cargo build --release -p ran-collector
@@ -133,9 +143,9 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 
 # ─── test ─────────────────────────────────────────────────────────────────
 ##@ Test — this machine
-.PHONY: test test-all test-rust test-python test-admin test-ran test-ros2 test-e2e test-legacy test-ffi
+.PHONY: test test-all test-rust test-relay test-python test-admin test-ran test-ros2 test-e2e test-legacy test-ffi
 
-test: test-rust test-ffi test-python test-admin test-ran ## Fast tests (no docker)
+test: test-rust test-relay test-ffi test-python test-admin test-ran ## Fast tests (no docker)
 
 # test-legacy is deliberately NOT here: it needs the libwebrtc addon, which
 # is a ~20 GB opt-in build. Run it explicitly when working on Profile B.
@@ -149,6 +159,9 @@ test-rust: ## Unit + property + integration tests across the workspace
 # ran/collector/Cargo.toml). Cargo keeps a separate artifact directory per
 # feature set, so alternating costs nothing after the first build of each.
 	cargo test --workspace --no-default-features
+
+test-relay: ## Media relay: unit tests, and WHIP/WHEP forwarding end to end over localhost
+	cargo test $(RELAY)
 
 test-python: ## PyO3 binding smoke tests
 	$(PYTEST) telemetry/python/tests -v
@@ -214,6 +227,8 @@ test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
 lint: ## Rust (clippy + rustfmt) and Python (ruff) checks, as CI runs them
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt $(RELAY) --check
+	cargo clippy $(RELAY) --all-targets -- -D warnings
 # The other two combinations CI runs. The first keeps the optional-dependency
 # boundary honest; the second checks that the opt-in features still compile,
 # which nothing else exercises because neither is on by default.

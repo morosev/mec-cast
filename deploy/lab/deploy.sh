@@ -8,6 +8,7 @@
 #   edge    Zenoh router + edge ingest node (the MEC application server)
 #   infra   Logging service + PostgreSQL
 #   gnb     srsRAN metrics collector (runs alongside the gNB)
+#   relay   the media profile's WebRTC relay (usually on the edge host)
 #
 # Deliberately simple: rsync the repo, build there, run compose. For a
 # four-host lab this beats a configuration-management system — it stays
@@ -38,7 +39,7 @@ if [ -z "$ROLE" ] || [ -z "$TARGET" ]; then
 fi
 
 case "$ROLE" in
-  ue|edge|infra|gnb) ;;
+  ue|edge|infra|gnb|relay) ;;
   *) echo "ERROR: unknown role '$ROLE'"; exit 2 ;;
 esac
 
@@ -61,6 +62,7 @@ fi
 
 case "$ROLE" in
   edge)    REQUIRED="INFRA_HOST" ;;
+  relay)   REQUIRED="INFRA_HOST RELAY_PUBLIC_IP" ;;
   ue|gnb)  REQUIRED="EDGE_HOST INFRA_HOST" ;;
   infra)   REQUIRED="" ;;
 esac
@@ -82,6 +84,8 @@ case "$ROLE" in
   infra)   NEEDS_CONTEXT="services/logging services/admin" ;;
   # The ROS image builds the G-PCC codec from source (ADR-0014).
   ue|edge) NEEDS_CONTEXT="third_party/mpeg-pcc-tmc13" ;;
+  # The relay image builds against the vendored str0m.
+  relay)   NEEDS_CONTEXT="third_party/str0m" ;;
   *)       NEEDS_CONTEXT="" ;;
 esac
 for c in $NEEDS_CONTEXT; do
@@ -92,6 +96,7 @@ for c in $NEEDS_CONTEXT; do
   fi
   case "$c" in
     third_party/mpeg-pcc-tmc13) marker=CMakeLists.txt ;;
+    third_party/str0m)          marker=Cargo.toml ;;
     *)                          marker=pyproject.toml ;;
   esac
   if [ ! -f "$ROOT_DIR/$c/$marker" ]; then
@@ -105,7 +110,7 @@ for c in $NEEDS_CONTEXT; do
       echo "  ...or point at a sibling checkout:" >&2
       echo "    MECLOG_BUILD_CONTEXT=../../../mec-cast-logging-service \\" >&2
       echo "      bash deploy/lab/deploy.sh $ROLE $TARGET" >&2
-    elif [ "$c" = "third_party/mpeg-pcc-tmc13" ]; then
+    elif [ "$c" = "third_party/mpeg-pcc-tmc13" ] || [ "$c" = "third_party/str0m" ]; then
       echo "  On THIS machine:  git submodule update --init $c" >&2
     else
       echo "  $c is part of this repository, not a submodule, so this is a" >&2
@@ -133,7 +138,8 @@ OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           PATTERN NUM_POINTS RATE_HZ SEED ADMIN_URL \
           LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST ZONE \
           BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY \
-          VCS_REF VERSION PTP_DEVICE MIDDLEWARE MIDDLEWARE_LINK DDS_INTERFACES CODEC CODEC_PRECISION_M"
+          VCS_REF VERSION PTP_DEVICE MIDDLEWARE MIDDLEWARE_LINK DDS_INTERFACES CODEC CODEC_PRECISION_M \
+          RELAY_PUBLIC_IP RELAY_PORT"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,
@@ -160,6 +166,7 @@ rsync -az --delete \
   --exclude '.run-env' \
   --include '/third_party/' \
   --include '/third_party/mpeg-pcc-tmc13/***' \
+  --include '/third_party/str0m/***' \
   --exclude '/third_party/*' \
   --exclude 'third_party/' \
   --exclude 'target/' \

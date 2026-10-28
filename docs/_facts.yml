@@ -161,6 +161,7 @@ outputs:
     edge:   {code: 1, note: "MEC edge. Dir edge-0 (single-instance today)"}
     render: {code: 2, note: "renderer, on the UE; dirs render-0, render-1, …. Its e2e_ns is a ROUND TRIP and is PTP-free ONLY while a lidar runs on the same host (ADR-0009); a cross-host renderer raises WF_RENDER_CROSS_HOST"}
     ran:    {note: "srsRAN collector; KPIs, not per-frame samples. Single-instance, dir stays `ran` with no suffix"}
+    relay:    {code: 3, note: "media relay on the edge (edge/media-relay); dir relay. seq is the frame's RTP timestamp; network_ns is the sender-to-relay leg (the 5G uplink), processing_ns its forwarding time"}
   # The site *code* column in the CSV is unchanged; only directory names
   # gained the instance suffix. One home for the codes:
   # ros2/src/mec_cast_admin_client/mec_cast_admin_client/sites.py
