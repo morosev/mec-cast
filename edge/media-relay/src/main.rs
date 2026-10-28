@@ -34,9 +34,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use mec_cast_telemetry::{
-    monitor_from_device, spawn_recorder, Clock, RealtimeClock, RecorderConfig,
-};
+use mec_cast_telemetry::{monitor_from_device, spawn_recorder, RecorderConfig};
 use str0m::change::SdpOffer;
 use str0m::format::CodecSpec;
 use str0m::media::{Direction, KeyframeRequestKind, MediaKind, Mid};
@@ -162,7 +160,7 @@ fn main() {
     thread::spawn(move || serve(server, candidate_addr, tx));
 
     let recorder_out = FrameRecorder::new(samples, record::trace_id(&run_id));
-    run(socket, rx, recorder_out, &stop);
+    run(socket, candidate_addr, rx, recorder_out, &stop);
 
     if let Some(h) = recorder {
         let r = h.shutdown();
@@ -259,14 +257,22 @@ fn answer(offer: &str, candidate: SocketAddr) -> Result<(Rtc, String), String> {
 
 // --- the loop ----------------------------------------------------------------
 
-fn run(socket: UdpSocket, rx: Receiver<Control>, mut frames: FrameRecorder, stop: &AtomicBool) {
+fn run(
+    socket: UdpSocket,
+    local: SocketAddr,
+    rx: Receiver<Control>,
+    mut frames: FrameRecorder,
+    stop: &AtomicBool,
+) {
     let mut clients: Vec<Client> = Vec::new();
     let mut buf = vec![0u8; 2000];
     // Datagrams no client claimed: reported every few seconds, since a
     // client that sends media no session recognises shows up nowhere else.
     let mut unclaimed: u64 = 0;
     let mut unclaimed_report = Instant::now();
-    let local = socket.local_addr().expect("a local address");
+    // Every datagram is handed to str0m as arriving at the candidate's
+    // address: a socket bound to 0.0.0.0 reports that as its own, which
+    // matches no candidate, and str0m would drop every STUN check.
 
     while !stop.load(Ordering::SeqCst) {
         loop {
@@ -506,7 +512,11 @@ fn forward(f: &Forward, clients: &mut [Client], frames: &mut FrameRecorder) {
         forwarded = true;
     }
     if f.kind == MediaKind::Video {
-        let done = if forwarded { RealtimeClock.now_ns() } else { 0 };
+        let done = if forwarded {
+            frames.realtime_ns(Instant::now())
+        } else {
+            0
+        };
         frames.packet(
             *f.pkt.header.ssrc,
             f.pkt.header.timestamp,

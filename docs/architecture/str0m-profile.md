@@ -1,52 +1,49 @@
-# Profile B: media over str0m (planned)
+# Profile B: WebRTC media through a str0m relay
 
-The planned replacement for the libwebrtc-based media path: a Rust
-`mec-cast-media` workspace member built on
-[str0m](https://github.com/algesten/str0m), consuming the fork vendored at
-[`third_party/str0m/`](../../third_party/README.md).
+The media profile measures WebRTC over 5G for teleoperation: a sender's video
+to a receiver, both on the platform's patched libwebrtc, through a relay on
+the edge. Decisions and their reasons:
+[ADR-0015](adr/0015-media-profile-relay.md).
 
-When implemented, the SFU itself lands under `edge/` — it is a MEC server
-component. `third_party/str0m/` holds only the library fork.
+```
+ sender (UE)                       relay (edge)                     receiver (UE)
+ clients/webrtc_native  ──WHIP──►  edge/media-relay   ◄──WHEP──    clients/webrtc_native
+ role send, libwebrtc     RTP ──►  str0m, RTP mode      ──► RTP    role recv, libwebrtc
+ capture_ns, send_ns    (5G UL)    site 3: recv, fwd    (5G DL)    site 4: recv, render
+```
 
-## Why str0m
+## The pieces
 
-str0m is **sans-IO**: the application owns the UDP socket and the event
-loop. That means `send_ns` can be stamped at the actual socket write and
-`recv_ns` at the socket read — the precision that currently requires a
-patched libwebrtc tree (`third_party/webrtc/src`,
-`SendTimestampNsExtension`) falls out of the architecture for free.
+| Piece | Where | What it does |
+|---|---|---|
+| Client | [`clients/webrtc_native`](../../clients/webrtc_native/README.md) | Node app with a C++ addon on the fork; `role: send` or `recv`, synthetic or camera video, SDL2 window or headless |
+| libwebrtc | [`third_party/webrtc`](../../third_party/README.md) | the fork, prebuilt by its release workflow; pinned in `third_party/webrtc.lock`, fetched by `make fetch-libwebrtc` |
+| Relay | [`edge/media-relay`](../../edge/README.md) | WHIP/WHEP, forwards RTP without decoding, records each frame |
+| str0m | [`third_party/str0m`](../../third_party/README.md) | used unmodified: RTP mode and user header extensions are upstream features |
 
-Note the tension this creates with vendoring a *fork* of str0m: the
-original argument for str0m was that no fork would be needed. Keep the
-fork's delta as small as possible — ideally limited to header-extension
-registration and anything upstream will not accept — so the option of
-returning to an unforked crates.io dependency stays open.
+## The wire contract
 
-## Contract with the platform
+The fork stamps every video packet with a 16-byte RTP header extension,
+`http://www.mec-cast.org/experiments/rtp-hdrext/send-timestamp-ns` (RFC 8285
+one-byte form): `capture_ns` then `send_ns`, big-endian, CLOCK_REALTIME. The
+relay reads it and writes it back unchanged; the receiver reads it again.
 
-- Depends on `mec-cast-telemetry` only; no coupling to Profile A.
-- Carries `TimingEnvelope::to_bytes()` (the shared 64-byte wire format) as
-  an RTP header extension — the same negotiation model as the existing
-  extension (`http://www.mec-cast.org/experiments/rtp-hdrext/...`), RFC 8285
-  one-byte format. Note: 64 bytes exceeds the one-byte-format 16-byte
-  element limit, so either the two-byte header format is used or the
-  extension carries the envelope's timestamp fields only (16 bytes:
-  capture_ns + send_ns, as today) with seq/trace_id inferred per-session.
-  Decide at implementation time; the CSV/snapshot contract is unaffected.
-- Reuses the existing signaling server at `edge/signaling/` over WebSocket.
-- Feeds the identical recorder: `service: "mec-cast-media"`,
-  `modality: video|audio`, same CSV schema, same snapshot shape — directly
-  comparable with Profile A runs in the same Postgres.
+## What is recorded
 
-## Migration plan
+One sample per video frame per site, in the platform's CSV schema, joined on
+`seq` = the frame's RTP timestamp. A frame's stamps are those of its last
+packet.
 
-1. Loopback str0m sender/receiver with the envelope extension; verify
-   against the telemetry loopback test pattern.
-2. Interop with the existing signaling server; parity call flow
-   (connect/call/answer/end).
-3. Side-by-side latency comparison vs the libwebrtc client on the lab
-   testbed; retire `clients/webrtc_native/` + `third_party/webrtc/` when
-   parity is demonstrated.
+| Site | Directory | `network_ns` | `processing_ns` | `e2e_ns` |
+|---|---|---|---|---|
+| 3, relay | `runs/<RUN_ID>/relay/` | sender to relay: the uplink | forwarding, tens of µs | capture to forwarding |
+| 4, receiver | `runs/<RUN_ID>/receiver/` | sender to receiver, both legs | jitter buffer, decode, render | glass-to-glass |
 
-Until then, the legacy path (`clients/webrtc_native/`, `edge/signaling/`,
-`third_party/webrtc/`) stays buildable and untouched.
+The relay-to-receiver leg is the receiver's `recv_ns` minus the relay's
+`process_done_ns` for the same frame. Every cross-host figure needs PTP on
+both hosts.
+
+## Peer to peer
+
+The client still calls a peer directly through `edge/signaling`, the
+baseline a relayed call is compared with.

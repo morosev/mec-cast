@@ -99,7 +99,7 @@ bootstrap: ## One-time dev setup (rust, docker, venv, submodules)
 
 # ─── build ────────────────────────────────────────────────────────────────
 ##@ Build — this machine
-.PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc build-relay build-relay-image
+.PHONY: build build-telemetry build-ran build-python build-ros2 build-ran-image build-client build-libwebrtc fetch-libwebrtc build-relay build-relay-image
 
 # Stamp images with the commit they came from, so a container found running on
 # a lab host is traceable without trusting whatever the checkout beside it says.
@@ -132,10 +132,13 @@ build-ros2: ## ROS2 image (telemetry wheel + colcon workspace)
 build-ran-image: ## srsRAN collector image
 	docker build -f deploy/docker/ran.Dockerfile $(BUILD_LABELS) -t mec-cast-ran .
 
-build-client: ## Legacy WebRTC native addon (needs libwebrtc.a)
+build-client: ## WebRTC native client addon (fetches the prebuilt libwebrtc)
 	cd clients/webrtc_native && ./build.sh
 
-build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
+fetch-libwebrtc: ## Prebuilt libwebrtc for this machine, as pinned in third_party/webrtc.lock
+	bash scripts/fetch-libwebrtc.sh
+
+build-libwebrtc: ## Forked libwebrtc from source — 20 GB, hours. Only to change the fork.
 	@echo "This builds the patched WebRTC fork. Expect hours and ~20 GB."
 	@echo "See docs/guides/building-libwebrtc.md before running."
 	cd third_party/webrtc/src && \
@@ -147,8 +150,8 @@ build-libwebrtc: ## Forked libwebrtc — 20 GB, hours. Opt-in, never in CI.
 
 test: test-rust test-relay test-ffi test-python test-admin test-ran ## Fast tests (no docker)
 
-# test-legacy is deliberately NOT here: it needs the libwebrtc addon, which
-# is a ~20 GB opt-in build. Run it explicitly when working on Profile B.
+# test-legacy is deliberately NOT here: it needs the libwebrtc addon and
+# its native dependencies. Run it explicitly when working on Profile B.
 test-all: test-rust test-ffi test-python test-admin test-ran test-ros2 test-e2e ## Everything, containers included
 
 test-rust: ## Unit + property + integration tests across the workspace
@@ -207,8 +210,7 @@ DURATION ?= 10
 test-legacy: ## Legacy WebRTC e2e — needs the libwebrtc addon (opt-in)
 	@test -f clients/webrtc_native/build/Release/webrtc_addon.node || { \
 	  echo "ERROR: native addon not built."; \
-	  echo "  make build-client   (requires third_party/webrtc/src —"; \
-	  echo "                       see docs/guides/building-libwebrtc.md)"; \
+	  echo "  make build-client   (see clients/webrtc_native/README.md)"; \
 	  exit 1; }
 	@test -d edge/signaling/node_modules || { \
 	  echo "ERROR: signaling server dependencies missing."; \
@@ -444,4 +446,4 @@ help: ## Show this help
 	         {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@printf '\n\033[1mDeploying to the lab\033[0m\n'
 	@printf '  Not a make target: \033[36mbash deploy/lab/deploy.sh ROLE user@host\033[0m\n'
-	@printf '  Roles: ue, gnb, edge, infra · see docs/operations/deploy-manual.md\n'
+	@printf '  Roles: ue, gnb, edge, infra, relay · see docs/operations/deploy-manual.md\n'

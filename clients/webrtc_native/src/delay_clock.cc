@@ -6,15 +6,19 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef __linux__
 #include <sys/ioctl.h>
 #include <linux/ptp_clock.h>
+#endif
 
 #define CLOCK_LOG(fmt, ...) fprintf(stderr, "[delay_clock] " fmt "\n", ##__VA_ARGS__)
 
+#ifdef __linux__
 // Convert PHC fd to clockid_t (Linux kernel convention)
 static inline clockid_t fd_to_clockid(int fd) {
   return ~(static_cast<clockid_t>(fd) << 3);
 }
+#endif
 
 DelayClock::DelayClock(const ClockConfig& config) : config_(config) {
   switch (config_.source) {
@@ -53,6 +57,11 @@ DelayClock::~DelayClock() {
 }
 
 bool DelayClock::TryOpenPHC() {
+#ifndef __linux__
+  // A PTP hardware clock is a Linux device; elsewhere CLOCK_REALTIME it is.
+  CLOCK_LOG("No PHC on this platform");
+  return false;
+#else
   phc_fd_ = open(config_.phc_device.c_str(), O_RDWR);
   if (phc_fd_ < 0) {
     CLOCK_LOG("Cannot open %s: %s", config_.phc_device.c_str(), strerror(errno));
@@ -74,6 +83,7 @@ bool DelayClock::TryOpenPHC() {
   CLOCK_LOG("PHC opened: %s (clockid=%d, time=%ld.%09ld)",
             config_.phc_device.c_str(), phc_clockid_, ts.tv_sec, ts.tv_nsec);
   return true;
+#endif
 }
 
 void DelayClock::ClosePHC() {

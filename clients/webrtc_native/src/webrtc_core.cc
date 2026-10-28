@@ -1,8 +1,7 @@
-// WebRTC core implementation — Linux version.
-// Compiled with Chromium's clang + libc++ to match libwebrtc.a ABI.
-// Only exposes a C interface (webrtc_core.h) so there is no STL mismatch.
-
-#include "buildtools/third_party/libc++/__config_site"
+// WebRTC core implementation — Linux and macOS.
+// Built against the prebuilt libwebrtc (third_party/webrtc.lock), which links
+// the platform's own C++ standard library, with the defines it was built with.
+// Only exposes a C interface (webrtc_core.h).
 
 #include "webrtc_core.h"
 
@@ -11,6 +10,8 @@
 #include "mec_cast_telemetry.h"
 #include "ptp_monitor.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,9 +31,6 @@
 #include <sys/stat.h>
 #include <time.h>
 
-// WebRTC headers must come BEFORE X11 headers because X11/X.h defines
-// macros like CurrentTime, Success, Status, Bool, None that collide
-// with WebRTC identifiers.
 #include "api/create_peerconnection_factory.h"
 #include "api/peer_connection_interface.h"
 #include "api/jsep.h"
@@ -57,25 +55,23 @@
 #include "api/video_codecs/video_decoder_factory_template_open_h264_adapter.h"
 #include "api/video_codecs/video_decoder_factory_template_dav1d_adapter.h"
 #include "pc/video_track_source.h"
+#include "test/test_video_capturer.h"
+// libwebrtc's camera module has no macOS implementation: a camera there needs
+// an AVFoundation capturer of our own. Until then macOS sends synthetic video.
+#if !defined(WEBRTC_MAC)
 #include "modules/video_capture/video_capture.h"
 #include "modules/video_capture/video_capture_factory.h"
-#include "test/test_video_capturer.h"
 #include "test/vcm_capturer.h"
+#endif
 #include "rtc_base/thread.h"
+#include "rtc_base/time_utils.h"
 #include "rtc_base/logging.h"
 #include "third_party/libyuv/include/libyuv.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
 #include "api/stats/rtc_stats_report.h"
 
-// Now safe to include X11 — undefine conflicting macros afterwards
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#undef CurrentTime
-#undef Success
-#undef Status
-#undef Bool
-#undef None
+#include <SDL.h>
 
 #define DEMO_LOG(fmt, ...) fprintf(stderr, "[webrtc_core] " fmt "\n", ##__VA_ARGS__)
 
@@ -167,18 +163,130 @@ static std::string JsonEscape(const std::string& s) {
   return oss.str();
 }
 
-// --- Video capture source (wraps VcmCapturer) ---
+// --- Video source settings, from the client's configuration ---
+struct VideoConfig {
+  bool synthetic = false;  // synthetic frames instead of a camera
+  int width = 640;
+  int height = 480;
+  int fps = 30;
+  uint32_t seed = 42;
+  bool render = true;  // show received video in a window
+};
+
+// --- Synthetic video: deterministic frames, no camera needed ---
+//
+// The media counterpart of the lidar client's seeded patterns: frame n of a
+// given (seed, size) is always the same picture, so runs are reproducible and
+// a machine without a camera -- CI, a lab host -- still sends real video.
+// Each frame is a moving gradient with seeded noise blocks, so the encoder has
+// work to do, and a row of black/white blocks along the top carries the frame
+// number in binary for anyone checking frames by eye.
+class SyntheticCapturer : public webrtc::test::TestVideoCapturer {
+ public:
+  SyntheticCapturer(int width, int height, int fps, uint32_t seed)
+      : width_(width), height_(height), fps_(fps > 0 ? fps : 30), seed_(seed) {
+    Start();
+  }
+  ~SyntheticCapturer() override { Stop(); }
+
+  void Start() override {
+    if (running_.exchange(true)) return;
+    thread_ = std::thread([this] { Run(); });
+  }
+  void Stop() override {
+    if (!running_.exchange(false)) return;
+    if (thread_.joinable()) thread_.join();
+  }
+  int GetFrameWidth() const override { return width_; }
+  int GetFrameHeight() const override { return height_; }
+
+ private:
+  void Run() {
+    const auto period = std::chrono::nanoseconds(1000000000LL / fps_);
+    auto next = std::chrono::steady_clock::now();
+    while (running_) {
+      auto buffer = webrtc::I420Buffer::Create(width_, height_);
+      Draw(buffer.get(), frame_);
+      // The capture time is now, on WebRTC's clock: the fork's extension
+      // converts it to CLOCK_REALTIME at packet egress as capture_ns.
+      OnFrame(webrtc::VideoFrame::Builder()
+                  .set_video_frame_buffer(buffer)
+                  .set_timestamp_us(webrtc::TimeMicros())
+                  .set_rotation(webrtc::kVideoRotation_0)
+                  .build());
+      ++frame_;
+      next += period;
+      std::this_thread::sleep_until(next);
+    }
+  }
+
+  // A small, stable hash, so a block's noise depends only on (seed, frame,
+  // block) and never on the platform's random number generator.
+  static uint32_t Mix(uint32_t a, uint32_t b, uint32_t c) {
+    uint32_t h = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u) * 0x85EBCA77u ^ c * 0xC2B2AE3Du;
+    h ^= h >> 15;
+    h *= 0x2C1B3C6Du;
+    h ^= h >> 12;
+    return h;
+  }
+
+  void Draw(webrtc::I420Buffer* b, uint64_t n) const {
+    const int w = b->width(), h = b->height();
+    uint8_t* y = b->MutableDataY();
+    const int sy = b->StrideY();
+    const int shift = static_cast<int>(n * 4 % std::max(w, 1));
+    const int block = 16;
+    for (int row = 0; row < h; ++row) {
+      for (int col = 0; col < w; ++col) {
+        int v = ((col + shift) % std::max(w, 1)) * 255 / std::max(w - 1, 1);
+        uint32_t noise = Mix(seed_, static_cast<uint32_t>(n), (row / block) * 4099 + col / block);
+        v = (v + static_cast<int>(noise & 63) - 32);
+        y[row * sy + col] = static_cast<uint8_t>(std::clamp(v, 16, 235));
+      }
+    }
+    // Frame number, 32 bits, one block per bit, most significant first.
+    for (int bit = 0; bit < 32 && (bit + 1) * block <= w; ++bit) {
+      const uint8_t v = (n >> (31 - bit)) & 1 ? 235 : 16;
+      for (int row = 0; row < std::min(block, h); ++row) {
+        std::memset(y + row * sy + bit * block, v, block);
+      }
+    }
+    // Chroma: a slow colour drift, uniform per frame.
+    const int cw = (w + 1) / 2, ch = (h + 1) / 2;
+    const uint8_t u = static_cast<uint8_t>(128 + 40 * ((n / 30) % 3) - 40);
+    const uint8_t v = static_cast<uint8_t>(128 - 40 * ((n / 45) % 3) + 40);
+    for (int row = 0; row < ch; ++row) {
+      std::memset(b->MutableDataU() + row * b->StrideU(), u, cw);
+      std::memset(b->MutableDataV() + row * b->StrideV(), v, cw);
+    }
+  }
+
+  const int width_, height_, fps_;
+  const uint32_t seed_;
+  uint64_t frame_ = 0;
+  std::atomic<bool> running_{false};
+  std::thread thread_;
+};
+
+// --- Video track source: the synthetic generator or a camera ---
 class CapturerTrackSource : public webrtc::VideoTrackSource {
  public:
-  static webrtc::scoped_refptr<CapturerTrackSource> Create() {
-    const size_t kWidth = 640;
-    const size_t kHeight = 480;
-    const size_t kFps = 30;
-
+  static webrtc::scoped_refptr<CapturerTrackSource> Create(const VideoConfig& cfg) {
+    if (cfg.synthetic) {
+      DEMO_LOG("Video source: synthetic %dx%d @ %d fps, seed %u",
+               cfg.width, cfg.height, cfg.fps, cfg.seed);
+      return webrtc::make_ref_counted<CapturerTrackSource>(
+          std::make_unique<SyntheticCapturer>(cfg.width, cfg.height, cfg.fps, cfg.seed));
+    }
+#if defined(WEBRTC_MAC)
+    DEMO_LOG("ERROR: no camera support on macOS yet: set video_source to synthetic");
+    return nullptr;
+#else
     std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
         webrtc::VideoCaptureFactory::CreateDeviceInfo());
     if (!info) {
-      DEMO_LOG("ERROR: VideoCaptureFactory::CreateDeviceInfo returned null");
+      DEMO_LOG("ERROR: VideoCaptureFactory::CreateDeviceInfo returned null"
+               " (no camera support on this platform: use the synthetic source)");
       return nullptr;
     }
     int num_devices = info->NumberOfDevices();
@@ -187,7 +295,7 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
       char name[256], uid[256];
       info->GetDeviceName(i, name, sizeof(name), uid, sizeof(uid));
       DEMO_LOG("  Device %d: %s", i, name);
-      auto* capturer = webrtc::test::VcmCapturer::Create(kWidth, kHeight, kFps, i);
+      auto* capturer = webrtc::test::VcmCapturer::Create(cfg.width, cfg.height, cfg.fps, i);
       if (capturer) {
         DEMO_LOG("Video capturer created OK (device %d)", i);
         return webrtc::make_ref_counted<CapturerTrackSource>(
@@ -196,6 +304,7 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
     }
     DEMO_LOG("ERROR: No video capture device available");
     return nullptr;
+#endif
   }
 
   void StopCapture() {
@@ -233,6 +342,11 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
 // render callback, which WebRTC drives on one thread per remote track.
 namespace {
 
+// The receiver's site code (docs/_facts.yml outputs.sites): 3 is the relay,
+// 0-2 the ROS profile's. A frame's seq is its RTP timestamp at every site, so
+// the relay's samples and these join per frame.
+constexpr uint8_t kSiteReceiver = 4;
+
 MctRecorder* g_telemetry = nullptr;
 std::once_flag g_telemetry_once;
 
@@ -260,7 +374,7 @@ MctRecorder* Telemetry() {
     }
     const char* run_id = EnvOr("RUN_ID", "dev-run");
     std::string out_dir =
-        std::string(EnvOr("RUNS_DIR", "runs")) + "/" + run_id + "/media";
+        std::string(EnvOr("RUNS_DIR", "runs")) + "/" + run_id + "/receiver";
     const char* logging_url = std::getenv("LOGGING_URL");
 
     g_telemetry = mct_recorder_start(run_id, "mec-cast-media", out_dir.c_str(),
@@ -278,28 +392,59 @@ MctRecorder* Telemetry() {
 
 }  // namespace
 
-// --- X11 video renderer window ---
+// --- Video renderer: an SDL2 window, driven from the app's main thread ---
+//
+// OnFrame runs on a WebRTC thread: it measures the frame and keeps it. The
+// window belongs to Pump(), which the app calls from its main thread
+// (webrtc_render_pump): macOS allows windows only there, and Linux does not
+// mind, so one model serves both. Without a display, or with rendering off,
+// every frame is still measured; nothing is drawn.
 class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
  public:
-  VideoRenderer(int width, int height)
-      : width_(width), height_(height), display_(nullptr), window_(0) {
-    thread_ = std::make_unique<std::thread>(&VideoRenderer::WindowThread, this);
-    // Wait until window is created
-    for (int i = 0; i < 100 && !window_ready_; ++i) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    if (window_ready_) {
-      DEMO_LOG("VideoRenderer X11 window created");
-    } else {
-      DEMO_LOG("WARNING: VideoRenderer X11 window not created (no display?)");
-    }
+  explicit VideoRenderer(bool show) : show_(show) {}
+
+  // On the main thread, like Pump().
+  ~VideoRenderer() override {
+    if (texture_) SDL_DestroyTexture(texture_);
+    if (renderer_) SDL_DestroyRenderer(renderer_);
+    if (window_) SDL_DestroyWindow(window_);
   }
 
-  ~VideoRenderer() override {
-    running_ = false;
-    if (thread_ && thread_->joinable()) {
-      thread_->join();
+  // Draw the newest frame, if any. Main thread only.
+  void Pump() {
+    if (!show_) return;
+    webrtc::scoped_refptr<webrtc::I420BufferInterface> frame;
+    {
+      std::lock_guard<std::mutex> lock(buffer_mutex_);
+      if (!latest_) return;
+      frame = latest_;
+      latest_ = nullptr;
     }
+    if (!window_ && !Open(frame->width(), frame->height())) return;
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+      if (event.type == SDL_QUIT) {
+        // Closing the window stops drawing; measuring goes on.
+        DEMO_LOG("VideoRenderer: window closed, rendering stopped");
+        show_ = false;
+        return;
+      }
+    }
+    if (frame->width() != tex_width_ || frame->height() != tex_height_) {
+      if (texture_) SDL_DestroyTexture(texture_);
+      texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_IYUV,
+                                   SDL_TEXTUREACCESS_STREAMING,
+                                   frame->width(), frame->height());
+      tex_width_ = frame->width();
+      tex_height_ = frame->height();
+    }
+    if (!texture_) return;
+    SDL_UpdateYUVTexture(texture_, nullptr, frame->DataY(), frame->StrideY(),
+                         frame->DataU(), frame->StrideU(),
+                         frame->DataV(), frame->StrideV());
+    SDL_RenderClear(renderer_);
+    SDL_RenderCopy(renderer_, texture_, nullptr, nullptr);
+    SDL_RenderPresent(renderer_);
   }
 
   void OnFrame(const webrtc::VideoFrame& frame) override {
@@ -307,33 +452,36 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
     uint64_t render_ts = GetDelayClock().NowNs();
     uint32_t rtp_ts = frame.rtp_timestamp();
 
-    // Extract timestamps from RTP packet info (populated via header extension)
+    // WebRTC's own clock -> CLOCK_REALTIME. Receive and decode times are on
+    // WebRTC's clock, which is CLOCK_MONOTONIC on Linux but not on macOS,
+    // where it stops during sleep: the offset must be taken against it.
+    struct timespec ts_rt;
+    clock_gettime(CLOCK_REALTIME, &ts_rt);
+    const int64_t rt_offset_ns =
+        static_cast<int64_t>(ts_rt.tv_sec) * 1000000000LL + ts_rt.tv_nsec -
+        webrtc::TimeMicros() * 1000;
+    auto to_realtime = [rt_offset_ns](webrtc::Timestamp t) {
+      return static_cast<uint64_t>(t.us() * 1000 + rt_offset_ns);
+    };
+
+    // The frame's stamps, from its packets' infos (the sender's via the
+    // mec-cast header extension). Each packet carries its own send time: the
+    // frame's are its LAST packet's -- send and arrival both -- as the relay
+    // records them, so the two sites agree on a frame's send_ns.
     const auto& pkt_infos = frame.packet_infos();
     uint64_t send_ts_ns = 0;
     uint64_t capture_ts_ns = 0;
     uint64_t receive_ts_ns = 0;
     for (const auto& info : pkt_infos) {
       if (info.send_timestamp_ns().has_value()) {
-        send_ts_ns = *info.send_timestamp_ns();
+        send_ts_ns = std::max<uint64_t>(send_ts_ns, *info.send_timestamp_ns());
       }
       if (info.capture_timestamp_ns().has_value()) {
         capture_ts_ns = *info.capture_timestamp_ns();
       }
-      // receive_time is a monotonic Timestamp; convert to realtime ns
       if (info.receive_time().IsFinite() && info.receive_time().us() > 0) {
-        // Convert monotonic receive_time to CLOCK_REALTIME using current offset
-        struct timespec ts_rt, ts_mono;
-        clock_gettime(CLOCK_REALTIME, &ts_rt);
-        clock_gettime(CLOCK_MONOTONIC, &ts_mono);
-        uint64_t rt_now = static_cast<uint64_t>(ts_rt.tv_sec) * 1000000000ULL +
-                          static_cast<uint64_t>(ts_rt.tv_nsec);
-        uint64_t mono_now = static_cast<uint64_t>(ts_mono.tv_sec) * 1000000000ULL +
-                            static_cast<uint64_t>(ts_mono.tv_nsec);
-        int64_t offset = static_cast<int64_t>(rt_now) - static_cast<int64_t>(mono_now);
-        uint64_t recv_mono_ns = static_cast<uint64_t>(info.receive_time().us()) * 1000ULL;
-        receive_ts_ns = static_cast<uint64_t>(static_cast<int64_t>(recv_mono_ns) + offset);
+        receive_ts_ns = std::max(receive_ts_ns, to_realtime(info.receive_time()));
       }
-      if (send_ts_ns > 0) break;
     }
 
     uint64_t frame_id = static_cast<uint64_t>(rtp_ts);
@@ -356,21 +504,8 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
     // Extract decode time from processing_time (set by generic_decoder)
     if (frame.processing_time().has_value()) {
       auto pt = frame.processing_time().value();
-      // Convert monotonic Timestamps to realtime ns
-      struct timespec ts_rt2, ts_mono2;
-      clock_gettime(CLOCK_REALTIME, &ts_rt2);
-      clock_gettime(CLOCK_MONOTONIC, &ts_mono2);
-      uint64_t rt_now2 = static_cast<uint64_t>(ts_rt2.tv_sec) * 1000000000ULL +
-                         static_cast<uint64_t>(ts_rt2.tv_nsec);
-      uint64_t mono_now2 = static_cast<uint64_t>(ts_mono2.tv_sec) * 1000000000ULL +
-                           static_cast<uint64_t>(ts_mono2.tv_nsec);
-      int64_t offset2 = static_cast<int64_t>(rt_now2) - static_cast<int64_t>(mono_now2);
-      uint64_t decode_start_rt = static_cast<uint64_t>(
-          static_cast<int64_t>(pt.start.us() * 1000ULL) + offset2);
-      uint64_t decode_end_rt = static_cast<uint64_t>(
-          static_cast<int64_t>(pt.finish.us() * 1000ULL) + offset2);
-      GetDelayMeasurement().RecordDecodeStart(frame_id, decode_start_rt);
-      GetDelayMeasurement().RecordDecodeEnd(frame_id, decode_end_rt);
+      GetDelayMeasurement().RecordDecodeStart(frame_id, to_realtime(pt.start));
+      GetDelayMeasurement().RecordDecodeEnd(frame_id, to_realtime(pt.finish));
     }
 
     // Extract encode duration from VideoTimingExtension (set by generic_decoder)
@@ -404,118 +539,43 @@ class VideoRenderer : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
                  static_cast<int64_t>(receive_ts_ns),
                  static_cast<int64_t>(render_ts),
                  static_cast<uint32_t>(frame.width() * frame.height() * 3 / 2),
-                 decode_ns, /*site=*/1);
+                 decode_ns, kSiteReceiver);
     }
 
+    if (!show_) return;
     auto buffer = frame.video_frame_buffer()->ToI420();
-    int w = buffer->width();
-    int h = buffer->height();
-
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    if (w != bmp_width_ || h != bmp_height_) {
-      bmp_width_ = w;
-      bmp_height_ = h;
-      // BGRA format for X11 (32-bit depth)
-      argb_buffer_.resize(w * h * 4);
-    }
-    libyuv::I420ToARGB(
-        buffer->DataY(), buffer->StrideY(),
-        buffer->DataU(), buffer->StrideU(),
-        buffer->DataV(), buffer->StrideV(),
-        argb_buffer_.data(), w * 4,
-        w, h);
-    frame_dirty_ = true;
+    latest_ = buffer;
   }
 
  private:
-  void WindowThread() {
-    display_ = XOpenDisplay(nullptr);
-    if (!display_) {
-      DEMO_LOG("WARNING: Cannot open X11 display — running headless");
-      return;
+  bool Open(int width, int height) {
+    if (SDL_WasInit(SDL_INIT_VIDEO) == 0 && SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+      DEMO_LOG("WARNING: no display (%s): measuring without a window", SDL_GetError());
+      show_ = false;
+      return false;
     }
-
-    int screen = DefaultScreen(display_);
-    window_ = XCreateSimpleWindow(
-        display_, RootWindow(display_, screen),
-        0, 0, width_, height_, 1,
-        BlackPixel(display_, screen), BlackPixel(display_, screen));
-
-    XStoreName(display_, window_, "WebRTC Video");
-    XSelectInput(display_, window_, ExposureMask | StructureNotifyMask);
-
-    // Handle WM_DELETE_WINDOW so closing window doesn't crash
-    Atom wm_delete = XInternAtom(display_, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(display_, window_, &wm_delete, 1);
-
-    XMapWindow(display_, window_);
-    XFlush(display_);
-
-    gc_ = XCreateGC(display_, window_, 0, nullptr);
-    window_ready_ = true;
-    running_ = true;
-
-    while (running_) {
-      // Process X11 events
-      while (XPending(display_)) {
-        XEvent event;
-        XNextEvent(display_, &event);
-        if (event.type == ClientMessage) {
-          running_ = false;
-          break;
-        }
-      }
-
-      // Paint if we have a new frame
-      if (frame_dirty_) {
-        Paint();
-        frame_dirty_ = false;
-      }
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    window_ = SDL_CreateWindow("mec-cast WebRTC", SDL_WINDOWPOS_UNDEFINED,
+                               SDL_WINDOWPOS_UNDEFINED, width, height,
+                               SDL_WINDOW_RESIZABLE);
+    if (window_) renderer_ = SDL_CreateRenderer(window_, -1, 0);
+    if (!window_ || !renderer_) {
+      DEMO_LOG("WARNING: cannot open a window (%s): measuring without one",
+               SDL_GetError());
+      show_ = false;
+      return false;
     }
-
-    XFreeGC(display_, gc_);
-    XDestroyWindow(display_, window_);
-    XCloseDisplay(display_);
-    display_ = nullptr;
-    window_ = 0;
+    DEMO_LOG("VideoRenderer: window %dx%d", width, height);
+    return true;
   }
 
-  void Paint() {
-    if (!display_ || !window_) return;
-
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
-    if (argb_buffer_.empty() || bmp_width_ <= 0 || bmp_height_ <= 0) return;
-
-    XImage* image = XCreateImage(
-        display_, DefaultVisual(display_, DefaultScreen(display_)),
-        DefaultDepth(display_, DefaultScreen(display_)),
-        ZPixmap, 0,
-        reinterpret_cast<char*>(argb_buffer_.data()),
-        bmp_width_, bmp_height_, 32, bmp_width_ * 4);
-    if (!image) return;
-
-    XPutImage(display_, window_, gc_, image,
-              0, 0, 0, 0, bmp_width_, bmp_height_);
-
-    // Set data to null before destroying so XDestroyImage doesn't free our buffer
-    image->data = nullptr;
-    XDestroyImage(image);
-    XFlush(display_);
-  }
-
-  int width_, height_;
-  Display* display_;
-  Window window_;
-  GC gc_ = nullptr;
-  std::unique_ptr<std::thread> thread_;
+  std::atomic<bool> show_;
   std::mutex buffer_mutex_;
-  std::vector<uint8_t> argb_buffer_;
-  int bmp_width_ = 0, bmp_height_ = 0;
-  bool window_ready_ = false;
-  bool running_ = false;
-  bool frame_dirty_ = false;
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> latest_;
+  SDL_Window* window_ = nullptr;
+  SDL_Renderer* renderer_ = nullptr;
+  SDL_Texture* texture_ = nullptr;
+  int tex_width_ = 0, tex_height_ = 0;
 };
 
 static std::string SdpToJson(const webrtc::SessionDescriptionInterface* desc) {
@@ -534,9 +594,12 @@ struct WebrtcPeer : public webrtc::PeerConnectionObserver {
   std::queue<InternalEvent> events;
   int send_audio = 1;
   int send_video = 1;
+  VideoConfig video;
 
-  // Video state
+  // Video state. The renderer is set on the signaling thread (OnTrack) and
+  // pumped from the app's main thread, hence the mutex.
   webrtc::scoped_refptr<CapturerTrackSource> video_source;
+  std::mutex renderer_mutex;
   std::unique_ptr<VideoRenderer> video_renderer;
 
   // Logging
@@ -609,8 +672,11 @@ struct WebrtcPeer : public webrtc::PeerConnectionObserver {
       track->set_enabled(true);
       DEMO_LOG("OnTrack: enabled remote video track");
       auto* video_track = static_cast<webrtc::VideoTrackInterface*>(track.get());
-      video_renderer = std::make_unique<VideoRenderer>(640, 480);
-      video_track->AddOrUpdateSink(video_renderer.get(), webrtc::VideoSinkWants());
+      {
+        std::lock_guard<std::mutex> lock(renderer_mutex);
+        video_renderer = std::make_unique<VideoRenderer>(video.render);
+        video_track->AddOrUpdateSink(video_renderer.get(), webrtc::VideoSinkWants());
+      }
       DEMO_LOG("VideoRenderer attached to remote video track");
       PushEvent("remote_video_track", "{\"state\":\"added\"}");
     }
@@ -632,8 +698,18 @@ struct WebrtcPeer : public webrtc::PeerConnectionObserver {
 extern "C" {
 
 WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) {
-  DEMO_LOG("webrtc_create(send_audio=%d, send_video=%d, user=%s) starting...",
-           send_audio, send_video, username ? username : "(null)");
+  // A camera at 640x480 @ 30 fps and a window: the behaviour before
+  // webrtc_create_ex existed.
+  return webrtc_create_ex(send_audio, send_video, username, /*synthetic=*/0,
+                          640, 480, 30, 42, /*render=*/1);
+}
+
+WebrtcPeer* webrtc_create_ex(int send_audio, int send_video, const char* username,
+                             int synthetic, int width, int height, int fps,
+                             unsigned int seed, int render) {
+  DEMO_LOG("webrtc_create(send_audio=%d, send_video=%d, user=%s, video=%s %dx%d@%d, render=%d) starting...",
+           send_audio, send_video, username ? username : "(null)",
+           synthetic ? "synthetic" : "camera", width, height, fps, render);
 
   // Initialize delay measurement infrastructure (once)
   static bool delay_initialized = false;
@@ -653,6 +729,12 @@ WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) 
   auto* peer = new WebrtcPeer();
   peer->send_audio = send_audio;
   peer->send_video = send_video;
+  peer->video.synthetic = synthetic != 0;
+  peer->video.width = width > 0 ? width : 640;
+  peer->video.height = height > 0 ? height : 480;
+  peer->video.fps = fps > 0 ? fps : 30;
+  peer->video.seed = seed;
+  peer->video.render = render != 0;
 
   // Set up logging
   mkdir("log", 0755);
@@ -745,7 +827,7 @@ WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) 
 
   // Video track — only added if send_video is enabled
   if (peer->send_video) {
-    peer->video_source = CapturerTrackSource::Create();
+    peer->video_source = CapturerTrackSource::Create(peer->video);
     if (peer->video_source) {
       auto video_track = peer->factory->CreateVideoTrack(
           peer->video_source, "video_label");
@@ -762,19 +844,40 @@ WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username) 
       DEMO_LOG("WARNING: No video capture device, skipping video");
     }
   } else {
-    DEMO_LOG("Video send disabled (receive only)");
+    // Receive only. A receive-only video m-line is offered anyway, so a
+    // receiver that makes the offer -- a WHEP player of the relay, or a P2P
+    // caller -- receives video. As the answerer it is simply left unused.
+    webrtc::RtpTransceiverInit init;
+    init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
+    auto t = peer->pc->AddTransceiver(webrtc::MediaType::VIDEO, init);
+    if (!t.ok()) {
+      DEMO_LOG("ERROR: AddTransceiver video recvonly: %s", t.error().message());
+    } else {
+      DEMO_LOG("Video receive only: recvonly transceiver added");
+    }
   }
 
   DEMO_LOG("webrtc_create done");
   return peer;
 }
 
+void webrtc_render_pump(WebrtcPeer* peer) {
+  if (!peer) return;
+  std::lock_guard<std::mutex> lock(peer->renderer_mutex);
+  if (peer->video_renderer) peer->video_renderer->Pump();
+}
+
 void webrtc_destroy(WebrtcPeer* peer) {
   if (!peer) return;
   DEMO_LOG("webrtc_destroy");
-  peer->video_renderer.reset();
-  peer->video_source = nullptr;
+  // The connection first: until it is closed, a frame may still arrive at the
+  // renderer.
   if (peer->pc) { peer->pc->Close(); peer->pc = nullptr; }
+  {
+    std::lock_guard<std::mutex> lock(peer->renderer_mutex);
+    peer->video_renderer.reset();
+  }
+  peer->video_source = nullptr;
   peer->factory = nullptr;
   if (peer->log_sink) {
     webrtc::LogMessage::RemoveLogToStream(peer->log_sink.get());
@@ -1123,7 +1226,10 @@ void webrtc_close(WebrtcPeer* peer) {
   if (peer && peer->pc) {
     DEMO_LOG("webrtc_close");
     peer->pc->Close();
-    peer->video_renderer.reset();
+    {
+      std::lock_guard<std::mutex> lock(peer->renderer_mutex);
+      peer->video_renderer.reset();
+    }
     if (peer->video_source) {
       peer->video_source->StopCapture();
     }

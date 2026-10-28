@@ -21,7 +21,18 @@ typedef struct {
 // send_video: 1 = capture and send camera video, 0 = receive only
 // username: used for log file name (log/<username>_webrtc.log)
 WebrtcPeer* webrtc_create(int send_audio, int send_video, const char* username);
+// As webrtc_create, with the video source and the window chosen:
+// synthetic: 1 = deterministic synthetic frames (no camera), 0 = a camera
+// width, height, fps: the source's format; seed: the synthetic frames' seed
+// render: 1 = show received video in a window, 0 = measure only
+WebrtcPeer* webrtc_create_ex(int send_audio, int send_video, const char* username,
+                             int synthetic, int width, int height, int fps,
+                             unsigned int seed, int render);
 void webrtc_destroy(WebrtcPeer* peer);
+
+// Draw the newest received frame. Call it from the app's main thread, about
+// every 16 ms: on macOS windows exist only there.
+void webrtc_render_pump(WebrtcPeer* peer);
 
 // Diagnostics — returns a JSON string (caller must free with free())
 char* webrtc_get_audio_info(WebrtcPeer* peer);

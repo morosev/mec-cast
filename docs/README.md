@@ -40,7 +40,7 @@ units still need verifying in the lab; [tools/](../tools/README.md) joins it
 to per-frame latency.
 
 **work on the media profile** → [architecture/str0m-profile.md](architecture/str0m-profile.md)
-— the planned str0m SFU, its wire contract, and the migration plan.
+— the client, the str0m relay, the wire contract and what each site records.
 
 **see or edit a diagram** → [diagrams/](diagrams/README.md) — editable
 Mermaid sources for the architecture and lab-deployment overviews, plus two

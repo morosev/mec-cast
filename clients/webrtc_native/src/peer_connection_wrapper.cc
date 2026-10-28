@@ -25,6 +25,7 @@ Napi::Object PeerConnectionWrapper::Init(Napi::Env env,
           InstanceMethod("getPtpStatus", &PeerConnectionWrapper::GetPtpStatus),
           InstanceMethod("configureDelay", &PeerConnectionWrapper::ConfigureDelay),
           InstanceMethod("resetDelayStats", &PeerConnectionWrapper::ResetDelayStats),
+          InstanceMethod("renderPump", &PeerConnectionWrapper::RenderPump),
       });
   exports.Set("PeerConnection", func);
   return exports;
@@ -35,6 +36,10 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
   int send_audio = 1;
   int send_video = 1;
   std::string username = "unknown";
+  // The video source and the window: a camera at 640x480 @ 30 and a window
+  // unless the options say otherwise.
+  int synthetic = 0, width = 640, height = 480, fps = 30, render = 1;
+  unsigned int seed = 42;
 
   if (info.Length() > 0 && info[0].IsObject()) {
     // New API: PeerConnection({ send_audio, send_video, username })
@@ -47,6 +52,23 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
     }
     if (opts.Has("username") && opts.Get("username").IsString()) {
       username = opts.Get("username").As<Napi::String>().Utf8Value();
+    }
+    // { video_source: "camera" | "synthetic", video_width, video_height,
+    //   video_fps, video_seed, render }
+    if (opts.Has("video_source") && opts.Get("video_source").IsString()) {
+      synthetic = opts.Get("video_source").As<Napi::String>().Utf8Value() == "synthetic";
+    }
+    auto number = [&opts](const char* key, int fallback) {
+      return opts.Has(key) && opts.Get(key).IsNumber()
+                 ? opts.Get(key).As<Napi::Number>().Int32Value()
+                 : fallback;
+    };
+    width = number("video_width", width);
+    height = number("video_height", height);
+    fps = number("video_fps", fps);
+    seed = static_cast<unsigned int>(number("video_seed", static_cast<int>(seed)));
+    if (opts.Has("render") && opts.Get("render").IsBoolean()) {
+      render = opts.Get("render").As<Napi::Boolean>().Value() ? 1 : 0;
     }
   } else {
     // Legacy API: PeerConnection(role, username)
@@ -62,7 +84,8 @@ PeerConnectionWrapper::PeerConnectionWrapper(const Napi::CallbackInfo& info)
     }
   }
 
-  peer_ = webrtc_create(send_audio, send_video, username.c_str());
+  peer_ = webrtc_create_ex(send_audio, send_video, username.c_str(), synthetic,
+                           width, height, fps, seed, render);
   if (!peer_) {
     Napi::Error::New(info.Env(), "Failed to initialize PeerConnection")
         .ThrowAsJavaScriptException();
@@ -211,5 +234,11 @@ Napi::Value PeerConnectionWrapper::ConfigureDelay(const Napi::CallbackInfo& info
 
 Napi::Value PeerConnectionWrapper::ResetDelayStats(const Napi::CallbackInfo& info) {
   if (peer_) webrtc_reset_delay_stats(peer_);
+  return info.Env().Undefined();
+}
+
+// Draws the newest received frame; JS calls it on the main thread (~60 Hz).
+Napi::Value PeerConnectionWrapper::RenderPump(const Napi::CallbackInfo& info) {
+  if (peer_) webrtc_render_pump(peer_);
   return info.Env().Undefined();
 }

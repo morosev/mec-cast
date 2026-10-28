@@ -17,9 +17,11 @@ Two workload profiles share one telemetry spine:
   (robot compute + 5G modem) across an srsRAN/Open5GS lab network to a MEC
   edge server, optionally G-PCC coded both ways
   ([ADR-0014](adr/0014-gpcc-point-cloud-codec.md)).
-- **Profile B — media (WebRTC):** today the legacy libwebrtc client
-  (`clients/webrtc_native/`, `edge/signaling/`, `third_party/webrtc/`); planned retarget onto str0m
-  (see [str0m-profile.md](str0m-profile.md)).
+- **Profile B — media (WebRTC):** a patched-libwebrtc sender and receiver
+  (`clients/webrtc_native/`) through a str0m relay on the edge
+  (`edge/media-relay/`), or peer to peer through `edge/signaling/`
+  (see [str0m-profile.md](str0m-profile.md),
+  [ADR-0015](adr/0015-media-profile-relay.md)).
 
 ```
  ROBOT / UE                       5G RAN + CORE (lab)             EDGE (MEC server)
@@ -46,10 +48,10 @@ mirrors where code runs in the testbed.
 
 ```
 clients/          Client components (run on the UE)
-  webrtc_native/    legacy Node + C++ addon over the libwebrtc fork
+  webrtc_native/    Node + C++ addon over the prebuilt libwebrtc fork
 edge/             MEC server components
-  signaling/        WebSocket signaling server (Node)
-  (str0m SFU lands here when implemented — Profile B target)
+  media-relay/      str0m WHIP/WHEP relay, its own Cargo workspace
+  signaling/        WebSocket signaling server (Node), peer-to-peer calls
 ros2/             Single colcon workspace (see exception below)
   src/mec_cast_msgs/          shared TimingEnvelope + CloudWithTelemetry
   src/mec_cast_lidar_client/  ROS2 client node — runs on the UE
@@ -226,16 +228,13 @@ zenoh-router | dds-discovery ◄── publisher (+ netem sidecar: delay/jitter/
 
 ## Profile independence
 
-`ros2/*`, the future str0m SFU under `edge/`, and `ran/collector` depend on
+`ros2/*`, `edge/media-relay`, `clients/webrtc_native` and `ran/collector` depend on
 `telemetry/`; profiles never import each other. Shared artifacts are only:
 the envelope wire format, the CSV schema, and the logging `context` shape.
 Runs from both profiles land in the same Postgres and the same notebooks,
 distinguished by `service` and `modality`.
 
 Vendored third-party forks live under `third_party/` (`webrtc/src`,
-`str0m`) and are excluded from both the Cargo workspace and every docker
-build context.
-
-The legacy libwebrtc path (`clients/webrtc_native/` + `third_party/webrtc/`)
-remains untouched until the str0m profile reaches parity — see
-[str0m-profile.md](str0m-profile.md).
+`str0m`, `mpeg-pcc-tmc13`) and are excluded from the root Cargo workspace;
+only the codec and str0m enter docker build contexts. The clients use
+libwebrtc prebuilt, from the fork's GitHub releases.

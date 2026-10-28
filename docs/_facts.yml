@@ -94,7 +94,8 @@ ports:
   ric_e2:         {port: 36421, proto: sctp, note: "near-RT RIC E2 on the infra host, one RIC at a time (ADR-0012): oran-sc-ric e2term, published by deploy/lab/ric/oran-sc-ric.override.yml, or FlexRIC nearRT-RIC on the host network (deploy/lab/ric/flexric.sh); needs the sctp kernel module"}
   flexric_e42:    {port: 36422, proto: sctp, note: "FlexRIC nearRT-RIC E42, where xApps connect; host network, same host (mec-cast-e2-bridge)"}
   sim_e2:         {port: 8002, proto: ws, note: "gnb-sim's E2 feed for the xApp's sim adapter (local only; deploy/compose/ran.yml)"}
-  signaling:      {port: 8080,  proto: ws,   note: "legacy WebRTC signaling server"}
+  signaling:      {port: 8080,  proto: ws,   note: "WebRTC signaling server, peer-to-peer calls of the media profile"}
+  media_relay:    {port: 8090,  proto: "http+udp", note: "media relay (edge/media-relay, lab role relay): WHIP/WHEP on TCP and all media on UDP, the same port number (RELAY_PORT); clients dial out to it"}
   admin_api:      {port: 8099,  proto: "http+ws", note: "admin control plane and operator page; management LAN only, no auth"}
   render_viewer:  {port: 9876,  proto: http, note: "rerun web viewer page on the UE; only with sink=rerun; management LAN only, no auth"}
   render_stream:  {port: 9877,  proto: "grpc", note: "the log stream the viewer page connects to. BOTH ports must be reachable from the operator's BROWSER — publishing only 9876 gives a page that loads and never fills in (ADR-0009)"}
@@ -104,7 +105,9 @@ env:
   RUN_ID:      {default: "dev-run", note: "becomes trace_id; MUST match across all components of one run"}
   RUNS_DIR:    {default: "runs",    note: "base output dir; /runs inside containers"}
   LOGGING_URL: {default: null,      note: "optional; CSV is always written regardless"}
-  MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the legacy WebRTC addon"}
+  MEC_CAST_TELEMETRY: {default: "1", note: "set to 0 to disable telemetry in the WebRTC addon"}
+  RELAY_PUBLIC_IP: {default: null, note: "relay only, REQUIRED in the lab: the address clients reach it at (the N6 address); its one ICE candidate"}
+  RELAY_PORT:  {default: 8090, note: "relay lab role: WHIP/WHEP (tcp) and media (udp); natively RELAY_HTTP and RELAY_UDP"}
   GNB_METRICS_ADDR:   {default: "0.0.0.0:55555", note: "ran-collector only"}
   MECLOG_BUILD_CONTEXT: {default: "../../services/logging", note: "compose build context for the logging service"}
   INFRA_HOST:  {default: null, note: "lab only, REQUIRED for ue/gnb/edge. The infra HOST, which serves logging :8000 and the admin :8099 -- not one service. Called LOGGING_HOST until 2026-08-30, when the admin moved off the edge and the old name covered half of what it addresses; deploy.sh still accepts it once, with a notice"}
@@ -162,6 +165,7 @@ outputs:
     render: {code: 2, note: "renderer, on the UE; dirs render-0, render-1, …. Its e2e_ns is a ROUND TRIP and is PTP-free ONLY while a lidar runs on the same host (ADR-0009); a cross-host renderer raises WF_RENDER_CROSS_HOST"}
     ran:    {note: "srsRAN collector; KPIs, not per-frame samples. Single-instance, dir stays `ran` with no suffix"}
     relay:    {code: 3, note: "media relay on the edge (edge/media-relay); dir relay. seq is the frame's RTP timestamp; network_ns is the sender-to-relay leg (the 5G uplink), processing_ns its forwarding time"}
+    receiver: {code: 4, note: "media receiver (clients/webrtc_native, role recv); dir receiver. seq is the frame's RTP timestamp, joining the relay's samples; e2e_ns is glass-to-glass (capture to render), across hosts so PTP-dependent"}
   # The site *code* column in the CSV is unchanged; only directory names
   # gained the instance suffix. One home for the codes:
   # ros2/src/mec_cast_admin_client/mec_cast_admin_client/sites.py
@@ -276,17 +280,19 @@ build:
   facade: "Makefile delegates only; build logic stays in each component's native tool"
   test_fast: "make test"
   test_all: "make test-all"
-  opt_in: "make build-libwebrtc (~20 GB, hours, never in CI)"
+  libwebrtc: "prebuilt per third_party/webrtc.lock (linux-x64, macos-arm64), make fetch-libwebrtc; from source only to change the fork (make build-libwebrtc, ~20 GB, hours)"
 
 # --- known constraints worth restating in docs ------------------------------
 constraints:
   webrtc_video_untestable: >-
-    The legacy addon's frame path needs a camera. WSL and CI have no
-    /dev/video*, so calls negotiate video recvonly and OnFrame never fires;
-    make test-legacy covers signalling and audio only.
+    The WebRTC client's camera path needs a camera, which WSL and CI lack,
+    and macOS has none in libwebrtc yet; the synthetic source
+    (video_source synthetic) exercises the frame path without one.
+    make test-legacy still covers signalling and audio only.
   ros2_containers_only: >-
     ROS2 runs only in containers — the dev host is WSL Ubuntu 25.x and
     Jazzy targets 24.04.
   third_party_excluded: >-
-    third_party/ is excluded from the Cargo workspace and from every docker
-    build context (webrtc alone is ~20 GB).
+    third_party/ is excluded from the root Cargo workspace (the relay is a
+    workspace of its own) and from every docker build context but
+    mpeg-pcc-tmc13 and str0m (webrtc alone is ~20 GB).

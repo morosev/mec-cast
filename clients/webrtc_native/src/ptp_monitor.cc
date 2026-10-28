@@ -8,13 +8,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
+#ifdef __linux__
 #include <linux/ptp_clock.h>
+#endif
 
 #define PTP_LOG(fmt, ...) fprintf(stderr, "[ptp_monitor] " fmt "\n", ##__VA_ARGS__)
 
+#ifdef __linux__
 static inline clockid_t fd_to_clockid(int fd) {
   return ~(static_cast<clockid_t>(fd) << 3);
 }
+#endif
 
 PtpMonitor::PtpMonitor(const std::string& phc_device)
     : phc_device_(phc_device) {
@@ -82,6 +86,15 @@ void PtpMonitor::MonitorLoop() {
 void PtpMonitor::UpdateStatus() {
   // Measure offset between PHC and CLOCK_REALTIME.
   // This tells us how well phc2sys is disciplining the system clock.
+#ifndef __linux__
+  // No PTP hardware clock off Linux: the sync state cannot be known.
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    status_.state = PtpSyncState::kUnknown;
+    status_.reliable = false;
+  }
+  return;
+#else
   int fd = open(phc_device_.c_str(), O_RDONLY);
   if (fd < 0) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -137,6 +150,7 @@ void PtpMonitor::UpdateStatus() {
     status_.state = PtpSyncState::kFreerun;
     status_.reliable = false;
   }
+#endif
 }
 
 // --- Global singleton ---

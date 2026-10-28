@@ -5,5 +5,11 @@
   "auto_answer": true,
   "auto_stats_on": false,
   "send_audio": true,
-  "send_video": true
+  "send_video": true,
+  "video_source": "camera",
+  "video_width": 640,
+  "video_height": 480,
+  "video_fps": 30,
+  "video_seed": 42,
+  "render": true
 }

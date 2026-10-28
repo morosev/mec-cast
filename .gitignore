@@ -44,6 +44,8 @@ ros2/log/
 
 # WebRTC build output and tools (managed separately by gclient)
 third_party/webrtc/src/out/
+# Prebuilt libwebrtc, unpacked by scripts/fetch-libwebrtc.sh
+third_party/libwebrtc/
 third_party/webrtc/depot_tools/
 third_party/webrtc/.cipd/
 third_party/webrtc/.gclient

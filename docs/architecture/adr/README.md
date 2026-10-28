@@ -20,6 +20,7 @@ alternatives lost, and what the decision costs.
 | [0012](0012-two-near-rt-rics.md) | Two near-RT RICs behind one E2Port: oran-sc-ric and FlexRIC | Accepted |
 | [0013](0013-two-middlewares.md) | Two middlewares: Zenoh for TCP and QUIC, Fast DDS for UDP and TCP | Accepted |
 | [0014](0014-gpcc-point-cloud-codec.md) | G-PCC as the point-cloud codec, opt-in and coded frame by frame | Accepted |
+| [0015](0015-media-profile-relay.md) | The media profile: a patched libwebrtc client, prebuilt, through a str0m relay | Proposed |
 
 ## Writing a new one
 

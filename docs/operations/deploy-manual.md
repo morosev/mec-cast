@@ -311,7 +311,7 @@ the far side.
 Optional variables it forwards when set: `RUN_ID`, `PATTERN`, `NUM_POINTS`,
 `RATE_HZ`, `SEED`, `RENDER_SINK`, `PUBLISH_RESULT`, `RESULT_RELIABILITY`,
 `RESULT_QOS_DEPTH`, `ADMIN_URL`, `LIDAR_INSTANCES`, `RENDER_INSTANCES`,
-`VIEWER_HOST`, `ZONE`, `PTP_DEVICE`, `POSTGRES_PASSWORD`, `METRICS_PORT`,
+`VIEWER_HOST`, `ZONE`, `PTP_DEVICE`, `POSTGRES_PASSWORD`, `METRICS_PORT`, `RELAY_PORT`,
 `MECLOG_BUILD_CONTEXT`.
 
 ### Two roles on one machine
@@ -330,6 +330,28 @@ INFRA_HOST=10.0.0.10 bash deploy/lab/deploy.sh edge ops@small-lab-host
 ```
 
 The version report on that host then lists both roles.
+
+### The media relay
+
+The media profile ([ADR-0015](../architecture/adr/0015-media-profile-relay.md))
+adds one role, `relay`, usually beside `edge` on the edge host. It needs
+`third_party/str0m` checked out and the address UEs reach it at:
+
+```bash
+git submodule update --init third_party/str0m
+```
+
+```bash
+RELAY_PUBLIC_IP=10.45.0.1 RUN_ID=media-01 INFRA_HOST=10.0.0.10 \
+  bash deploy/lab/deploy.sh relay ops@edge-host
+```
+
+It listens on `RELAY_PORT` (default 8090), TCP and UDP. The sender and
+receiver are the WebRTC client on two UEs, run natively, not deployed:
+`make fetch-libwebrtc build-client` there, then `node client.js <config>`
+with `mode` `relay` and `relay_url` `http://<RELAY_PUBLIC_IP>:8090`
+([client README](../../clients/webrtc_native/README.md#through-the-relay)).
+Give the receiver the relay's `RUN_ID`.
 
 ### Without the admin service
 

@@ -30,9 +30,10 @@ Two workload profiles share one Rust telemetry spine:
 - **Profile A — robotics:** ROS2 LiDAR point clouds over Zenoh or Fast DDS,
   from a UE (robot compute + 5G modem) across an srsRAN/Open5GS lab network
   to a MEC edge server, plus a tap on the srsRAN O-DU MAC scheduler.
-- **Profile B — media:** WebRTC. Today the legacy libwebrtc client; the
-  planned retarget onto [str0m](docs/architecture/str0m-profile.md) removes
-  the need for a patched WebRTC fork.
+- **Profile B — media:** WebRTC video for teleoperation, from a sender on
+  one UE through a [str0m relay](docs/architecture/str0m-profile.md) on the
+  edge to a receiver on another, on a patched libwebrtc that stamps every
+  packet; Linux and macOS clients.
 
 More detail: [architecture overview and lab deployment](docs/diagrams/README.md)
 (rendered inline), or the two detailed dataflow diagrams —
@@ -136,7 +137,7 @@ Run `make help` for all targets.
 | 1.iii | ROS2 render node — draws the edge's result, measures the round trip | [`ros2/src/mec_cast_render/`](ros2/README.md) |
 | 2 | **MEC server components** | [`edge/`](edge/README.md) |
 | 2.i | ROS2 ingest layer (Zenoh or Fast DDS) | [`ros2/src/mec_cast_edge/`](ros2/README.md) |
-| 2.ii | str0m SFU (planned) | [design](docs/architecture/str0m-profile.md) |
+| 2.ii | Media relay (str0m) | [`edge/media-relay/`](edge/README.md#media-relay) |
 | 3 | **Telemetry** — the shared spine | [`telemetry/`](telemetry/README.md) |
 | 4 | **Logging service** (submodule) | [`services/logging/`](docs/operations/logging-submodule.md) |
 | 4.i | **Admin service** — run orchestration (in-repo) | [`services/admin/`](docs/operations/admin-service.md) |
@@ -177,14 +178,15 @@ sources (a JSON tap and an E2 xApp), and why point clouds are coded with G-PCC.
 |---|---|
 | Telemetry crate (+ PyO3, C ABI) | Working, tested |
 | ROS2 profile on Zenoh or Fast DDS | Working; netem e2e green on zenoh/tcp, dds/udp and dds/tcp; Fast DDS not yet lab-verified |
-| WebRTC profile → telemetry | Wired over the C ABI; needs a camera to confirm |
+| WebRTC profile → telemetry | Receiver (site 4) recording; verified end to end on macOS with synthetic video |
 | RAN metrics tap | UDP and WebSocket (srsRAN 25.04+) sources, normalised to `kpi.csv`; tested against fixtures and `gnb-sim` (`make up-ran`); not yet verified on the lab gNB |
 | E2 xApp (KPM) | Implemented; e2e green against `gnb-sim`; `osc` adapter brought up inside the real RIC runner; not yet verified against a srsRAN E2 agent |
 | RAN control (RC PRB quota) | Implemented, run-scoped ([ADR-0011](docs/architecture/adr/0011-run-scoped-ran-control.md)); e2e green against `gnb-sim`; not yet lab-verified |
 | Logging service submodule | Wired at `services/logging` |
 | Admin control plane | Wired at `services/admin`; `make up-admin`, page on :8099 |
 | str0m fork vendored | `third_party/str0m` (v0.21.0) |
-| str0m SFU implementation | Not started — [design](docs/architecture/str0m-profile.md) |
+| Media relay (str0m) | Working, site 3; tested over localhost and with the real clients on macOS; not yet lab-verified ([ADR-0015](docs/architecture/adr/0015-media-profile-relay.md)) |
+| Prebuilt libwebrtc | linux-x64 and macos-arm64 from the fork's release workflow; `make fetch-libwebrtc` |
 | G-PCC point-cloud codec | Working both ways; launch tests and netem e2e green; codec times not yet measured on the lab hosts |
 
 ## Development note

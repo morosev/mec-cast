@@ -1,192 +1,144 @@
 #!/bin/bash
-set -e
-
-# Build script for the WebRTC native addon on Linux using Chromium's clang.
-# Must be run from the clients/webrtc_native/ directory.
-# The WebRTC source tree is expected at ../../third_party/webrtc/src.
+# Build the WebRTC native addon (build/Release/webrtc_addon.node) on Linux or
+# macOS, against the prebuilt libwebrtc pinned in third_party/webrtc.lock.
+#
+#   bash build.sh                       # fetches libwebrtc if it is missing
+#   LIBWEBRTC_DIR=/path bash build.sh   # another tree with the same layout
+#
+# libwebrtc is built as Chromium builds it, with Chromium's own libc++
+# (namespace std::__Cr), and the archive carries that clang and libc++. So the
+# addon compiles in two halves that meet only at the C interface of
+# webrtc_core.h, as it always has:
+#   - the WebRTC-facing code (webrtc_core.cc and its helpers) with the
+#     archive's clang, against Chromium's libc++ and the library's own defines
+#     (defines.txt), so its headers see the configuration it was built with;
+#   - the Node-facing code (addon.cc, peer_connection_wrapper.cc) with the
+#     system compiler, against Node's headers and the system C++ library.
+#
+# Needs: Node.js 18+ (npm install has run here), SDL2 (apt install libsdl2-dev,
+# or brew install sdl2), pkg-config, and cargo for the telemetry staticlib.
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WEBRTC_SRC="$SCRIPT_DIR/../../third_party/webrtc/src"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$SCRIPT_DIR"
 
-if [ ! -d "$WEBRTC_SRC" ]; then
-  echo "ERROR: WebRTC source not found at $WEBRTC_SRC"
-  echo "Expected directory layout:"
-  echo "  mec-cast/"
-  echo "    third_party/webrtc/src/   (WebRTC source tree)"
-  echo "    clients/webrtc_native/    (this project)"
-  exit 1
+case "$(uname -s)/$(uname -m)" in
+  Linux/x86_64)  PLATFORM=linux-x64 ;;
+  Linux/aarch64) PLATFORM=linux-arm64 ;;
+  Darwin/arm64)  PLATFORM=macos-arm64 ;;
+  *) echo "ERROR: unsupported platform $(uname -s)/$(uname -m)" >&2; exit 2 ;;
+esac
+
+LIBWEBRTC_DIR=${LIBWEBRTC_DIR:-$REPO_ROOT/third_party/libwebrtc/libwebrtc-$PLATFORM}
+if [ ! -f "$LIBWEBRTC_DIR/lib/libwebrtc.a" ]; then
+  bash "$REPO_ROOT/scripts/fetch-libwebrtc.sh" "$PLATFORM"
 fi
+for f in lib/libwebrtc.a lib/libc++.a defines.txt toolchain/bin/clang++ \
+         include/api/peer_connection_interface.h; do
+  [ -e "$LIBWEBRTC_DIR/$f" ] || { echo "ERROR: $LIBWEBRTC_DIR/$f missing" >&2; exit 1; }
+done
 
-CLANG="$WEBRTC_SRC/third_party/llvm-build/Release+Asserts/bin/clang++"
+# The Node-facing half: any C++ compiler.
+CXX=${CXX:-$(command -v clang++ || command -v g++)}
+# The WebRTC-facing half, and the link: the archive's clang.
+CRCXX="$LIBWEBRTC_DIR/toolchain/bin/clang++"
 
-if [ ! -f "$CLANG" ]; then
-  echo "ERROR: clang++ not found at $CLANG"
-  exit 1
-fi
-
-# Get Node.js include and lib paths
+# Node and node-addon-api headers.
 NODE_VER=$(node -e "console.log(process.version.slice(1))")
-NODE_GYP_DIR="$HOME/.cache/node-gyp/$NODE_VER"
-if [ ! -d "$NODE_GYP_DIR" ]; then
-  NODE_GYP_DIR="$HOME/.node-gyp/$NODE_VER"
-fi
-NODE_INC="$NODE_GYP_DIR/include/node"
+NODE_INC=""
+for d in "$HOME/.cache/node-gyp/$NODE_VER/include/node" \
+         "$HOME/Library/Caches/node-gyp/$NODE_VER/include/node" \
+         "$HOME/.node-gyp/$NODE_VER/include/node" \
+         "$(dirname "$(dirname "$(command -v node)")")/include/node"; do
+  if [ -f "$d/node_api.h" ]; then NODE_INC=$d; break; fi
+done
+[ -n "$NODE_INC" ] || { echo "ERROR: Node.js headers not found; run: npx node-gyp install" >&2; exit 1; }
+NAPI_DIR=$(node -p "require('node-addon-api').include" 2>/dev/null | tr -d '"')
+[ -f "$NAPI_DIR/napi.h" ] || NAPI_DIR="$SCRIPT_DIR/node_modules/node-addon-api"
+[ -f "$NAPI_DIR/napi.h" ] || { echo "ERROR: napi.h not found; run: npm install" >&2; exit 1; }
 
-# Find node-addon-api include
-NAPI_DIR=$(node -e "console.log(require('node-addon-api').include)" 2>/dev/null | tr -d '"')
-if [ -z "$NAPI_DIR" ] || [ ! -f "$NAPI_DIR/napi.h" ]; then
-  NAPI_DIR="$SCRIPT_DIR/node_modules/node-addon-api"
-fi
-
-if [ ! -f "$NODE_INC/node_api.h" ]; then
-  echo "ERROR: Node.js headers not found at $NODE_INC"
-  echo "Run: node-gyp install"
-  exit 1
-fi
-
-if [ ! -f "$NAPI_DIR/napi.h" ]; then
-  echo "ERROR: napi.h not found at $NAPI_DIR"
-  echo "Run: npm install"
-  exit 1
-fi
+SDL_CFLAGS=$(pkg-config --cflags sdl2) || { echo "ERROR: SDL2 not found (libsdl2-dev / brew install sdl2)" >&2; exit 1; }
+SDL_LIBS=$(pkg-config --libs sdl2)
 
 # Shared Rust telemetry spine, linked over its C ABI (telemetry/src/ffi.rs).
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TELEMETRY_INC="$REPO_ROOT/telemetry/include"
 TELEMETRY_LIB="$REPO_ROOT/target/release/libmec_cast_telemetry.a"
-
 if command -v cargo >/dev/null 2>&1; then
   echo "Building mec-cast-telemetry staticlib ..."
   (cd "$REPO_ROOT" && cargo build --release -p mec-cast-telemetry)
-elif [ ! -f "$TELEMETRY_LIB" ]; then
-  echo "ERROR: cargo not found and $TELEMETRY_LIB is missing."
-  echo "Install Rust (scripts/bootstrap-dev.sh) or prebuild the staticlib."
-  exit 1
-else
-  echo "cargo not found; using existing $TELEMETRY_LIB"
 fi
+[ -f "$TELEMETRY_LIB" ] || { echo "ERROR: $TELEMETRY_LIB missing (install Rust)" >&2; exit 1; }
 
-if [ ! -f "$TELEMETRY_LIB" ]; then
-  echo "ERROR: telemetry staticlib not produced at $TELEMETRY_LIB"
-  exit 1
-fi
+# The library's own defines, one per line in defines.txt.
+WEBRTC_DEFINES=$(grep -v '^[[:space:]]*$' "$LIBWEBRTC_DIR/defines.txt" \
+  | sed -E 's/^[[:space:]]*/-D/' | tr '\n' ' ')
 
-echo "=== WebRTC Native Addon Build (Linux) ==="
-echo "Clang++:      $CLANG"
-echo "WebRTC src:   $WEBRTC_SRC"
-echo "Node include: $NODE_INC"
-echo "NAPI include: $NAPI_DIR"
-echo "Telemetry:    $TELEMETRY_LIB"
-echo ""
-
-mkdir -p build/Release
-
-# Common flags for clang++ (libc++ ABI matching libwebrtc.a)
-WEBRTC_CFLAGS="-c -O2 -std=c++20 -fPIC -fno-exceptions -fno-rtti -Wno-everything \
-  -DNDEBUG \
-  -D__STDC_CONSTANT_MACROS \
-  -D__STDC_FORMAT_MACROS \
-  -D_FILE_OFFSET_BITS=64 \
-  -D_LARGEFILE_SOURCE \
-  -D_LARGEFILE64_SOURCE \
-  -D_GNU_SOURCE \
-  -DWEBRTC_POSIX \
-  -DWEBRTC_LINUX \
-  -DWEBRTC_USE_H264 \
-  -DWEBRTC_ENABLE_PROTOBUF=1 \
-  -DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE \
-  -DRTC_ENABLE_VP9 \
-  -DRTC_DAV1D_IN_INTERNAL_DECODER_FACTORY \
-  -DWEBRTC_HAVE_SCTP \
-  -DWEBRTC_LIBRARY_IMPL \
-  -DWEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS=0 \
-  -DABSL_ALLOCATOR_NOTHROW=1 \
-  -DUSE_UDEV \
-  -DUSE_AURA=1 \
-  -DUSE_GLIB=1 \
-  -DUSE_OZONE=1 \
-  -DWEBRTC_USE_PIPEWIRE \
-  -DWEBRTC_USE_GIO \
-  -DHAVE_PTHREAD \
-  -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE \
-  -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
-  -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS \
-  -D_LIBCPP_INSTRUMENTED_WITH_ASAN=0 \
-  -DCR_LIBCXX_REVISION=7ab65651aed6802d2599dcb7a73b1f82d5179d05 \
+INC="$LIBWEBRTC_DIR/include"
+# Chromium's libc++ in place of the system's: its headers, the library's
+# defines, no exceptions or RTTI, as the library was compiled.
+WEBRTC_CFLAGS="-c -O2 -std=c++20 -fPIC -fno-exceptions -fno-rtti -w \
+  $WEBRTC_DEFINES \
   -nostdinc++ \
-  -isystem $WEBRTC_SRC/buildtools/third_party/libc++ \
-  -isystem $WEBRTC_SRC/third_party/libc++/src/include \
-  -isystem $WEBRTC_SRC/third_party/libc++abi/src/include \
-  -I$WEBRTC_SRC \
-  -I$WEBRTC_SRC/third_party/abseil-cpp \
-  -I$WEBRTC_SRC/third_party/libyuv/include \
-  -I$TELEMETRY_INC"
+  -isystem $INC/buildtools/third_party/libc++ \
+  -isystem $INC/third_party/libc++/src/include \
+  -isystem $INC/third_party/libc++abi/src/include \
+  -I$INC -I$INC/third_party/abseil-cpp -I$INC/third_party/libyuv/include \
+  -I$TELEMETRY_INC -Isrc $SDL_CFLAGS"
+ADDON_CFLAGS="-c -O2 -std=c++17 -fPIC -fno-exceptions -w \
+  -DNAPI_VERSION=8 -DNAPI_DISABLE_CPP_EXCEPTIONS -DNODE_GYP_MODULE_NAME=webrtc_addon \
+  -I$NODE_INC -I$NAPI_DIR -Isrc"
 
-# Flags for addon/wrapper files (Node.js N-API layer)
-ADDON_CFLAGS="-c -O2 -std=c++20 -fPIC -fno-exceptions -fno-rtti \
-  -DNAPI_VERSION=8 \
-  -DNAPI_DISABLE_CPP_EXCEPTIONS \
-  -DWEBRTC_POSIX \
-  -DWEBRTC_LINUX \
-  -DWEBRTC_USE_H264 \
-  -DNODE_GYP_MODULE_NAME=webrtc_addon \
-  -DUSING_UV_SHARED=1 \
-  -DUSING_V8_SHARED=1 \
-  -DV8_DEPRECATION_WARNINGS=1 \
-  -I$NODE_INC \
-  -I$NAPI_DIR \
-  -Isrc"
+WEBRTC_SOURCES="src/webrtc_core.cc src/delay_clock.cc src/ptp_monitor.cc \
+  src/delay_measurement.cc $LIBWEBRTC_DIR/src/test/test_video_capturer.cc"
+ADDON_SOURCES="src/addon.cc src/peer_connection_wrapper.cc"
 
-echo "Compiling webrtc_core.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/webrtc_core.o src/webrtc_core.cc
+case "$PLATFORM" in
+  macos-*)
+    SDK=$(xcrun --show-sdk-path)
+    TARGET="-target arm64-apple-macos12.0 -isysroot $SDK"
+    WEBRTC_CFLAGS="$TARGET $WEBRTC_CFLAGS"
+    # Node resolves its own symbols when it loads the bundle.
+    LINK="$TARGET -bundle -undefined dynamic_lookup"
+    PLATFORM_LIBS="-framework Foundation -framework AVFoundation -framework CoreMedia \
+      -framework CoreVideo -framework CoreAudio -framework AudioToolbox \
+      -framework VideoToolbox -framework AppKit -framework Metal -framework IOSurface \
+      -framework QuartzCore -framework CoreGraphics -framework ApplicationServices \
+      -framework Security -framework SystemConfiguration -framework IOKit"
+    WEBRTC_LIBS="$LIBWEBRTC_DIR/lib/libwebrtc.a $LIBWEBRTC_DIR/lib/libc++.a"
+    ;;
+  linux-*)
+    # libwebrtc needs only V4L2 for the camera on Linux.
+    WEBRTC_SOURCES="$WEBRTC_SOURCES $LIBWEBRTC_DIR/src/test/vcm_capturer.cc"
+    # Node's own symbols resolve when it loads the addon.
+    LINK="-shared -fuse-ld=lld"
+    PLATFORM_LIBS="-lpthread -ldl -lrt"
+    WEBRTC_LIBS="-Wl,--whole-archive $LIBWEBRTC_DIR/lib/libwebrtc.a -Wl,--no-whole-archive \
+      $LIBWEBRTC_DIR/lib/libc++.a"
+    ;;
+esac
 
-echo "Compiling test_video_capturer.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/test_video_capturer.o \
-  "$WEBRTC_SRC/test/test_video_capturer.cc"
+echo "=== WebRTC native addon ($PLATFORM) ==="
+echo "WebRTC half: $CRCXX"
+echo "Node half:   $CXX"
+echo "libwebrtc:   $LIBWEBRTC_DIR ($(sed -n 's/^commit: //p' "$LIBWEBRTC_DIR/BUILD_INFO" 2>/dev/null | cut -c1-12))"
 
-echo "Compiling vcm_capturer.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/vcm_capturer.o \
-  "$WEBRTC_SRC/test/vcm_capturer.cc"
-
-echo "Compiling addon.cc ..."
-"$CLANG" $ADDON_CFLAGS -o src/addon.o src/addon.cc
-
-echo "Compiling peer_connection_wrapper.cc ..."
-"$CLANG" $ADDON_CFLAGS -o src/peer_connection_wrapper.o src/peer_connection_wrapper.cc
-
-echo "Compiling delay_clock.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/delay_clock.o src/delay_clock.cc
-
-echo "Compiling ptp_monitor.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/ptp_monitor.o src/ptp_monitor.cc
-
-echo "Compiling delay_measurement.cc ..."
-"$CLANG" $WEBRTC_CFLAGS -o src/delay_measurement.o src/delay_measurement.cc
+OBJ="$SCRIPT_DIR/build/obj"
+mkdir -p "$OBJ" build/Release
+OBJECTS=""
+compile() { # compiler flags source
+  local obj="$OBJ/$(basename "${3%.cc}").o"
+  echo "Compiling $(basename "$3") ..."
+  # shellcheck disable=SC2086
+  "$1" $2 -o "$obj" "$3"
+  OBJECTS="$OBJECTS $obj"
+}
+for src in $WEBRTC_SOURCES; do compile "$CRCXX" "$WEBRTC_CFLAGS" "$src"; done
+for src in $ADDON_SOURCES; do compile "$CXX" "$ADDON_CFLAGS" "$src"; done
 
 echo "Linking webrtc_addon.node ..."
-"$CLANG" -shared -fuse-ld=lld -o build/Release/webrtc_addon.node \
-  src/webrtc_core.o \
-  src/test_video_capturer.o \
-  src/vcm_capturer.o \
-  src/addon.o \
-  src/peer_connection_wrapper.o \
-  src/delay_clock.o \
-  src/ptp_monitor.o \
-  src/delay_measurement.o \
-  -Wl,--whole-archive \
-  "$WEBRTC_SRC/out/release_x64/obj/libwebrtc.a" \
-  -Wl,--no-whole-archive \
-  "$WEBRTC_SRC/out/release_x64/obj/buildtools/third_party/libc++/libc++/"*.o \
-  "$TELEMETRY_LIB" \
-  -lX11 \
-  -lpthread \
-  -ldl \
-  -lrt \
-  -Wl,--no-as-needed
+# shellcheck disable=SC2086
+"$CRCXX" $LINK -o build/Release/webrtc_addon.node $OBJECTS \
+  $WEBRTC_LIBS "$TELEMETRY_LIB" $SDL_LIBS $PLATFORM_LIBS
 
-echo ""
-echo "=== Build successful! ==="
-echo "Output: build/Release/webrtc_addon.node"
-
-# Clean up object files
-rm -f src/*.o
+echo "=== Build successful: build/Release/webrtc_addon.node ==="

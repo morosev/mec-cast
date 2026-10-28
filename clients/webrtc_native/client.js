@@ -52,7 +52,12 @@ try {
 }
 
 // --- Config ---
-const CONFIG_PATH = path.join(__dirname, "client-config.json");
+// The config file: the first argument (node client.js sender.json), else
+// client-config.json beside this script. A sender and a receiver on one
+// machine each run with their own.
+const CONFIG_PATH = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(__dirname, "client-config.json");
 let config = {};
 
 function loadConfig() {
@@ -64,7 +69,8 @@ function loadConfig() {
     process.exit(1);
   }
 
-  if (config.auto_connect) {
+  // Peer to peer needs the signaling server and a name; the relay needs neither.
+  if (config.auto_connect && config.mode !== "relay") {
     if (!config.server_address) {
       console.error(
         "Config error: auto_connect requires server_address to be set."
@@ -83,6 +89,9 @@ function loadConfig() {
 // --- State ---
 let ws = null;
 let pc = null;
+// Relay mode (WHIP/WHEP): { verb: "whip"|"whep", stream, resource } while a
+// session with the relay is open, else null.
+let relay = null;
 let myName = null;
 let remotePeer = null;
 let inCall = false;
@@ -117,6 +126,9 @@ function log(msg) {
 
 // --- Event polling ---
 let pollTimer = null;
+// The window is drawn here, on Node's main thread: macOS allows windows only
+// there. About 60 Hz; a frame not yet drawn when the next arrives is skipped.
+let renderTimer = null;
 
 function startPolling() {
   if (pollTimer) return;
@@ -127,12 +139,37 @@ function startPolling() {
       handlePeerEvent(evt);
     }
   }, 50);
+  renderTimer = setInterval(() => {
+    if (pc) pc.renderPump();
+  }, 16);
+}
+
+// The PeerConnection's options, from client-config.json. With a role, the
+// role decides what is sent: a sender sends video (and audio if send_audio),
+// a receiver sends nothing.
+function mediaOptions(username) {
+  const role = config.role;
+  return {
+    send_audio: role === "recv" ? false : config.send_audio !== false,
+    send_video: role === "recv" ? false : role === "send" ? true : config.send_video !== false,
+    username,
+    video_source: config.video_source === "synthetic" ? "synthetic" : "camera",
+    video_width: config.video_width || 640,
+    video_height: config.video_height || 480,
+    video_fps: config.video_fps || 30,
+    video_seed: config.video_seed ?? 42,
+    render: config.render !== false,
+  };
 }
 
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (renderTimer) {
+    clearInterval(renderTimer);
+    renderTimer = null;
   }
 }
 
@@ -142,6 +179,10 @@ function handlePeerEvent(evt) {
   switch (evt.type) {
     case "offer_created":
       pc.setLocalDescription(data.type, data.sdp);
+      if (relay) {
+        relayExchange(data.sdp);
+        break;
+      }
       sendSignal({ type: "offer", sdp: data.sdp });
       log("Offer created and sent to peer.");
       break;
@@ -153,6 +194,9 @@ function handlePeerEvent(evt) {
       break;
 
     case "ice_candidate":
+      // The relay is ICE-lite: it learns our address from our checks, so
+      // candidates are not sent to it.
+      if (relay) break;
       sendSignal({
         type: "ice_candidate",
         candidate: data,
@@ -195,6 +239,60 @@ function handlePeerEvent(evt) {
     case "error":
       log(`Error: ${data.message}`);
       break;
+  }
+}
+
+// --- Relay mode: WHIP to publish, WHEP to play (edge/media-relay) ---
+
+function relayUrl() {
+  return (config.relay_url || "http://localhost:8090").replace(/\/+$/, "");
+}
+
+// Start a session with the relay: our offer goes out once created.
+function relayStart(verb, stream) {
+  if (inCall) {
+    log("Already in a session. Use 'end' first.");
+    return;
+  }
+  relay = { verb, stream, resource: null };
+  pc = new addon.PeerConnection(mediaOptions(config.username || verb));
+  inCall = true;
+  startPolling();
+  pc.createOffer();
+  log(`${verb === "whip" ? "Publishing" : "Playing"} stream "${stream}" via ${relayUrl()} ...`);
+}
+
+async function relayExchange(offerSdp) {
+  const url = `${relayUrl()}/${relay.verb}/${encodeURIComponent(relay.stream)}`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/sdp" },
+      body: offerSdp,
+    });
+    const body = await res.text();
+    if (res.status !== 201) {
+      log(`Relay refused the session (${res.status}): ${body.trim()}`);
+      endCall();
+      return;
+    }
+    if (!relay) return; // ended meanwhile
+    relay.resource = res.headers.get("location");
+    pc.setRemoteDescription("answer", body);
+    log(`Relay answered; session ${relay.resource}.`);
+  } catch (e) {
+    log(`Relay unreachable at ${url}: ${e.message}`);
+    endCall();
+  }
+}
+
+// Tell the relay the session is over; best effort.
+function relayEnd() {
+  if (!relay) return;
+  const resource = relay.resource;
+  relay = null;
+  if (resource) {
+    fetch(`${relayUrl()}${resource}`, { method: "DELETE" }).catch(() => {});
   }
 }
 
@@ -578,11 +676,7 @@ function handleCommand(input) {
         log("Already in a call. Use 'end' to hang up first.");
         break;
       }
-      pc = new addon.PeerConnection({
-        send_audio: config.send_audio !== false,
-        send_video: config.send_video !== false,
-        username: myName,
-      });
+      pc = new addon.PeerConnection(mediaOptions(myName));
       inCall = true;
       startPolling();
       pc.createOffer();
@@ -599,11 +693,7 @@ function handleCommand(input) {
         log("No incoming call to answer.");
         break;
       }
-      pc = new addon.PeerConnection({
-        send_audio: config.send_audio !== false,
-        send_video: config.send_video !== false,
-        username: myName,
-      });
+      pc = new addon.PeerConnection(mediaOptions(myName));
       inCall = true;
       startPolling();
       pc.setRemoteDescription("offer", pendingOffer.sdp);
@@ -618,11 +708,19 @@ function handleCommand(input) {
         log("Not in a call.");
         break;
       }
-      sendSignal({ type: "hangup" });
+      if (!relay) sendSignal({ type: "hangup" });
       endCall();
       log("Call ended.");
       break;
     }
+
+    case "publish":
+      relayStart("whip", parts[1] || config.stream || "default");
+      break;
+
+    case "play":
+      relayStart("whep", parts[1] || config.stream || "default");
+      break;
 
     case "disconnect": {
       if (!ws) {
@@ -755,11 +853,15 @@ function handleCommand(input) {
 
     case "help": {
       console.log(`
-Commands:
+Commands, through the relay (edge/media-relay):
+  publish [stream]         - Send to the relay (WHIP), stream "default" unless named
+  play [stream]            - Receive from the relay (WHEP)
+  end                      - End the session or call
+
+Commands, peer to peer through the signaling server:
   connect <name> [server]  - Connect to signaling server (default: ws://localhost:8080)
   call                     - Start a call with the remote peer
   answer                   - Answer an incoming call
-  end                      - End the current call
   disconnect               - Disconnect from server
   status                   - Show current status
   stats on|off             - Toggle live WebRTC stats display (every 2s)
@@ -772,9 +874,19 @@ Commands:
   videoinfo                - Show video track diagnostics
   quit                     - Exit
 
-Media config (client-config.json):
+Config (client-config.json):
+  mode: p2p|relay          - With auto_connect: relay publishes or plays at
+                             start, p2p connects to the signaling server
+  role: send|recv          - What this client does: send video, or receive it
+  relay_url, stream        - The relay (default http://localhost:8090) and
+                             stream name (default "default")
   send_audio: true|false   - Send microphone audio (default: true)
-  send_video: true|false   - Send camera video (default: true)
+  send_video: true|false   - Send video (default: true)
+  video_source: camera|synthetic - Camera, or deterministic synthetic frames
+                             (default: camera)
+  video_width, video_height, video_fps, video_seed - Source format and seed
+                             (default: 640, 480, 30, 42)
+  render: true|false       - Show received video in a window (default: true)
 `);
       break;
     }
@@ -799,6 +911,7 @@ Media config (client-config.json):
 }
 
 function endCall() {
+  relayEnd();
   inCall = false;
   stopPolling();
   stopStats();
@@ -813,10 +926,13 @@ function endCall() {
 
 // --- Main ---
 loadConfig();
-console.log("=== WebRTC Demo Client (Linux) ===");
+console.log("=== mec-cast WebRTC client ===");
 console.log('Type "help" for available commands.\n');
 
-if (config.auto_connect) {
+if (config.auto_connect && config.mode === "relay") {
+  // Relay mode: a sender publishes, a receiver plays, at once.
+  handleCommand(config.role === "recv" ? "play" : "publish");
+} else if (config.auto_connect) {
   console.log(
     `Auto-connecting to ${config.server_address} as "${config.username}"...`
   );

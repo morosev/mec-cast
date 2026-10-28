@@ -1,169 +1,116 @@
-# WebRTC native client (Profile B, legacy)
+# WebRTC native client (Profile B, media)
 
-> Part of [mec-cast](../../README.md). This is the original libwebrtc-based
-> client and the signaling server it talks to. It keeps its own in-process
-> delay measurement rather than the shared [telemetry crate](../../telemetry/README.md),
-> and stays untouched until the [str0m profile](../../docs/architecture/str0m-profile.md)
-> reaches parity. Building it requires the patched WebRTC fork —
-> see [building libwebrtc](../../docs/guides/building-libwebrtc.md).
-
-A simple WebRTC peer-to-peer **bidirectional audio + video** call demo with a Node.js
-signaling server and console clients using native C++ WebRTC bindings. Each client
-can independently send or receive audio and video, controlled via configuration.
-Video is displayed in an X11 window.
+> Part of [mec-cast](../../README.md). The media profile's sender and
+> receiver: a Node.js console app with a C++ addon on the platform's patched
+> libwebrtc. It sends to and plays from the
+> [relay](../../edge/README.md#media-relay) on the edge (WHIP/WHEP), or calls
+> a peer directly through [`edge/signaling`](../../edge/signaling/). Design:
+> [the media profile](../../docs/architecture/str0m-profile.md),
+> [ADR-0015](../../docs/architecture/adr/0015-media-profile-relay.md).
 
 ## Table of Contents
 
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-  - [1. Clone the repository](#1-clone-the-repository)
-  - [2. Install depot_tools and fetch WebRTC dependencies](#2-install-depot_tools-and-fetch-webrtc-dependencies)
-  - [3. Install Linux build dependencies](#3-install-linux-build-dependencies)
-  - [4. Build WebRTC](#4-build-webrtc)
-  - [5. Install dependencies and build the demo](#5-install-dependencies-and-build-the-demo)
+- [Building](#building)
 - [Running](#running)
+  - [Through the relay](#through-the-relay)
+  - [Peer to peer](#peer-to-peer)
 - [Client Commands](#client-commands)
 - [Client Configuration](#client-configuration)
 - [Nanosecond Delay Measurement (PTP)](#nanosecond-delay-measurement-ptp)
-  - [Delay Metrics](#delay-metrics)
-  - [Custom RTP Header Extension](#custom-rtp-header-extension)
-  - [PTP and Clock Synchronization](#ptp-and-clock-synchronization)
-  - [Limitations Without PTP](#limitations-without-ptp)
-  - [PTP Requirements](#ptp-requirements)
+- [Shared telemetry](#shared-telemetry)
 - [Logging](#logging)
 - [Example Session](#example-session)
 - [Signaling Protocol](#signaling-protocol)
-  - [Keep-Alive / Heartbeat](#keep-alive--heartbeat)
 - [Testing](#testing)
 - [License](#license)
 
 ## Architecture
 
 ```
-┌──────────┐     WebSocket      ┌──────────┐     WebSocket      ┌──────────┐
-│ Client A ├───────────────────►│  Server  │◄───────────────────┤ Client B │
-│ (Node.js │   JSON signaling   │ (Node.js)│   JSON signaling   │ (Node.js │
-│ + C++)   ├────────────────────┤          ├────────────────────┤  + C++)  │
-└────┬─────┘                    └──────────┘                    └────┬─────┘
-     │                                                               │
-     │            P2P Bidirectional Audio + Video (after ICE)        │
-     └───────────────────────────────────────────────────────────────┘
+ sender (role send)            relay (edge/media-relay)          receiver (role recv)
+ ┌──────────────┐   WHIP/RTP   ┌──────────────────┐   WHEP/RTP   ┌──────────────┐
+ │ Node + addon ├─────────────►│ str0m, RTP mode  ├─────────────►│ Node + addon │
+ │ libwebrtc    │              │ forwards, records│              │ libwebrtc    │
+ └──────────────┘              └──────────────────┘              └──────────────┘
 ```
 
-The client uses a **split-compilation** approach with a C ABI boundary:
-- `webrtc_core.cc` — compiled with Chromium's clang++ and libc++ to match `libwebrtc.a` ABI
-- `addon.cc` / `peer_connection_wrapper.cc` — compiled with Chromium's clang++ using Node.js N-API headers
-- Communication between the two layers uses only C types (`const char*`, `int`, opaque pointers)
+Peer to peer, two clients exchange SDP through `edge/signaling` and send to
+each other directly, audio and video both ways.
+
+The addon compiles in two halves that meet only at a C interface,
+[`src/webrtc_core.h`](src/webrtc_core.h):
+
+- `webrtc_core.cc` -- with the clang++ and libc++ that ship in the libwebrtc
+  archive, the toolchain the library was built with;
+- `addon.cc`, `peer_connection_wrapper.cc` and the rest -- with the system
+  compiler, against Node's N-API headers.
 
 ## Prerequisites
 
-- Linux (Ubuntu 22.04+ or equivalent)
-- Node.js 18+ with npm
-- Git
-- X11 development libraries (`libx11-dev`)
+| | Linux x86-64 | macOS, Apple silicon |
+|---|---|---|
+| Node.js 18+ and npm | yes | yes |
+| SDL2 | `libsdl2-dev` | `brew install sdl2` |
+| pkg-config, a C++17 compiler, curl, xz | yes | Xcode command-line tools, `brew install pkg-config` |
+| Camera | V4L2 | not yet: synthetic video only |
+| Rust (`cargo`) | for telemetry | for telemetry |
 
-## Getting Started
+arm64 Linux is not supported: Chromium ships no clang for it.
 
-### 1. Clone the repository
-
-```bash
-git clone --recurse-submodules https://github.com/morosev/mec-cast.git
-cd mec-cast
-```
-
-If you already cloned without `--recurse-submodules`:
+## Building
 
 ```bash
-git submodule update --init --recursive
-```
-
-The `third_party/webrtc/src` submodule points to our
-[custom WebRTC fork](https://github.com/morosev/mec-cast-webrtc) (branch
-`mec-cast`) which adds the `SendTimestampNsExtension` (16-byte RTP header
-extension carrying capture + send timestamps), forces every frame to carry
-timing metadata, and exposes encode duration on decoded frames.
-
-### 2. Install depot_tools and fetch WebRTC dependencies
-
-```bash
-cd third_party/webrtc
-git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-export PATH="$PWD/depot_tools:$PATH"
-cp .gclient.template .gclient
-gclient sync
-```
-
-The `.gclient.template` configures gclient to use our fork. `gclient sync`
-fetches all third-party dependencies (toolchain, codecs, etc.) required to
-build WebRTC. This is a large download (~20 GB) and takes time on the first run.
-
-### 3. Install Linux build dependencies
-
-```bash
-cd src
-sudo ./build/install-build-deps.sh --no-prompt
-```
-
-### 4. Build WebRTC
-
-```bash
-gn gen out/release_x64 --args='is_debug=false rtc_include_tests=false proprietary_codecs=true ffmpeg_branding="Chrome"'
-ninja -C out/release_x64 webrtc
-```
-
-This produces `out/release_x64/obj/libwebrtc.a`.
-
-### 5. Install dependencies and build the demo
-
-```bash
-# Server (from third_party/webrtc/src, back to the repo root first)
-cd ../../../edge/signaling
+make fetch-libwebrtc            # from the repo root; once per lock change
+cd clients/webrtc_native
 npm install
-
-# Client
-cd ../../clients/webrtc_native
-npm install
-npx node-gyp install
-chmod +x build.sh
 ./build.sh
 ```
 
-`build.sh` uses Chromium's clang++ to compile the native addon
-(`build/Release/webrtc_addon.node`), linking against `libwebrtc.a` and the
-libc++ runtime objects from the WebRTC build output.
+`make fetch-libwebrtc` downloads the prebuilt library pinned in
+[`third_party/webrtc.lock`](../../third_party/webrtc.lock) from the fork's
+GitHub release, checks its SHA-256 and unpacks it into
+`third_party/libwebrtc/`. `build.sh` fetches it itself when it is missing;
+`LIBWEBRTC_DIR` points it at another unpacked archive, such as one built
+locally ([building libwebrtc](../../docs/guides/building-libwebrtc.md)).
+The output is `build/Release/webrtc_addon.node`.
 
 ## Running
 
-Open **3 terminal windows**:
+### Through the relay
 
-### Terminal 1: Server
-```bash
-cd edge/signaling
-npm start
-```
-The server listens on port 8080 and logs each client connection/disconnection.
+Start the relay ([edge/README.md](../../edge/README.md#media-relay)), then a
+sender and a receiver, each with its own config file:
 
-### Terminal 2: Client A
 ```bash
-cd clients/webrtc_native
-npm start
+node client.js sender.json      # {"mode":"relay","role":"send","relay_url":"http://EDGE:8090","video_source":"synthetic","auto_connect":true}
+node client.js receiver.json    # {"mode":"relay","role":"recv","relay_url":"http://EDGE:8090","auto_connect":true}
 ```
 
-### Terminal 3: Client B
+With `auto_connect` a relay-mode client publishes or plays at once;
+otherwise type `publish` or `play`. Set the same `RUN_ID` on the relay and
+the receiver so their samples land in one run.
+
+### Peer to peer
+
 ```bash
-cd clients/webrtc_native
-npm start
+cd edge/signaling && npm install && npm start     # terminal 1
+cd clients/webrtc_native && npm start             # terminals 2 and 3
 ```
+
+Then `connect alice` and `connect bob`, and `call` from one of them.
 
 ## Client Commands
 
 | Command | Description |
 |---------|-------------|
 | `connect <name> [server]` | Connect to signaling server (default: `ws://localhost:8080`) |
+| `publish [stream]` | Send to the relay (WHIP); stream `default` unless named |
+| `play [stream]` | Receive from the relay (WHEP) |
 | `call` | Start a call (sends audio + video from mic/camera) |
 | `answer` | Answer an incoming call (plays audio, opens video window) |
-| `end` | End the current call |
+| `end` | End the current call, or leave the relay |
 | `disconnect` | Disconnect from server |
 | `status` | Show current connection status |
 | `stats on\|off` | Toggle live WebRTC stats display (every 2s) |
@@ -179,34 +126,45 @@ npm start
 
 ## Client Configuration
 
-The client can be configured via `clients/webrtc_native/client-config.json` to automate
-connection and call setup. All properties are optional — when omitted or set to
-defaults, the client behaves as a fully manual interactive console.
+The client reads `client-config.json`, or the file named as its first
+argument. All properties are optional — when omitted, the client behaves as a
+fully manual interactive console.
 
 ```json
 {
-  "server_address": "ws://localhost:8080",
-  "username": "alice",
+  "mode": "relay",
+  "role": "send",
+  "relay_url": "http://localhost:8090",
+  "stream": "default",
   "auto_connect": true,
-  "auto_answer": true,
-  "auto_stats_on": false,
-  "send_audio": true,
-  "send_video": true
+  "video_source": "synthetic",
+  "video_width": 640,
+  "video_height": 480,
+  "video_fps": 30,
+  "render": false
 }
 ```
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
+| `mode` | string | (peer to peer) | `relay` to use the relay instead of signaling |
+| `role` | string | (both) | `send`: send video (and audio if `send_audio`); `recv`: receive only |
+| `relay_url` | string | `"http://localhost:8090"` | The relay's HTTP address |
+| `stream` | string | `"default"` | The stream to publish or play |
 | `server_address` | string | `"ws://localhost:8080"` | WebSocket URL of the signaling server |
 | `username` | string | `""` | Name to register with on the server |
-| `auto_connect` | bool | `false` | Connect to the server automatically on startup |
+| `auto_connect` | bool | `false` | Connect on startup; in relay mode, publish or play |
 | `auto_answer` | bool | `false` | Automatically answer incoming calls |
 | `auto_stats_on` | bool | `false` | Enable live stats display when a call connects |
 | `send_audio` | bool | `true` | Capture and send microphone audio |
-| `send_video` | bool | `true` | Capture and send camera video |
+| `send_video` | bool | `true` | Send video |
+| `video_source` | string | `"camera"` | `camera` (Linux only) or `synthetic`: a seeded moving gradient with the frame number drawn in |
+| `video_width`, `video_height`, `video_fps` | int | 640, 480, 30 | The video's format |
+| `video_seed` | int | 42 | The synthetic source's seed |
+| `render` | bool | `true` | Show received video in an SDL2 window; `false` runs headless |
 
 **Validation rules:**
-- `auto_connect` requires both `server_address` and `username` to be set.
+- Peer to peer, `auto_connect` requires both `server_address` and `username` to be set.
 
 When the config file is absent, the client starts in fully manual mode.
 
@@ -241,8 +199,8 @@ offset is near-zero and this effectively measures kernel/stack processing time.
 
 **Glass-to-glass:** The total end-to-end latency from frame capture on the sender
 to frame display on the receiver: `render_ns − capture_ns`. The `capture_ns`
-timestamp is taken at the moment the camera driver delivers a frame to WebRTC's
-video capture module; it is converted from the monotonic `capture_time()` to
+timestamp is taken at the moment the camera (or the synthetic source) delivers
+a frame to WebRTC; it is converted from WebRTC's clock to
 `CLOCK_REALTIME` at packet egress and transmitted via the header extension. The
 `render_ns` is taken locally when `OnFrame()` delivers the decoded frame to the
 renderer. This metric requires PTP sync for cross-machine accuracy.
@@ -299,9 +257,10 @@ format** (RFC 8285) which supports extension elements of 1–16 bytes with IDs 1
 ```
 
 - **capture_ns** (bytes 0–7): `CLOCK_REALTIME` nanoseconds at frame capture.
-  Computed at packet egress by converting the monotonic `capture_time()` stored
-  on the `RtpPacketToSend` to real-time using the offset
-  `CLOCK_REALTIME − CLOCK_MONOTONIC` sampled at that instant.
+  Computed at packet egress by converting `capture_time()`, which is on
+  WebRTC's own clock, with the offset `CLOCK_REALTIME` minus that clock,
+  sampled at that instant. (WebRTC's clock is not `CLOCK_MONOTONIC` on macOS:
+  it stops during sleep.)
 - **send_ns** (bytes 8–15): `CLOCK_REALTIME` nanoseconds at packet departure.
   Stamped in `rtp_sender_egress.cc` just before the packet is handed to the
   transport layer.
@@ -374,7 +333,7 @@ RTP Egress ───→ send_ns (CLOCK_REALTIME)
     │
     │ ~~~ Network ~~~
     ▼
-RTP Arrival ──→ receive_time (CLOCK_MONOTONIC → CLOCK_REALTIME)
+RTP Arrival ──→ receive_time (WebRTC clock → CLOCK_REALTIME)
     │
     ▼
 Jitter Buffer (wait)
@@ -455,35 +414,29 @@ clocks. The system uses the PTP Hardware Clock (PHC) exposed at `/dev/ptp0`.
 | PTP with SW timestamping | 1–10 µs |
 | No PTP (software NTP fallback) | 1–5 ms |
 
-## Shared telemetry (Profile B → mec-cast-telemetry)
+## Shared telemetry
 
-Every rendered frame is also recorded into the shared Rust telemetry spine,
-so media runs are directly comparable with the ROS2/Zenoh profile. This runs
-*alongside* the in-process `DelayMeasurement` described above — the console
-`delay` commands are unchanged.
+The receiver records every rendered frame in the platform's telemetry, at
+site 4, so a run joins with the relay's samples (site 3) on `seq`, the
+frame's RTP timestamp. This runs *alongside* the in-process
+`DelayMeasurement` above — the console `delay` commands are unchanged.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RUN_ID` | `dev-run` | Experiment id; joins profiles in one query |
-| `RUNS_DIR` | `runs` | Output base; CSV at `<RUNS_DIR>/<RUN_ID>/media/samples.csv` |
+| `RUN_ID` | `dev-run` | Experiment id; the same on relay and receiver |
+| `RUNS_DIR` | `runs` | Output base; CSV at `<RUNS_DIR>/<RUN_ID>/receiver/samples.csv` |
 | `LOGGING_URL` | unset | Logging service base URL; CSV is always written |
 | `MEC_CAST_TELEMETRY` | `1` | Set to `0` to disable entirely |
 
 Envelope mapping for a video frame: `capture_ns` and `send_ns` come from the
 sender via the custom RTP extension, `recv_ns` from packet arrival, and
 `process_done_ns` is render time — so the recorded `e2e_ns` **is** the
-glass-to-glass metric. Decode duration rides in `aux_ns`.
+glass-to-glass metric. Decode duration rides in `aux_ns`. A frame's stamps
+are those of its last packet, as at the relay.
 
 The addon links `libmec_cast_telemetry.a` over the C ABI in
 [`telemetry/include/mec_cast_telemetry.h`](../../telemetry/include/mec_cast_telemetry.h);
 `build.sh` builds it automatically when `cargo` is on PATH.
-
-> **Not verifiable without a camera.** This path only executes when video
-> frames are actually rendered. WSL and CI have no `/dev/video*`, so the
-> call negotiates video `recvonly` and `OnFrame()` never fires — meaning
-> `make test-legacy` exercises signalling and audio only, and never the
-> delay measurement. The C boundary itself is covered by `make test-ffi`;
-> end-to-end confirmation needs a machine with a camera.
 
 ## Logging
 
@@ -491,7 +444,7 @@ All screen output and errors are mirrored to log files, recreated on each
 application start:
 
 - **Client:** `clients/webrtc_native/log/client.log`
-- **Server:** `edge/signaling/log/server.log`
+- **Server:** `server.log` in the signaling server's `log/` directory
 
 WebRTC native-layer logs are written separately to
 `clients/webrtc_native/log/<username>_webrtc.log`.

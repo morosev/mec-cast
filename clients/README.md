@@ -5,7 +5,7 @@ the 5G modem.
 
 | Component | Profile | Status |
 |---|---|---|
-| [`webrtc_native/`](webrtc_native/) | B — media | Working (legacy) |
+| [`webrtc_native/`](webrtc_native/) | B — media | Working — sender and receiver, Linux x86-64 and macOS |
 | ROS2 lidar client | A — robotics | Working — lives in [`../ros2/src/mec_cast_lidar_client/`](../ros2/src/mec_cast_lidar_client/) |
 
 ## Why the ROS2 client is not in this directory
@@ -19,25 +19,24 @@ in `deploy/lab/compose.{ue,edge}.yml`. See the rationale in
 
 ## `webrtc_native/`
 
-Node.js console client with a C++ N-API addon linking the patched libwebrtc
-fork. Requires `third_party/webrtc/src/out/release_x64/obj/libwebrtc.a`
-(see [building libwebrtc](../docs/guides/building-libwebrtc.md)).
+Node.js console client with a C++ N-API addon on the patched libwebrtc fork,
+used prebuilt ([ADR-0015](../docs/architecture/adr/0015-media-profile-relay.md)).
+A sender or a receiver through the [media relay](../edge/README.md#media-relay),
+or a peer-to-peer call through `edge/signaling`.
 
 ```bash
-cd clients/webrtc_native && npm install
-make build-client          # from the repo root
-make test-legacy           # end-to-end call + delay report
+make fetch-libwebrtc build-client   # from the repo root
+make test-legacy                    # peer-to-peer call + delay report
 ```
 
-It now feeds **both** measurement paths:
+It feeds **both** measurement paths:
 
 - its original in-process `DelayMeasurement`, which still backs the
   interactive `delay report` / `delay log` commands (known defects
   catalogued in [ADR-0004](../docs/architecture/adr/0004-exact-percentiles.md));
-- the shared Rust telemetry crate over its C ABI, writing
-  `runs/<RUN_ID>/media/samples.csv` in the same schema as Profile A and
-  posting the same snapshots to the logging service.
+- the shared Rust telemetry crate over its C ABI: the receiver writes
+  `runs/<RUN_ID>/receiver/samples.csv` (site 4) in the same schema as
+  Profile A, joining the relay's samples on the frame's RTP timestamp.
 
 Environment (identical to the ROS2 nodes): `RUN_ID`, `RUNS_DIR`,
-`LOGGING_URL`, plus `MEC_CAST_TELEMETRY=0` to disable. One `RUN_ID` joins
-media and point-cloud samples in the same query.
+`LOGGING_URL`, plus `MEC_CAST_TELEMETRY=0` to disable.

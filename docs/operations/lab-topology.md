@@ -8,6 +8,7 @@
 | **edge** | Zenoh router + ROS2 ingest node | `bash deploy/lab/deploy.sh edge user@host` |
 | **ue** | LiDAR + ROS2 client node, behind the 5G modem | `bash deploy/lab/deploy.sh ue user@host` |
 | **gnb** | srsRAN metrics collector (beside the O-DU) | `bash deploy/lab/deploy.sh gnb user@host` |
+| **relay** | The media profile's relay (`edge/media-relay`), usually on the edge host; its sender and receiver are the WebRTC client on UEs, run by hand ([ADR-0015](../architecture/adr/0015-media-profile-relay.md)) | `RELAY_PUBLIC_IP=<N6 addr> bash deploy/lab/deploy.sh relay user@host` |
 
 Deploy **infra first** — every other role POSTs snapshots to it and will
 buffer-then-drop while it is unreachable.
@@ -230,7 +231,12 @@ export MIDDLEWARE_LINK=tcp         # zenoh: tcp | quic; dds: udp | tcp
 export DDS_INTERFACES=...          # dds only, per host: the UE's 5G interface, the edge's N6 address
 export CODEC=none                  # or gpcc (ADR-0014): the default codec, the same on ue and edge; a run may name its own
 export RUN_ID=$(uuidgen)          # only without the admin; see below
+export RELAY_PUBLIC_IP=10.45.0.1  # relay role only: the address UEs reach it at
 ```
+
+The relay listens on `RELAY_PORT` (default 8090), TCP for WHIP/WHEP and UDP
+for all media; open both from the UE pool. It takes no admin yet: set the
+same `RUN_ID` on it and on the receiving client.
 
 `INFRA_HOST` names the **host**, not one service on it. Every measuring role
 posts telemetry to `:8000` there and connects its control plane to `:8099`.

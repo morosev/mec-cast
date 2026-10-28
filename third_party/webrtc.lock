@@ -1,0 +1,13 @@
+# Prebuilt libwebrtc for the media clients (clients/webrtc_native).
+#
+# Built from the fork's commit by its release workflow
+# (third_party/webrtc/src/.github/workflows/libwebrtc.yml) and attached to the
+# fork's GitHub release of `tag`. `make fetch-libwebrtc` downloads the archive
+# for this machine, checks it against the SHA-256 below, and unpacks it into
+# third_party/libwebrtc/ (gitignored). Changing the fork means a new tag, a new
+# release, and new sums here, in one commit with the submodule bump.
+repository=morosev/mec-cast-webrtc
+tag=webrtc-c7f637a-4
+commit=9db2a48dc293e548f08e958b88b81d5836c212ab
+sha256.linux-x64=69196b42d6159a3487280a6e9f2badba0c6b1f149061b83e178cdcea8d5ebd6a
+sha256.macos-arm64=56e1d8d388f33c15cabbc1c723a8155b04c699d62b4c6b5168f34e409e23991d

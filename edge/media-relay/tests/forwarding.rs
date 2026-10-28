@@ -78,7 +78,9 @@ impl Relay {
         let _ = std::fs::remove_dir_all(&runs);
         let child = Command::new(env!("CARGO_BIN_EXE_mec-cast-relay"))
             .env("RELAY_HTTP", format!("127.0.0.1:{port}"))
-            .env("RELAY_UDP", format!("127.0.0.1:{port}"))
+            // As the lab runs it: media on every address, one candidate.
+            .env("RELAY_UDP", format!("0.0.0.0:{port}"))
+            .env("RELAY_PUBLIC_IP", "127.0.0.1")
             .env("RUN_ID", "relay-test")
             .env("RUNS_DIR", &runs)
             .env_remove("LOGGING_URL")

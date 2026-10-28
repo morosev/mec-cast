@@ -8,7 +8,10 @@
 //!   extension (`ext::SendTimes`), as the receiver also sees them;
 //! - `recv_ns`: when the frame's last packet reached the relay's socket;
 //! - `process_done_ns`: when its last packet was handed to the receivers'
-//!   egress, so `processing_ns` is the relay's own forwarding time;
+//!   egress, so `processing_ns` is the relay's own forwarding time. Both
+//!   relay stamps go through [`FrameRecorder::realtime_ns`], one mapping from
+//!   the monotonic clock: stamped by two different clocks, a forwarding time
+//!   of microseconds came out negative;
 //! - `aux_ns`: from the first to the last packet's arrival, how long the frame
 //!   took to come in;
 //! - `seq`: the frame's RTP timestamp, which the receiver's samples carry too:

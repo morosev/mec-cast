@@ -25,6 +25,7 @@ class PeerConnectionWrapper
   Napi::Value GetPtpStatus(const Napi::CallbackInfo& info);
   Napi::Value ConfigureDelay(const Napi::CallbackInfo& info);
   Napi::Value ResetDelayStats(const Napi::CallbackInfo& info);
+  Napi::Value RenderPump(const Napi::CallbackInfo& info);
 
  private:
   WebrtcPeer* peer_ = nullptr;
