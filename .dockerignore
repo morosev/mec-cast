@@ -18,6 +18,8 @@ tools/
 docs/
 target/
 runs/
+# Recorded lidar datasets: gigabytes, mounted at runtime (tools/lidar_dataset.py).
+datasets/
 **/.venv/
 **/__pycache__/
 **/node_modules/

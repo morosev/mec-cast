@@ -76,12 +76,19 @@ services:
       # unless the deployment declares a topology; see
       # docs/operations/admin-service.md.
       ZONE: ${ZONE:-}
+      # PATTERN=dataset replays a recorded lidar dataset from this host's
+      # datasets/ -- copied there once, never deployed (tools/lidar_dataset.py).
+      DATASET: ${DATASET:-}
+      DATASET_START: ${DATASET_START:-0}
+      DATASET_POINTS: ${DATASET_POINTS:-0}
+      DATASETS_DIR: /datasets
       # Always the in-container path: the bind mount above maps whatever the
       # host calls its PHC onto /dev/ptp0 here. Empty would disable the
       # monitor, which is what shipped for the platform's whole life.
       PTP_DEVICE: /dev/ptp0
     volumes:
       - ../../runs:/runs
+      - ../../datasets:/datasets:ro
     devices:
       # The host PHC, always presented as /dev/ptp0 INSIDE the container, so
       # only this line is host-specific and the node's config is uniform.

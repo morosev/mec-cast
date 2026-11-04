@@ -86,7 +86,8 @@ application layer through `rclpy`.
 
 ## Test vectors
 
-`mec_cast_lidar_client` generates deterministic clouds from a seed:
+`mec_cast_lidar_client` generates deterministic clouds from a seed, or
+replays a recorded lidar dataset:
 
 | Parameter | Default | Purpose |
 |---|---|---|
@@ -96,8 +97,38 @@ application layer through `rclpy`.
 | `pattern` | `uniform_cube` | Ten shapes: `uniform_cube`, `sphere`, `lidar_scan`, `rotating_plane`, `torus`, `helix`, `wave`, `cylinder`, `cube_edges`, `swarm` — see `workload.patterns` in `docs/_facts.yml` for how much each compresses on the downlink (1.4x to 23.5x) |
 | `codec` | `none` | `gpcc` sends the cloud G-PCC coded (ADR-0014) |
 | `codec_precision_m` | 0.001 | The coded position step; 0.001 or 0.01 keep the edge's voxels unchanged |
+| `dataset` | `$DATASET` | With `pattern=dataset`: a replay directory, by path or by name under `$DATASETS_DIR` (`/datasets` in the UE containers) |
+| `dataset_start` | 0 | The first frame a run replays |
+| `dataset_points` | 0 | An even subsample of each sweep; 0 keeps every point. `num_points` does not apply to a dataset |
+| `dataset_loop` | true | Wrap at the end; false stops sending |
 
 Fixing the seed across a size sweep means only the size varies.
+
+### Replaying a recorded dataset
+
+`pattern=dataset` replays real sweeps instead of a generated shape. Convert
+a dataset once into the replay format, then name it:
+
+```bash
+python3 tools/lidar_dataset.py ford ~/IJRR-Dataset-1/SCANS datasets/ford-campus-1
+```
+
+```bash
+PATTERN=dataset DATASET=ford-campus-1 make up-admin
+```
+
+Frame k of a run is the dataset's frame `dataset_start + k`, so a replay is
+as reproducible as a seeded shape; the node reports the dataset, its frame
+count and the settings in its admin status. Reading a frame is a memory
+copy: the next one is read after each send, outside the capture-to-send span.
+[`datasets/README.md`](../datasets/README.md) lists the datasets and how to
+get one onto a lab UE, which the deploy does not carry.
+
+A Ford sweep is about 78 000 points, 0.93 MB raw, 0.23 MB G-PCC coded at
+1 mm: about 75 and 18 Mbit/s at 10 Hz. Coding it takes most of the 100 ms
+frame period on a laptop, and the scene spans +-115 m rather than the shapes'
+10 m box, which makes the edge's result -- and the renderer's downlink --
+larger.
 
 ## Tests
 
@@ -111,7 +142,10 @@ gapless, and `recv_ns > send_ns` over the active RMW (both RMWs, one after
 the other). `mec_cast_render/test/test_gpcc_launch.py` runs lidar, edge and
 renderer with `codec=gpcc` and checks every frame's points and voxels against
 the uncoded cloud. `mec_cast_codec/test/` and
-`mec_cast_edge/test/test_codec_on_our_clouds.py` test the codec itself.
+`mec_cast_edge/test/test_codec_on_our_clouds.py` test the codec itself, the
+latter on the generated shapes, on the shapes moved below zero, and on a
+recorded dataset's sweeps when one is mounted and named by `DATASET` (skipped
+otherwise). `mec_cast_lidar_client/test/test_replay.py` tests the replay.
 
 ## `mec_cast_admin_client`
 

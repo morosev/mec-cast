@@ -18,11 +18,15 @@ def cloud(n: int = 5000, low: float = 0.0, seed: int = 1) -> np.ndarray:
     return np.ascontiguousarray(v * 4.0 + 5.0 + low, dtype=np.float32)
 
 
+def by_column(points: np.ndarray) -> np.ndarray:
+    """Each column sorted on its own: the decoder reorders points, and
+    quantisation is monotone per axis, so sorted columns pair each value with
+    its own quantised one."""
+    return np.sort(points.astype(np.float64), axis=0)
+
+
 def max_error(out: np.ndarray, points: np.ndarray) -> float:
-    """Per column, sorted: the decoder reorders points, and truncation is
-    monotone per axis."""
-    a, b = (np.sort(x.astype(np.float64), axis=0) for x in (out, points))
-    return float(np.abs(a - b).max())
+    return float(np.abs(by_column(out) - by_column(points)).max())
 
 
 def test_the_library_loads():
@@ -35,6 +39,24 @@ def test_a_negative_origin_codes_negative_coordinates():
     assert pts.min() < 0
     out = decode(Encoder(0.001, origin_m=(-10.0, -10.0, -10.0)).encode(pts))
     assert max_error(out, pts) <= 0.001 + 1e-5
+
+
+@pytest.mark.parametrize("precision", (0.001, 0.01))
+def test_negative_coordinates_are_floored_not_rounded_toward_zero(precision):
+    """Every coordinate decodes to the step below it, whatever its sign.
+
+    The C interface truncated toward zero, which rounds a negative coordinate
+    UP a step; with error at most one step either way the test above passed,
+    while a real sweep's points crossed the edge's voxel boundaries. The
+    decoder reorders points, but quantisation is monotone per axis, so the
+    sorted columns pair each value with its own."""
+    pts = cloud(n=20000, low=-5.0)  # a shell about the origin: both signs, every axis
+    assert pts.min() < 0 < pts.max()
+    out = decode(Encoder(precision, origin_m=(-1000.0,) * 3).encode(pts))
+    below = by_column(pts) - by_column(out)
+    # float32 rounding of the decoded metres, a few um at most -- not a step.
+    assert below.min() >= -5e-6
+    assert below.max() <= precision + 5e-6
 
 
 def test_a_point_below_the_origin_is_refused_not_clamped():

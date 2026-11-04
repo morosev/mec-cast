@@ -103,9 +103,17 @@ services:
       # unless the deployment declares a topology; see
       # docs/operations/admin-service.md.
       ZONE: ${ZONE:-}
+      # PATTERN=dataset replays a recorded lidar dataset from datasets/,
+      # converted with tools/lidar_dataset.py: DATASET names it,
+      # DATASET_START is the first frame, DATASET_POINTS subsamples (0 = all).
+      DATASET: ${DATASET:-}
+      DATASET_START: ${DATASET_START:-0}
+      DATASET_POINTS: ${DATASET_POINTS:-0}
+      DATASETS_DIR: /datasets
     volumes:
       - ../../runs:/runs
       - ../docker/zenoh/tls:/zenoh/tls:ro
+      - ../../datasets:/datasets:ro
     depends_on:
       # Only the active middleware's centre runs (compose profiles).
       zenoh-router: {condition: service_started, required: false}

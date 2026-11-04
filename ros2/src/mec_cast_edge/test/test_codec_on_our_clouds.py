@@ -8,12 +8,15 @@ the edge and of the lidar client: tests there importing them would make a
 cycle colcon refuses.
 """
 
+import os
+
 import numpy as np
 import pytest
 
 from mec_cast_codec.gpcc import Decoder, Encoder, decode
 from mec_cast_edge.edge_node import VOXEL_SIZE, process_cloud
-from mec_cast_lidar_client.publisher_node import PATTERNS, PointCloudPublisher
+from mec_cast_lidar_client.publisher_node import CLOUD_ORIGIN_M, GENERATED, PointCloudPublisher
+from mec_cast_lidar_client.replay import Replay, resolve
 
 POINTS = 5000
 FRAMES = 3
@@ -47,7 +50,7 @@ def as_rows(indices: np.ndarray) -> np.ndarray:
 
 
 @pytest.mark.parametrize("precision", PRECISIONS)
-@pytest.mark.parametrize("pattern", PATTERNS)
+@pytest.mark.parametrize("pattern", GENERATED)
 def test_uplink_keeps_every_point_within_the_precision(pattern, precision):
     enc = Encoder(precision)
     for pts in clouds(pattern):
@@ -58,7 +61,7 @@ def test_uplink_keeps_every_point_within_the_precision(pattern, precision):
 
 
 @pytest.mark.parametrize("precision", PRECISIONS)
-@pytest.mark.parametrize("pattern", PATTERNS)
+@pytest.mark.parametrize("pattern", GENERATED)
 def test_uplink_leaves_the_edges_voxels_unchanged(pattern, precision):
     """The precision divides VOXEL_SIZE and the codec truncates, so no point
     crosses a voxel boundary: the occupied voxels are identical."""
@@ -70,7 +73,21 @@ def test_uplink_leaves_the_edges_voxels_unchanged(pattern, precision):
         np.testing.assert_array_equal(as_rows(after), as_rows(before))
 
 
-@pytest.mark.parametrize("pattern", PATTERNS)
+@pytest.mark.parametrize("precision", PRECISIONS)
+@pytest.mark.parametrize("pattern", GENERATED)
+def test_below_zero_from_the_nodes_origin_the_voxels_are_unchanged(pattern, precision):
+    """As the node codes, from CLOUD_ORIGIN_M, with the shape moved to
+    straddle zero as a real sensor's scene does. The shapes fill 0..10 m, so
+    on their own they never test a negative coordinate."""
+    enc = Encoder(precision, origin_m=(CLOUD_ORIGIN_M,) * 3)
+    for pts in clouds(pattern):
+        pts = np.ascontiguousarray(pts - 5.25, dtype=np.float32)
+        _, before = process_cloud(pts)
+        _, after = process_cloud(decode(enc.encode(pts)))
+        np.testing.assert_array_equal(as_rows(after), as_rows(before))
+
+
+@pytest.mark.parametrize("pattern", GENERATED)
 def test_downlink_voxel_indices_are_lossless(pattern):
     enc = Encoder(None)
     for pts in clouds(pattern):
@@ -134,3 +151,31 @@ def test_a_moving_shape_keeps_its_lower_edge():
     enc = Encoder(0.001)
     enc.encode(pts[0])
     assert max_error(decode(enc.encode(pts[3])), pts[3]) <= 0.001 + 1e-5
+
+
+# --- a recorded dataset, when one is mounted ---------------------------------
+#
+# Real sweeps are what the generators stand in for: ~78 000 points spread over
+# +-115 m, coded from the node's own origin (CLOUD_ORIGIN_M), not the box the
+# shapes fill. Run with a dataset mounted and DATASET naming it, e.g. under
+# deploy/docker/run-ros-tests.sh with datasets/ mounted at /datasets; skipped
+# otherwise, since CI has no data.
+
+DATASET = os.environ.get("DATASET")
+
+
+@pytest.mark.skipif(not DATASET, reason="no DATASET mounted")
+@pytest.mark.parametrize("precision", PRECISIONS)
+def test_recorded_sweeps_keep_their_points_and_the_edges_voxels(precision):
+    replay = Replay(resolve(DATASET))
+    enc = Encoder(precision, origin_m=(CLOUD_ORIGIN_M,) * 3)
+    for seq in (0, len(replay) // 2, len(replay) - 1):
+        pts = replay.frame(seq)
+        out = decode(enc.encode(pts))
+        assert out.shape == pts.shape
+        # Metres of float32 out to 115 m round to ~8 um, beside the step.
+        assert max_error(out, pts) <= precision + 2e-5
+        _, before = process_cloud(pts)
+        _, after = process_cloud(out)
+        np.testing.assert_array_equal(as_rows(after), as_rows(before))
+

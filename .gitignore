@@ -2,6 +2,10 @@
 clients/webrtc_native/build/
 target/
 runs/
+# Recorded lidar datasets: the data is the dataset's, under its terms. Only
+# the README is tracked.
+datasets/*
+!datasets/README.md
 
 # Per-developer local tool config
 .claude/settings.local.json

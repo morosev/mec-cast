@@ -1,7 +1,7 @@
-"""Deterministic synthetic PointCloud2 publisher — the mec-cast test-vector
-source.
+"""Deterministic PointCloud2 publisher — the mec-cast test-vector source.
 
 Generates seeded, reproducible point clouds at a configurable size and rate,
+or replays a recorded lidar dataset (`pattern=dataset`, `replay.py`),
 stamps `capture_ns` at generation and `send_ns` immediately before publish
 (both CLOCK_REALTIME via the shared telemetry clock), and records
 sender-side samples through the mec_cast_telemetry recorder.
@@ -21,6 +21,13 @@ logging_url, admin_url, admin_autostart, admin_instance):
     codec_precision_m (float, default $CODEC_PRECISION_M or 0.001)  the
                 coded position step. It must divide the edge's voxel size
                 (0.5 m) for the edge's result to be unchanged: 0.001 or 0.01
+    dataset     (str,   default $DATASET)  with pattern=dataset: a replay
+                directory (tools/lidar_dataset.py), by path or by name under
+                $DATASETS_DIR. num_points does not apply; dataset_points does
+    dataset_start  (int,  default $DATASET_START or 0)  the first frame replayed
+    dataset_points (int,  default $DATASET_POINTS or 0)  an even subsample of
+                each sweep; 0 keeps every point
+    dataset_loop   (bool, default true)  wrap at the end, else stop sending
 
 With no admin_url the node starts publishing immediately under its `run_id`
 parameter — the standalone path. With an admin it sits idle until told to
@@ -39,6 +46,7 @@ from mec_cast_admin_client import protocol as ap
 from mec_cast_admin_client.node_base import MecCastNode, spin
 from mec_cast_admin_client.sites import SITE_PUBLISHER
 from mec_cast_codec import gpcc
+from mec_cast_lidar_client.replay import Replay, ReplayError, resolve
 from mec_cast_msgs.msg import CloudWithTelemetry, CompressedCloudWithTelemetry, TimingEnvelope
 
 import uuid
@@ -58,7 +66,11 @@ PATTERNS = (
     "cylinder",
     "cube_edges",
     "swarm",
+    # A recorded dataset, replayed: real geometry, not a generator.
+    "dataset",
 )
+#: The patterns this node computes, needing no data: what tests can run anywhere.
+GENERATED = tuple(p for p in PATTERNS if p != "dataset")
 #: Every generator keeps its points inside this box, so one camera position
 #: suits all of them and voxel counts stay comparable between patterns.
 EXTENT = 10.0
@@ -147,6 +159,9 @@ class PointCloudPublisher(MecCastNode):
     SERVICE = "mec-cast-pub"
     SITE = SITE_PUBLISHER
     OUT_LEAF = "pub"
+    #: Set by start_run for pattern=dataset. A class default too: tests build
+    #: the node without __init__ to call the generators alone.
+    replay: Replay | None = None
 
     def __init__(self, *, node_name: str | None = None,
                  parameter_overrides: list | None = None) -> None:
@@ -168,6 +183,10 @@ class PointCloudPublisher(MecCastNode):
         self.declare_parameter(
             "codec_precision_m", float(os.environ.get("CODEC_PRECISION_M") or 0.001)
         )
+        self.declare_parameter("dataset", os.environ.get("DATASET", ""))
+        self.declare_parameter("dataset_start", int(os.environ.get("DATASET_START") or 0))
+        self.declare_parameter("dataset_points", int(os.environ.get("DATASET_POINTS") or 0))
+        self.declare_parameter("dataset_loop", True)
 
         self.seed = int(self.get_parameter("seed").value)
         self.num_points = int(self.get_parameter("num_points").value)
@@ -179,6 +198,12 @@ class PointCloudPublisher(MecCastNode):
             str(self.get_parameter("codec").value),
             float(self.get_parameter("codec_precision_m").value),
         )
+        self.dataset = str(self.get_parameter("dataset").value)
+        self.dataset_start = int(self.get_parameter("dataset_start").value)
+        self.dataset_points = int(self.get_parameter("dataset_points").value)
+        self.dataset_loop = bool(self.get_parameter("dataset_loop").value)
+        self.replay: Replay | None = None
+        self.replay_ended = False
         self.encoder = None
         self.encode_errors = 0
         if self.pattern not in PATTERNS:
@@ -197,16 +222,18 @@ class PointCloudPublisher(MecCastNode):
         self.gpcc_pub = self.create_publisher(CompressedCloudWithTelemetry, CLOUD_GPCC_TOPIC, qos)
         self._start()
         if not self.admin.enabled:
+            # What it is replaying was logged by start_run; this adds the QoS.
             self.get_logger().info(
-                f"publishing {self.num_points} pts @ {self.rate_hz} Hz "
-                f"(pattern={self.pattern}, seed={self.seed}, run_id={self.run_id}, "
-                f"qos={self.reliability}/KEEP_LAST({self.qos_depth}))"
+                f"standalone run {self.run_id}: pattern={self.pattern} @ {self.rate_hz} Hz, "
+                f"qos={self.reliability}/KEEP_LAST({self.qos_depth})"
             )
 
     # --- run lifecycle ----------------------------------------------------
 
     def params(self) -> dict:
+        extra = self.replay.describe() if self.replay is not None else {}
         return {
+            **extra,
             "num_points": self.num_points,
             "rate_hz": self.rate_hz,
             "seed": self.seed,
@@ -244,12 +271,28 @@ class PointCloudPublisher(MecCastNode):
                 return
             self.stop_run()
 
-        for key in ("num_points", "rate_hz", "seed", "pattern", "codec", "codec_precision_m"):
+        for key in ("num_points", "rate_hz", "seed", "pattern", "codec", "codec_precision_m",
+                    "dataset", "dataset_start", "dataset_points", "dataset_loop"):
             if args and key in args and args[key] is not None:
                 setattr(self, key, type(getattr(self, key))(args[key]))
         if self.pattern not in PATTERNS:
             raise ValueError(f"unknown pattern {self.pattern!r}, expected one of {PATTERNS}")
         check_codec(self.codec, self.codec_precision_m)
+        # Opened here, so a missing or malformed dataset fails the run.start
+        # ack instead of the first frame.
+        self.replay = None
+        self.replay_ended = False
+        if self.pattern == "dataset":
+            try:
+                self.replay = Replay(
+                    resolve(self.dataset),
+                    start=self.dataset_start,
+                    loop=self.dataset_loop,
+                    max_points=self.dataset_points,
+                )
+            except (OSError, ReplayError) as exc:
+                raise ValueError(f"pattern=dataset: {exc}") from exc
+            self.replay.warm(0)
         # Built here, so a bad codec configuration fails the run.start ack.
         self.encoder = (
             gpcc.Encoder(self.codec_precision_m, origin_m=(CLOUD_ORIGIN_M,) * 3)
@@ -264,9 +307,14 @@ class PointCloudPublisher(MecCastNode):
         self.frames_published = 0
         self._make_recorder(run_id)
         self.timer = self.create_timer(1.0 / self.rate_hz, self.publish_frame)
+        workload = (
+            f"{self.replay.path.name} from frame {self.dataset_start} of {len(self.replay)}, "
+            f"{self.dataset_points or 'all'} pts"
+            if self.replay is not None
+            else f"{self.num_points} pts, pattern={self.pattern}, seed={self.seed}"
+        )
         self.get_logger().info(
-            f"streaming run {run_id}: {self.num_points} pts @ {self.rate_hz} Hz "
-            f"(pattern={self.pattern}, seed={self.seed}, codec={self.codec}"
+            f"streaming run {run_id}: {workload} @ {self.rate_hz} Hz (codec={self.codec}"
             + (f" at {self.codec_precision_m} m" if self.codec == "gpcc" else "") + ")"
         )
 
@@ -289,7 +337,9 @@ class PointCloudPublisher(MecCastNode):
 
     # --- the workload -----------------------------------------------------
 
-    def generate_points(self) -> np.ndarray:
+    def generate_points(self) -> np.ndarray | None:
+        if self.replay is not None:
+            return self.replay.frame(self.seq)
         if self.pattern == "uniform_cube":
             # Fully deterministic sequence: frame k is draw k of the seeded RNG.
             return (self.rng.random((self.num_points, 3), dtype=np.float32) * 10.0).astype(
@@ -472,6 +522,15 @@ class PointCloudPublisher(MecCastNode):
             return
         capture_ns = tel.now_ns()
         points = self.generate_points()
+        if points is None:
+            # A non-looping replay past its last frame: nothing more to send.
+            if not self.replay_ended:
+                self.replay_ended = True
+                self.get_logger().info(
+                    f"dataset {self.dataset} replayed to its end after {self.frames_published} "
+                    "frames; sending nothing more this run (dataset_loop is false)"
+                )
+            return
 
         env = TimingEnvelope()
         env.capture_ns = capture_ns
@@ -523,6 +582,9 @@ class PointCloudPublisher(MecCastNode):
         )
         self.seq += 1
         self.frames_published += 1
+        if self.replay is not None:
+            # After the send, so the next frame's read is outside its span.
+            self.replay.warm(self.seq)
 
 
 def main(args=None) -> None:

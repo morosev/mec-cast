@@ -139,7 +139,7 @@ OPTIONAL="POSTGRES_PASSWORD MECLOG_BUILD_CONTEXT METRICS_PORT RUN_ID \
           LIDAR_INSTANCES RENDER_INSTANCES VIEWER_HOST ZONE \
           BACKUP_DIR BACKUP_EVERY BACKUP_KEEP BACKUP_CHECK_EVERY \
           VCS_REF VERSION PTP_DEVICE MIDDLEWARE MIDDLEWARE_LINK DDS_INTERFACES CODEC CODEC_PRECISION_M \
-          RELAY_PUBLIC_IP RELAY_PORT"
+          RELAY_PUBLIC_IP RELAY_PORT DATASET DATASET_START DATASET_POINTS"
 
 # Built as `NAME=value ...` for the remote command line. printf %q quotes each
 # value so a password or a path with spaces survives the trip through ssh,
@@ -171,6 +171,9 @@ rsync -az --delete \
   --exclude 'third_party/' \
   --exclude 'target/' \
   --exclude 'runs/' \
+  --include '/datasets/' \
+  --include '/datasets/README.md' \
+  --exclude '/datasets/*' \
   --exclude '**/node_modules/' \
   --exclude '**/.venv/' \
   "$ROOT_DIR/" "$TARGET:$REMOTE_DIR/"

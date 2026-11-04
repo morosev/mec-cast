@@ -124,6 +124,9 @@ env:
   RENDER_SINK:     {default: "null", note: "render node only; null | rerun | ros. null measures the round trip and draws nothing"}
   VIEWER_HOST:     {default: "localhost", note: "render node only; how the BROWSER reaches the UE. LEAVE UNSET: rerun 0.36 sends access-control-allow-origin only for loopback origins, so the web viewer is reached through an ssh tunnel and localhost is correct. A routable address loads the page and is then refused the stream"}
   PATTERN:         {default: "uniform_cube", note: "lidar client only; see workload.patterns"}
+  DATASET:         {default: "", note: "lidar client, PATTERN=dataset: the replay directory's name under DATASETS_DIR (/datasets in the UE containers, mounted read-only from datasets/)"}
+  DATASET_START:   {default: "0", note: "lidar client, PATTERN=dataset: the first frame a run replays"}
+  DATASET_POINTS:  {default: "0", note: "lidar client, PATTERN=dataset: an even subsample of each sweep; 0 keeps every point"}
   ZONE:            {default: "", note: "which zone -- a gNB, its UEs and its edge, not a radio cell -- a node reports in `hello`. Empty = undeclared; the admin treats it as the single default zone"}
   PTP_DEVICE:      {default: "/dev/ptp0", note: "host PHC, mapped to /dev/ptp0 INSIDE the container so only this line is host-specific. Index 0 is whichever NIC the driver registered first, NOT necessarily the one ptp4l disciplines -- `ethtool -T <iface>` names the right index. Empty disables the clock monitor honestly"}
   LIDAR_INSTANCES: {default: "1", note: "ue agent; N lidar instances in one process, dirs pub-0..pub-(N-1)"}
@@ -155,6 +158,7 @@ workload:
     cylinder:       {compression: "5.4x", note: "the inside of a fluted rotating duct -- the closest shape to an industrial scene"}
     cube_edges:     {compression: "23.5x", note: "a wireframe along the 12 edges of the box; the sparsest shape, so it compresses hardest"}
     swarm:          {compression: "6.7x", note: "eight drifting blobs -- several objects in the scene, voxelising into separated clusters"}
+    dataset:        {note: "a recorded lidar dataset, replayed (DATASET, under datasets/, converted by tools/lidar_dataset.py). Not a generator: num_points does not apply, DATASET_POINTS subsamples; Ford run 1 is ~78 000 points a sweep over +-115 m"}
 
 # --- output layout ----------------------------------------------------------
 outputs:

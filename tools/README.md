@@ -42,6 +42,21 @@ freezes. A row older than twice the stats period is left blank. For the same
 frames against the RAN, run `ran_join.py --site relay` (or `--site
 receiver`). Tested in `ran/py/tests`.
 
+## lidar_dataset.py — a recorded lidar dataset into the replay format
+
+```bash
+python3 tools/lidar_dataset.py ford ~/IJRR-Dataset-1/SCANS datasets/ford-campus-1
+python3 tools/lidar_dataset.py ford <SCANS> <out> --first 100 --count 600   # a window
+```
+
+Writes `points.f32` (float32 x y z, frames back to back) and `index.json`
+(frames with offsets, point counts and the recorded sweep times), which the
+lidar client replays with `pattern=dataset` ([ros2/README.md](../ros2/README.md#replaying-a-recorded-dataset)).
+Reads the Ford Campus Vision and Lidar Dataset's MAT v5 scans today. Standard
+library only. A scan whose compressed data ends early -- five of Ford run 1's
+3,817 -- is kept when its points and timestamp decoded whole, and listed in
+`index.json` as `recovered`. Tested in `ran/py/tests`.
+
 ## Still to come
 
 - Notebooks plotting latency vs. payload size, rate, and impairment.
