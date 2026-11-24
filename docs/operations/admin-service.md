@@ -45,6 +45,19 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 
 ## The run table
 
+**The page has a tab per scenario**: **ROS** (point clouds, profile
+`robotics`) and **WebRTC** (video through the relay, profile `media`). They
+share the run lifecycle and little else, so each tab shows only its own runs,
+its own Add form, its nodes -- with columns that fit them -- and its findings.
+The gNB tap and the xApp serve both and appear on both, as do findings about
+any run (clocks, versions, logging, the topology); each finding carries the
+`profile` it is about, or none. A tab shows how many of its runs are active.
+
+| Scenario | Its nodes' columns | Header |
+|---|---|---|
+| ROS | Middleware (`dds/udp · gpcc`), Peers, the renderer's `viewer ↗` | the middleware badge |
+| WebRTC | Stream (a client's, or the relay's as publishers→subscribers), Connection (the relay's address, or a client's WebRTC state), Video, libwebrtc | the relay's address |
+
 | Column | Meaning |
 |---|---|
 | ☐ | Selection box; the header box selects every row shown |
@@ -55,13 +68,15 @@ the nodes that dial it, and a node that starts first simply retries every 30 s.
 | Started | When the run began. **Rows are ordered newest first by this**, not by id |
 | Findings | Count of errors currently detected for the active run |
 
-**A run has a profile**, picked in the Add form and stored as
+**A run has a profile**, the tab it is created on, stored as
 `params.profile`: `robotics` (the default; point clouds over ROS) or `media`
 (WebRTC video through the relay, [ADR-0015](../architecture/adr/0015-media-profile-relay.md)).
 The profile decides which nodes a start recruits -- a lidar client never
 joins a media run, nor a WebRTC sender a robotics one -- and what quorum is:
 one client and one edge, or the relay, a sender and a receiver. The gNB tap
-and the xApp join both. A media run's params also carry `stream`,
+and the xApp join both. A check about one scenario's nodes judges them only
+while a run of that scenario is active: an idle edge is `WF_EDGE_IDLE` in a
+robotics run and expected in a media one. A media run's params also carry `stream`,
 `video_source`, `video_width`, `video_height` and `video_fps`, which the
 sender and receiver apply for the run.
 

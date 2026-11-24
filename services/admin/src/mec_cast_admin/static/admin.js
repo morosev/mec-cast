@@ -20,7 +20,87 @@ const $ = (id) => document.getElementById(id);
 // replacement on every change, and a selection that vanished whenever another
 // node reported would be unusable. Ids that no longer exist are pruned on
 // each render rather than accumulating.
-const state = { snapshot: null, socket: null, pollTimer: null, selected: new Set() };
+// The page's scenarios: the run profiles (protocol.PROFILES). See below.
+const SCENARIOS = ['robotics', 'media'];
+
+const state = {
+  snapshot: null, socket: null, pollTimer: null, selected: new Set(),
+  scenario: savedScenario(),
+};
+
+/* ── scenarios ───────────────────────────────────────────────────────── */
+// ROS (profile `robotics`) and WebRTC (profile `media`, ADR-0015) share the
+// run lifecycle and little else, so the page shows one at a time: its runs,
+// its nodes and their columns, its findings, its Add form. Which node types
+// serve which scenario comes from the server (topology.roles[].profile), as
+// for the role chips; the RAN sources serve both and show on both tabs, as
+// do the findings that concern any run (finding.profile null).
+
+
+// Remembered per browser: a convenience, so storage failing changes nothing.
+function savedScenario() {
+  try {
+    const s = localStorage.getItem('mec-cast.admin.scenario');
+    return SCENARIOS.includes(s) ? s : 'robotics';
+  } catch {
+    return 'robotics';
+  }
+}
+
+function setScenario(scenario) {
+  state.scenario = scenario;
+  try { localStorage.setItem('mec-cast.admin.scenario', scenario); } catch { /* fine */ }
+  // A selection made on the other tab must not be acted on from this one.
+  state.selected.clear();
+  applyScenario();
+  if (state.snapshot) render(state.snapshot);
+}
+
+/** The scenario a node type serves, or null for both (the RAN sources). */
+function roleProfile(snapshot, nodeType) {
+  const spec = ((snapshot.topology || {}).roles || []).find((r) => r.role === nodeType);
+  if (spec) return spec.profile ?? null;
+  return MIDDLEWARE_TYPES.has(nodeType) ? 'robotics' : null;
+}
+
+const inScenario = (profile) => profile == null || profile === state.scenario;
+const runProfile = (run) => run.profile || (run.params || {}).profile || 'robotics';
+const ACTIVE = ['starting', 'running', 'degraded'];
+
+function scenarioRuns(snapshot) {
+  return shownRuns(snapshot).filter((r) => runProfile(r) === state.scenario);
+}
+
+function scenarioNodes(snapshot) {
+  return (snapshot.nodes || []).filter((n) => inScenario(roleProfile(snapshot, n.node_type)));
+}
+
+function scenarioFindings(snapshot) {
+  return (snapshot.findings || []).filter((f) => inScenario(f.profile));
+}
+
+/** The tabs: which is chosen, and how many runs are active on each. */
+function renderTabs(snapshot) {
+  for (const tab of document.querySelectorAll('#scenarioTabs [data-scenario]')) {
+    tab.setAttribute('aria-selected', String(tab.dataset.scenario === state.scenario));
+  }
+  for (const badge of document.querySelectorAll('#scenarioTabs [data-count]')) {
+    const n = (snapshot.runs || []).filter(
+      (r) => !r.removed && runProfile(r) === badge.dataset.count && ACTIVE.includes(r.state)).length;
+    badge.textContent = n ? String(n) : '';
+    badge.title = n ? `${n} run(s) active` : '';
+  }
+}
+
+/** The Add form and the header follow the tab. */
+function applyScenario() {
+  const media = state.scenario === 'media';
+  for (const el of document.querySelectorAll('#addForm .robotics')) el.classList.toggle('hidden', media);
+  for (const el of document.querySelectorAll('#addForm .media')) el.classList.toggle('hidden', !media);
+  $('runsEmpty').innerHTML = media
+    ? 'No WebRTC runs yet. Press <strong>Add run</strong> to create one.'
+    : 'No ROS runs yet. Press <strong>Add run</strong> to create one.';
+}
 
 const esc = (text) =>
   String(text ?? '').replace(/[&<>"']/g, (c) =>
@@ -74,7 +154,7 @@ function middlewareBadge(snapshot) {
   const per = snapshot.middleware || {};
   const zones = Object.keys(per).sort();
   const badge = $('middleware');
-  if (!zones.length) { badge.hidden = true; return; }
+  if (!zones.length || state.scenario !== 'robotics') { badge.hidden = true; return; }
   const label = (kind) => {
     if (kind === 'mixed') return 'mixed';
     const [name, link] = kind.split('/');
@@ -257,12 +337,12 @@ function shownRuns(snapshot) {
 
 function renderRuns(snapshot) {
   const body = $('runsTable').querySelector('tbody');
-  const runs = shownRuns(snapshot);
+  const runs = scenarioRuns(snapshot);
   $('runCount').textContent = runs.length ? `${runs.length}` : '';
   $('runsEmpty').classList.toggle('hidden', runs.length > 0);
   $('runsTable').classList.toggle('hidden', runs.length === 0);
 
-  const findingsByRun = (snapshot.findings || []).filter((f) => f.severity === 'error').length;
+  const findingsByRun = scenarioFindings(snapshot).filter((f) => f.severity === 'error').length;
 
   body.innerHTML = runs.map((run) => {
     const allowed = run.allowed || [];
@@ -318,7 +398,7 @@ function renderRuns(snapshot) {
 
 /** Reflect the selection in the bulk bar and the select-all box. */
 function syncSelection() {
-  const runs = (state.snapshot?.runs || []).map((r) => r.run_id);
+  const runs = state.snapshot ? scenarioRuns(state.snapshot).map((r) => r.run_id) : [];
   const n = state.selected.size;
 
   $('bulkBar').classList.toggle('hidden', n === 0);
@@ -361,7 +441,7 @@ async function bulkRemove() {
 }
 
 function renderFindings(snapshot) {
-  const findings = snapshot.findings || [];
+  const findings = scenarioFindings(snapshot);
   $('findingCount').textContent = findings.length ? `${findings.length}` : '';
   const box = $('findings');
   if (!findings.length) {
@@ -448,7 +528,8 @@ function serviceLinks(snapshot) {
 
   // Viewer: whichever renderer is online and serving. There is normally one;
   // with several, the first is linked and every row carries its own.
-  const node = (snapshot.nodes || []).find(
+  // The rerun viewer is the ROS renderer's: shown on that tab only.
+  const node = state.scenario === 'robotics' && (snapshot.nodes || []).find(
     (n) => n.online && (n.params || {}).viewer_url);
   const vw = $('viewerLink');
   const tun = $('viewerTunnel');
@@ -468,8 +549,65 @@ function serviceLinks(snapshot) {
   }
 }
 
+// The media nodes' own columns, from what each reports in params
+// (ADR-0015): the relay its streams and address, a client its stream, its
+// WebRTC connection, its video and the libwebrtc it was built on.
+function streamOf(n) {
+  const p = n.params || {};
+  if (n.node_type === 'relay') {
+    const streams = Object.entries(p.streams || {});
+    return streams.length
+      ? streams.map(([s, c]) => `${s}: ${c.publishers}→${c.subscribers}`).join(', ')
+      : 'none';
+  }
+  return p.stream || '';
+}
+
+function connectionOf(n) {
+  const p = n.params || {};
+  if (n.node_type === 'relay') return p.public_addr || '';
+  return p.connection || '';
+}
+
+function videoOf(n) {
+  const v = (n.params || {}).video;
+  return v ? `${v.width}×${v.height} @ ${v.fps} · ${v.source}` : '';
+}
+
+const CONNECTION_PILL = {
+  connected: 'running', connecting: 'starting', new: 'draft', closed: 'draft',
+  failed: 'failed', disconnected: 'failed',
+};
+
+const NODE_COLUMNS = {
+  robotics: [
+    ['Middleware', (n) => `<td class="mono" title="Middleware/link the node runs on — fixed at deployment — and its point-cloud codec, when not none">${esc(middlewareOf(n) || '—')}</td>`],
+    ['Peers', (n) => `<td class="mono">${(n.peers || []).length}</td>`],
+  ],
+  media: [
+    ['Stream', (n) => `<td class="mono" title="A client's stream; the relay's streams as publishers→subscribers">${esc(streamOf(n) || '—')}</td>`],
+    ['Connection', (n) => {
+      const c = connectionOf(n);
+      if (!c) return '<td class="dim">—</td>';
+      return n.node_type === 'relay'
+        ? `<td class="mono" title="The address the relay offers its clients">${esc(c)}</td>`
+        : `<td><span class="pill ${CONNECTION_PILL[c] || 'draft'}" title="The client's WebRTC connection to the relay">${esc(c)}</span></td>`;
+    }],
+    ['Video', (n) => `<td class="mono dim">${esc(videoOf(n) || '—')}</td>`],
+    ['libwebrtc', (n) => `<td class="mono dim">${esc((n.params || {}).libwebrtc || '—')}</td>`],
+  ],
+};
+
 function renderNodes(snapshot) {
-  const nodes = snapshot.nodes || [];
+  const nodes = scenarioNodes(snapshot);
+  const own = NODE_COLUMNS[state.scenario];
+  const head = ['Node', 'Type', 'State', 'Run', ...own.map(([name]) => name), 'Counters', 'Version', 'Seen'];
+  const headRow = $('nodesTable').querySelector('thead tr');
+  const wanted = head.join('|');
+  if (headRow.dataset.cols !== wanted) {
+    headRow.dataset.cols = wanted;
+    headRow.innerHTML = head.map((h) => `<th>${esc(h)}</th>`).join('');
+  }
   const body = $('nodesTable').querySelector('tbody');
   $('nodesEmpty').classList.toggle('hidden', nodes.length > 0);
   $('nodesTable').classList.toggle('hidden', nodes.length === 0);
@@ -484,8 +622,7 @@ function renderNodes(snapshot) {
       <td>${esc(n.node_type)} ${zoneChip(n.zone, snapshot)}</td>
       <td><span class="pill ${live}">${esc(liveText)}</span></td>
       <td class="mono dim" title="${esc(n.run_id || '')}">${esc(shortId(n.run_id)) || '—'}</td>
-      <td class="mono" title="Middleware/link the node runs on — fixed at deployment — and its point-cloud codec, when not none">${esc(middlewareOf(n) || '—')}</td>
-      <td class="mono">${(n.peers || []).length}</td>
+      ${own.map(([, cell]) => cell(n)).join('')}
       <td class="mono dim" style="font-size:11px">${esc(counters)}${viewerCell(n)}</td>
       <td class="mono dim">${esc(n.version?.sha ? n.version.sha.slice(0, 7) : '—')}</td>
       <td class="mono dim">${n.silent_for_s}s</td>
@@ -493,12 +630,23 @@ function renderNodes(snapshot) {
   }).join('');
 }
 
+/** The relay's address, on the WebRTC tab: what every client must reach. */
+function relayBadge(snapshot) {
+  const badge = $('relayBadge');
+  const relays = (snapshot.nodes || []).filter((n) => n.node_type === 'relay' && n.online);
+  if (state.scenario !== 'media' || !relays.length) { badge.hidden = true; return; }
+  badge.textContent = `relay ${relays.map((n) => (n.params || {}).public_addr || n.host).join(', ')}`;
+  badge.className = 'pill running';
+  badge.hidden = false;
+}
+
 function render(snapshot) {
   state.snapshot = snapshot;
-  const online = (snapshot.nodes || []).filter((n) => n.online).length;
+  const online = scenarioNodes(snapshot).filter((n) => n.online).length;
   $('subtitle').textContent =
-    `${shownRuns(snapshot).length} run(s) · ${online} node(s) online · ` +
+    `${scenarioRuns(snapshot).length} run(s) · ${online} node(s) online · ` +
     `protocol v${snapshot.protocol} · server ${snapshot.server_version}`;
+  renderTabs(snapshot);
   renderRuns(snapshot);
   renderFindings(snapshot);
   renderNodes(snapshot);
@@ -506,6 +654,7 @@ function render(snapshot) {
   renderZoneChoices(snapshot);
   serviceLinks(snapshot);
   middlewareBadge(snapshot);
+  relayBadge(snapshot);
 }
 
 /* ── add form ────────────────────────────────────────────────────────── */
@@ -521,7 +670,7 @@ $('showRemoved').addEventListener('change', () => {
 
 $('bulkRemove').addEventListener('click', bulkRemove);
 $('selectAll').addEventListener('change', (event) => {
-  const ids = (state.snapshot?.runs || []).map((r) => r.run_id);
+  const ids = state.snapshot ? scenarioRuns(state.snapshot).map((r) => r.run_id) : [];
   if (event.target.checked) for (const id of ids) state.selected.add(id);
   else state.selected.clear();
   renderRuns(state.snapshot || { runs: [] });
@@ -532,18 +681,16 @@ $('addToggle').addEventListener('click', () => $('addForm').classList.toggle('op
 $('f_codec').addEventListener('change', () => {
   $('f_precision').disabled = $('f_codec').value === 'none';
 });
-// Each profile has its own knobs; show the chosen one's.
-$('f_profile').addEventListener('change', () => {
-  const media = $('f_profile').value === 'media';
-  for (const el of document.querySelectorAll('#addForm .robotics')) el.classList.toggle('hidden', media);
-  for (const el of document.querySelectorAll('#addForm .media')) el.classList.toggle('hidden', !media);
-});
+for (const tab of document.querySelectorAll('#scenarioTabs [data-scenario]')) {
+  tab.addEventListener('click', () => setScenario(tab.dataset.scenario));
+}
 $('addCancel').addEventListener('click', () => $('addForm').classList.remove('open'));
 
 $('addForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const [width, height] = $('f_vsize').value.split('x').map(Number);
-  const params = $('f_profile').value === 'media' ? {
+  // The tab is the profile: a run is created in the scenario on show.
+  const params = state.scenario === 'media' ? {
     profile: 'media',
     stream: $('f_stream').value.trim() || 'default',
     video_source: $('f_vsource').value,
@@ -568,5 +715,6 @@ $('addForm').addEventListener('submit', async (event) => {
   } catch { /* the banner already says why */ }
 });
 
+applyScenario();
 startPolling();
 connect();

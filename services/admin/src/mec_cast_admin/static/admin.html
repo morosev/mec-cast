@@ -17,12 +17,25 @@
     </div>
     <div class="topright">
       <span id="middleware" class="pill draft" hidden title="The ROS middleware and link this deployment runs on, as its nodes report it (ADR-0013)"></span>
+      <span id="relayBadge" class="pill draft" hidden title="The media relay, at the address it offers its clients (RELAY_PUBLIC_IP)"></span>
       <a id="loggingLink" class="svc" href="#" target="_blank" rel="noopener" hidden>logging dashboard ↗</a>
       <a id="viewerLink" class="svc" href="#" target="_blank" rel="noopener" hidden>viewer ↗</a>
         <code id="viewerTunnel" class="hint" hidden title="rerun only accepts loopback origins, so the viewer must be reached through a tunnel"></code>
       <span id="link" class="pill draft">offline</span>
     </div>
   </header>
+
+  <!-- The two scenarios share the run lifecycle and little else: each tab
+       shows its own runs, nodes, findings and Add form. The RAN nodes and
+       the findings that concern any run are shown on both. -->
+  <nav class="tabs" id="scenarioTabs" role="tablist">
+    <button type="button" role="tab" data-scenario="robotics">
+      ROS <span class="tabsub">point clouds</span> <span class="tabcount" data-count="robotics"></span>
+    </button>
+    <button type="button" role="tab" data-scenario="media">
+      WebRTC <span class="tabsub">video via the relay</span> <span class="tabcount" data-count="media"></span>
+    </button>
+  </nav>
 
   <div id="error" class="banner hidden"></div>
 
@@ -45,13 +58,6 @@
       <div class="field">
         <label for="f_label">Label</label>
         <input id="f_label" class="wide" placeholder="baseline" maxlength="200">
-      </div>
-      <div class="field">
-        <label for="f_profile" title="What the run measures, and so which nodes it recruits (ADR-0015)">Profile</label>
-        <select id="f_profile">
-          <option value="robotics" selected>robotics — point clouds over ROS</option>
-          <option value="media">media — WebRTC video via the relay</option>
-        </select>
       </div>
       <div class="field robotics">
         <label for="f_points">Points</label>
@@ -156,12 +162,7 @@
   <section class="card">
     <h2>Nodes</h2>
     <table id="nodesTable">
-      <thead>
-        <tr>
-          <th>Node</th><th>Type</th><th>State</th><th>Run</th><th>Middleware</th>
-          <th>Peers</th><th>Counters</th><th>Version</th><th>Seen</th>
-        </tr>
-      </thead>
+      <thead><tr></tr></thead>
       <tbody></tbody>
     </table>
     <div id="nodesEmpty" class="empty hidden">

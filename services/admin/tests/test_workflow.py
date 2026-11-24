@@ -281,6 +281,8 @@ class TestContract:
                 "message",
                 "remedy",
                 "zone",
+                # robotics | media | None: which of the page's tabs shows it.
+                "profile",
             }
 
 

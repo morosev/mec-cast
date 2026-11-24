@@ -237,3 +237,44 @@ class TestFindings:
             )
         found = [f for f in diagnose(reg, _active_media_run()) if f.code == "WF_MEDIA_NO_FRAMES"]
         assert [f.subject for f in found] == [relay]
+
+
+class TestScenarioScoping:
+    def test_an_idle_edge_is_no_fault_in_a_media_run(self):
+        """The edge has nothing to do in a WebRTC run; idle is right."""
+        reg = Registry()
+        edge = p.node_id(p.NodeType.EDGE, "mec01", 0)
+        reg.on_hello(p.HelloPayload(node_type=p.NodeType.EDGE, node_id=edge, host="mec01"))
+        reg.on_status(edge, p.StatusPayload(node_type=p.NodeType.EDGE, state=p.NodeState.IDLE))
+        assert "WF_EDGE_IDLE" not in codes(diagnose(reg, _active_media_run()))
+        from mec_cast_admin.state import RunState
+
+        robotics = Run(run_id="r2", seq=2, state=RunState.RUNNING)
+        assert "WF_EDGE_IDLE" in codes(diagnose(reg, robotics))
+
+    def test_each_finding_says_which_scenario_it_is_about(self):
+        from mec_cast_admin.workflow import finding_profile
+
+        assert finding_profile("WF_NO_FRAMES") == "robotics"
+        assert finding_profile("WF_MEDIA_NO_FRAMES") == "media"
+        assert finding_profile("WF_CLIENT_ABSENT") == "robotics"
+        assert finding_profile("WF_RECEIVER_ABSENT") == "media"
+        # What concerns every run is shown on both of the page's tabs.
+        for shared in ("WF_GNB_ABSENT", "WF_CLOCK_SKEW", "WF_VERSION_SKEW", "WF_RUN_MISMATCH"):
+            assert finding_profile(shared) is None
+
+    def test_the_profile_table_names_only_codes_the_workflow_raises(self):
+        import pathlib
+
+        from mec_cast_admin import workflow
+
+        source = pathlib.Path(workflow.__file__).read_text()
+        stale = [code for code in workflow.FINDING_PROFILE if source.count(f'"{code}"') < 2]
+        assert not stale, f"FINDING_PROFILE names codes no check raises: {stale}"
+
+    def test_findings_carry_their_profile_to_the_page(self):
+        reg = Registry()
+        _media_node(reg, p.NodeType.SENDER, "ue01", params={"connection": "failed"})
+        found = [f.to_dict() for f in diagnose(reg, _active_media_run())]
+        by_code = {f["code"]: f["profile"] for f in found}
+        assert by_code["WF_MEDIA_NOT_CONNECTED"] == "media"

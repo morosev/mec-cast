@@ -24,7 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .protocol import MIDDLEWARE_NODE_TYPES, NodeState, NodeType, middleware_of, profile_of
+from .protocol import (
+    MIDDLEWARE_NODE_TYPES,
+    NODE_PROFILE,
+    NodeState,
+    NodeType,
+    middleware_of,
+    profile_of,
+)
 from .registry import NodeRecord, Registry
 from .state import RunState
 from .store import Run
@@ -47,6 +54,12 @@ class Finding:
     #: problems and not another zone's.
     zone: str = ""
 
+    @property
+    def profile(self) -> str | None:
+        """The scenario this is about -- `robotics`, `media` -- or None for
+        what concerns every run: clocks, versions, the RAN, the topology."""
+        return finding_profile(self.code)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
@@ -55,7 +68,38 @@ class Finding:
             "message": self.message,
             "remedy": self.remedy,
             "zone": self.zone,
+            "profile": self.profile,
         }
+
+
+#: The findings that belong to one scenario. Everything else -- clocks,
+#: versions, logging, the RAN, the topology, a node on the wrong run --
+#: concerns any run and is shown with both. WF_<ROLE>_ABSENT follows the
+#: role's own profile (protocol.NODE_PROFILE).
+FINDING_PROFILE: dict[str, str] = {
+    "WF_EDGE_IDLE": "robotics",
+    "WF_NO_PEER": "robotics",
+    "WF_QOS_MISMATCH": "robotics",
+    "WF_NO_FRAMES": "robotics",
+    "WF_RENDER_STARVED": "robotics",
+    "WF_RENDER_CROSS_HOST": "robotics",
+    "WF_TRANSPORT_MISMATCH": "robotics",
+    "WF_CODEC_MISMATCH": "robotics",
+    "WF_MEDIA_NOT_CONNECTED": "media",
+    "WF_STREAM_MISMATCH": "media",
+    "WF_MEDIA_NO_FRAMES": "media",
+}
+
+
+def finding_profile(code: str) -> str | None:
+    if code in FINDING_PROFILE:
+        return FINDING_PROFILE[code]
+    if code.startswith("WF_") and code.endswith("_ABSENT"):
+        try:
+            return NODE_PROFILE[NodeType(code[3:-7].lower())]
+        except ValueError:
+            return None
+    return None
 
 
 #: WF_RAN_SOURCES_DISAGREE: the relative gap that counts as disagreement, and
@@ -169,6 +213,12 @@ def diagnose(
         RunState.RUNNING,
         RunState.DEGRADED,
     }
+    # A check about one scenario's nodes judges them only while a run of that
+    # scenario is on: an idle edge is a fault in a robotics run and expected
+    # in a media one, which recruits no edge (ADR-0015).
+    active_profile = profile_of(run.params) if run_is_active else None
+    robotics_active = active_profile == "robotics"
+    media_active = active_profile == "media"
 
     # --- roles missing entirely ------------------------------------------
     # Which roles must be present, and how loudly to say so, is the topology
@@ -266,7 +316,7 @@ def diagnose(
     # all — only a renderer that is present and starved, which means the edge
     # is not sending the downlink it is being asked to draw.
     for render in renderers:
-        if not run_is_active or not render.subscribed:
+        if not robotics_active or not render.subscribed:
             continue
         edge_producing = any(_rising(e, "frames") for e in edges)
         if edge_producing and not _rising(render, "frames"):
@@ -467,7 +517,7 @@ def diagnose(
     # silent redefinition worth interrupting someone for.
     client_hosts = {c.host for c in clients}
     for render in renderers:
-        if not run_is_active or render.state is not NodeState.RUNNING:
+        if not robotics_active or render.state is not NodeState.RUNNING:
             continue
         if client_hosts and render.host not in client_hosts:
             findings.append(
@@ -487,7 +537,7 @@ def diagnose(
 
     # --- connected but not doing their job --------------------------------
     for edge in edges:
-        if run_is_active and not edge.subscribed:
+        if robotics_active and not edge.subscribed:
             findings.append(
                 Finding(
                     "WF_EDGE_IDLE",
@@ -571,7 +621,7 @@ def diagnose(
     # nothing -- the client says so only in its own console.
     for c in senders + receivers:
         state = (c.params or {}).get("connection")
-        if not run_is_active or c.state is not NodeState.RUNNING:
+        if not media_active or c.state is not NodeState.RUNNING:
             continue
         if state in ("failed", "disconnected"):
             findings.append(
@@ -592,7 +642,7 @@ def diagnose(
     # A receiver playing a stream no sender in its zone publishes receives
     # nothing, and nothing anywhere fails.
     for rcv in receivers:
-        if not run_is_active or rcv.state is not NodeState.RUNNING:
+        if not media_active or rcv.state is not NodeState.RUNNING:
             continue
         wanted = (rcv.params or {}).get("stream")
         published = {
@@ -618,7 +668,7 @@ def diagnose(
     # the relay is the uplink; frames at the relay and not decoded at the
     # receiver is the downlink.
     for relay in relays:
-        if not run_is_active:
+        if not media_active:
             continue
         zone_senders = [s for s in senders if zone_of(s) == zone_of(relay)]
         zone_receivers = [c for c in receivers if zone_of(c) == zone_of(relay)]
