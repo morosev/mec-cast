@@ -108,7 +108,34 @@ The middleware is fixed when a node process starts: changing it means
   ```
 - **ROS CLI on Zenoh:** `ros2 topic list` works from any node container.
 
-## Troubleshooting
+### Large samples over DDS/UDP
+
+Two knobs on the generated Fast DDS profile, at Fast DDS's own defaults, set
+the same on every host like the rest of the middleware:
+
+| Variable | Default | What it sets |
+|---|---|---|
+| `DDS_MAX_MESSAGE_SIZE` | 65500 | The UDP transport's largest message. The default is sent as datagrams the kernel splits into ~45 IP fragments, one lost fragment losing the datagram; below the MTU (1400) RTPS fragments instead |
+| `DDS_HEARTBEAT_MS` | 3000 | How often a reliable writer announces what it holds, which drives repair |
+
+Measured on recorded Ford sweeps (`PATTERN=dataset`, ~230 kB G-PCC coded at
+10 Hz, the render topology on one Mac), share of frames reaching the edge:
+
+| Local impairment | Reliable, defaults | Reliable, 1400 B / 100 ms | Best-effort |
+|---|---|---|---|
+| none | 99.3% | 99.6% | 98.9% |
+| 20 +- 5 ms, no loss | 92.7% | 92.9% | 91.4% |
+| 20 +- 5 ms, 0.5% loss (the local topologies' default) | 7.9% | 0.4% | 4.8% |
+| 20 ms, 0.5% loss, no jitter | 2.9% | 13.1% | 0.2% |
+
+Without loss neither knob changes delivery (the smaller messages and faster
+heartbeat only shorten the tail). At 0.5% loss nothing carries these frames,
+and the faster heartbeat makes it worse under netem's jitter -- which
+reorders packets, as a 5G link, delivering in order after its own
+retransmission, does not -- by repairing fragments that were only late. So
+the defaults stay. Best-effort delivers far less than independent 0.5% loss
+over ~165 packets a frame predicts (~44%); the gap is unexplained, so treat
+local loss figures for large samples with care.
 
 | Symptom | Cause | Fix |
 |---|---|---|

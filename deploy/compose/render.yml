@@ -58,6 +58,10 @@ services:
       # the zenoh-router or the dds-discovery service, whichever is up.
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      # Fast DDS over UDP, large samples: message size and the reliable
+      # writers' heartbeat (deploy/docker/middleware/middleware-env.sh).
+      DDS_MAX_MESSAGE_SIZE: ${DDS_MAX_MESSAGE_SIZE:-}
+      DDS_HEARTBEAT_MS: ${DDS_HEARTBEAT_MS:-}
       MIDDLEWARE_HOST: middleware
       # none | gpcc (ADR-0014): the downlink G-PCC coded. A run's `codec`
       # parameter overrides it; this is the default without the admin.

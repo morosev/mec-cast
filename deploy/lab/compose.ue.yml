@@ -52,6 +52,10 @@ services:
       # be routable from the edge).
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      # Fast DDS over UDP, large samples: message size and the reliable
+      # writers' heartbeat (deploy/docker/middleware/middleware-env.sh).
+      DDS_MAX_MESSAGE_SIZE: ${DDS_MAX_MESSAGE_SIZE:-}
+      DDS_HEARTBEAT_MS: ${DDS_HEARTBEAT_MS:-}
       MIDDLEWARE_HOST: ${EDGE_HOST}
       # dds: this UE's 5G interface (or address) only. Fast DDS announces
       # every interface; with the management LAN among them the point clouds

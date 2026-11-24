@@ -96,6 +96,10 @@ services:
       # on the same machine.
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      # Fast DDS over UDP, large samples: message size and the reliable
+      # writers' heartbeat (deploy/docker/middleware/middleware-env.sh).
+      DDS_MAX_MESSAGE_SIZE: ${DDS_MAX_MESSAGE_SIZE:-}
+      DDS_HEARTBEAT_MS: ${DDS_HEARTBEAT_MS:-}
       MIDDLEWARE_HOST: 127.0.0.1
       # dds/tcp: this edge listens, the UE's participants dial out to it.
       DDS_TCP_LISTEN_PORT: "7410"

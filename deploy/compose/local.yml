@@ -91,6 +91,10 @@ services:
       # the zenoh-router or the dds-discovery service, whichever is up.
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      # Fast DDS over UDP, large samples: message size and the reliable
+      # writers' heartbeat (deploy/docker/middleware/middleware-env.sh).
+      DDS_MAX_MESSAGE_SIZE: ${DDS_MAX_MESSAGE_SIZE:-}
+      DDS_HEARTBEAT_MS: ${DDS_HEARTBEAT_MS:-}
       MIDDLEWARE_HOST: middleware
       # none | gpcc (ADR-0014), and the coded position step. A run's
       # `codec` and `codec_precision_m` parameters override them.
@@ -154,6 +158,10 @@ services:
       # the zenoh-router or the dds-discovery service, whichever is up.
       MIDDLEWARE: ${MIDDLEWARE:-zenoh}
       MIDDLEWARE_LINK: ${MIDDLEWARE_LINK:-}
+      # Fast DDS over UDP, large samples: message size and the reliable
+      # writers' heartbeat (deploy/docker/middleware/middleware-env.sh).
+      DDS_MAX_MESSAGE_SIZE: ${DDS_MAX_MESSAGE_SIZE:-}
+      DDS_HEARTBEAT_MS: ${DDS_HEARTBEAT_MS:-}
       MIDDLEWARE_HOST: middleware
       # none | gpcc (ADR-0014): the clouds arrive, and the result leaves,
       # G-PCC coded. A run's `codec` parameter overrides it.

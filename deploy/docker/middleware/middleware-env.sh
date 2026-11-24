@@ -106,7 +106,13 @@ else
       </transport_descriptor>"
       server_locator="<tcpv4><address>${server}</address><physical_port>11811</physical_port><port>11811</port></tcpv4>"
     else
+      # An experiment knob, at Fast DDS's own default: the largest datagram,
+      # 65500 bytes, which the kernel splits into ~45 IP fragments. Below the
+      # MTU (e.g. 1400), RTPS fragments instead and a lost packet costs one
+      # fragment. Measured on Ford sweeps (~230 kB coded) under netem, it did
+      # not help where it mattered: see docs/architecture/middleware.md.
       transport="<transport_descriptor><transport_id>mec_cast</transport_id><type>UDPv4</type>${allow}
+        <maxMessageSize>${DDS_MAX_MESSAGE_SIZE:-65500}</maxMessageSize>
         <sendBufferSize>4194304</sendBufferSize><receiveBufferSize>4194304</receiveBufferSize>
       </transport_descriptor>"
       server_locator="<udpv4><address>${server}</address><port>11811</port></udpv4>"
@@ -135,6 +141,16 @@ else
         </builtin>
       </rtps>
     </participant>
+    <!-- Reliable writers announce what they hold every DDS_HEARTBEAT_MS, and
+         a reader asks for what it lacks in reply: the repair loop. An
+         experiment knob, at Fast DDS's default of 3 s: 100 ms repaired more
+         and delivered less under netem's reordering jitter
+         (docs/architecture/middleware.md). -->
+    <data_writer profile_name="mec_cast_writer" is_default_profile="true">
+      <times>
+        <heartbeatPeriod><sec>$(( ${DDS_HEARTBEAT_MS:-3000} / 1000 ))</sec><nanosec>$(( ${DDS_HEARTBEAT_MS:-3000} % 1000 * 1000000 ))</nanosec></heartbeatPeriod>
+      </times>
+    </data_writer>
   </profiles>
 </dds>
 XML
