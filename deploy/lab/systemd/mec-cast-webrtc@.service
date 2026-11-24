@@ -1,0 +1,35 @@
+# A WebRTC client of the media profile -- sender or receiver -- started at
+# boot and stopped cleanly at shutdown. The instance names its config:
+# mec-cast-webrtc@sender reads /etc/mec-cast/webrtc-sender.json.
+#
+#   sudo cp deploy/lab/systemd/mec-cast-webrtc@.service /etc/systemd/system/
+#   sudo cp deploy/lab/systemd/webrtc.env.example /etc/mec-cast/webrtc.env   # then edit it
+#   sudo cp my-sender.json /etc/mec-cast/webrtc-sender.json   # mode relay, role send
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mec-cast-webrtc@sender
+#
+# The client runs natively (make fetch-libwebrtc build-client, once). Under
+# the admin it waits for a media run, so starting it at boot starts nothing.
+# On SIGTERM it leaves as `quit` does: ends its session, flushing the
+# receiver's recorder, and says goodbye to the admin.
+
+[Unit]
+Description=mec-cast WebRTC client %i
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The account that owns the checkout: the client writes its log/ there.
+User=ops
+EnvironmentFile=/etc/mec-cast/webrtc.env
+# exec, so node itself receives the SIGTERM; NODE for a node outside PATH.
+ExecStart=/bin/sh -c 'exec "$${NODE:-node}" "$${MEC_CAST_DIR}/clients/webrtc_native/client.js" /etc/mec-cast/webrtc-%i.json'
+StandardInput=null
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -21,6 +21,7 @@ procedures, not the reference.
 - [Retention and disk](#retention-and-disk)
 - [Checking system status](#checking-system-status)
 - [Restarting and recovering](#restarting-and-recovering)
+- [Starting at boot, stopping at shutdown](#starting-at-boot-stopping-at-shutdown)
 - [Troubleshooting](#troubleshooting)
 
 ## Cheat sheet
@@ -1019,6 +1020,143 @@ The symptom worth recognising is the second-order one: a `stopping` run holds
 its zone's active-run slot, so **no new run can start in that zone** and the
 Start button on every draft returns 409. If starting is refused and the reason
 names a run that is `stopping`, this is why.
+
+## Starting at boot, stopping at shutdown
+
+A lab host should bring its role back after a reboot, and stop it cleanly
+when the machine shuts down: every node flushes its recorder when stopped
+with `SIGTERM`, but only if it is given the chance.
+
+### What happens without setting anything up
+
+With Docker enabled at boot (`sudo systemctl enable docker`), the containers
+that have `restart: unless-stopped` come back: all of infra (logging,
+PostgreSQL, backups, admin), the edge's Zenoh router or DDS Discovery Server, the gNB
+collector and the media relay. **The edge node and the UE agent do not**:
+they have no restart policy, so after a reboot the edge receives nothing
+and the UE sends nothing until someone redeploys. At shutdown Docker stops
+what is running with `SIGTERM` and about 10 s to finish, which is usually
+enough, but nothing orders it.
+
+### A systemd unit per role (Linux)
+
+`deploy/lab/systemd/` has a unit template, `mec-cast-role@.service`. Its
+instance is the role, and it starts that role's containers at boot and
+stops them, through compose, before Docker goes down:
+
+```bash
+sudo cp deploy/lab/systemd/mec-cast-role@.service /etc/systemd/system/
+```
+
+```bash
+sudo mkdir -p /etc/mec-cast && sudo cp deploy/lab/systemd/role.env.example /etc/mec-cast/edge.env
+```
+
+Edit `/etc/mec-cast/<role>.env`: the same variables you deploy that role
+with (`INFRA_HOST`, `EDGE_HOST`, `MIDDLEWARE`, `ZONE`...), plus
+`MEC_CAST_DIR`, the checkout on that host, and `COMPOSE_PROFILES`, equal to
+`MIDDLEWARE`. KEY=value lines, no `export`, comments on their own lines.
+Then:
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now mec-cast-role@edge
+```
+
+A host with two roles enables two instances (`@infra` and `@edge`), each
+with its own env file.
+
+- **Boot:** `docker compose -f deploy/lab/compose.<role>.yml up -d --no-build`,
+  after Docker and the network are up. It uses the images the last deploy
+  built, so a redeploy is still how a host gets new code; the unit only
+  restarts what is there.
+- **Shutdown:** `docker compose ... stop --timeout 30`, before Docker stops.
+  Each node leaves its run as on Ctrl-C: its CSV is flushed and the admin
+  sees it leave rather than vanish.
+- **By hand**, the same: `sudo systemctl stop mec-cast-role@edge` and
+  `start`. `systemctl status mec-cast-role@edge` says whether it ran.
+
+**The order hosts boot in does not matter.** A node that comes up before
+the admin retries every 30 s; a UE that comes up before the edge keeps
+dialling its router or Discovery Server; snapshots for a logging service
+that is not up yet are buffered. Start-up order still matters for a
+first deploy, where the images are built.
+
+**Leave `RUN_ID` out of the env file.** Under the admin the nodes start
+idle and wait for a run. Without the admin, a fixed `RUN_ID` would make
+every boot append to the same run.
+
+### The WebRTC clients (Linux)
+
+The media profile's sender and receiver run natively, not in a container,
+so they get a unit of their own, `mec-cast-webrtc@.service`. Its instance
+names a config: `mec-cast-webrtc@sender` reads
+`/etc/mec-cast/webrtc-sender.json` (`mode` `relay`, `role` `send`):
+
+```bash
+sudo cp deploy/lab/systemd/mec-cast-webrtc@.service /etc/systemd/system/
+```
+
+```bash
+sudo cp deploy/lab/systemd/webrtc.env.example /etc/mec-cast/webrtc.env
+```
+
+Set `MEC_CAST_DIR`, `RUNS_DIR`, `ADMIN_URL` and `LOGGING_URL` in it, and
+`NODE` when node comes from nvm (systemd's `PATH` does not have it); the
+unit runs as `ops`, the checkout's owner, which you may need to change.
+Then `sudo systemctl enable --now mec-cast-webrtc@sender`. Under the admin
+the client waits for a media run. Stopped, it leaves as `quit` does: its
+session ends, the receiver's recorder flushes, and it says goodbye.
+
+### macOS
+
+Docker Desktop starts at login when **Settings → General → Start Docker
+Desktop when you sign in** is on; the containers with a restart policy then
+come back as on Linux, and the others do not. A WebRTC client on a Mac runs
+under launchd, as a LaunchAgent, which `launchctl` starts at login and stops
+with `SIGTERM` at logout and shutdown:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.mec-cast.webrtc.sender</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/ops/mec-cast/clients/webrtc_native/client.js</string>
+    <string>/Users/ops/mec-cast/sender.json</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ADMIN_URL</key><string>ws://10.0.0.10:8099/ws/node</string>
+    <key>LOGGING_URL</key><string>http://10.0.0.10:8000</string>
+    <key>RUNS_DIR</key><string>/Users/ops/mec-cast/runs</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>/Users/ops/mec-cast/clients/webrtc_native/log/launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/ops/mec-cast/clients/webrtc_native/log/launchd.log</string>
+</dict>
+</plist>
+```
+
+Save it as `~/Library/LaunchAgents/org.mec-cast.webrtc.sender.plist`, then:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.mec-cast.webrtc.sender.plist
+```
+
+`launchctl bootout gui/$(id -u)/org.mec-cast.webrtc.sender` stops it.
+
+### A shutdown during a run
+
+Stopping a host mid-run ends that host's part of the run: its data up to
+then is flushed, and its nodes leave. The admin then judges the run as it
+would any departure -- degraded while its quorum is short, failed when
+everyone has gone -- and an admin that restarts marks a run it was
+running as failed. A run does not resume after a reboot; stop it from the
+page before a planned shutdown, and start a new one after.
 
 ## Troubleshooting
 

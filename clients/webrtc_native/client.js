@@ -1069,6 +1069,21 @@ function startAdmin(url) {
   sessionRetry = setInterval(adminSession, RETRY_SESSION_MS);
 }
 
+// Stopped by the OS or a service manager (systemd sends SIGTERM, launchd
+// too), or Ctrl-C: leave as `quit` does -- end the session, so the
+// receiver's recorder flushes its samples, and say goodbye to the admin --
+// rather than dying with both undone. Once: a second signal waits for it.
+let quitting = false;
+function quitOnSignal(signal) {
+  if (quitting) return;
+  quitting = true;
+  log(`${signal}: quitting`);
+  handleCommand("quit");
+}
+process.on("SIGTERM", () => quitOnSignal("SIGTERM"));
+process.on("SIGINT", () => quitOnSignal("SIGINT"));
+rl.on("SIGINT", () => quitOnSignal("SIGINT"));
+
 // --- Main ---
 loadConfig();
 console.log("=== mec-cast WebRTC client ===");

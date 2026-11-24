@@ -23,6 +23,7 @@ compose/         Local topology
   ran.yml          gnb-sim + ran-collector + xapp: both RAN sources without a radio
   local-5g.yml     middleware centre + edge on the N6 side, lidar client behind srsUE (local 5G)
 lab/             Per-role compose files for the real testbed
+  systemd/       units that start a role, or a WebRTC client, at boot and stop it at shutdown
   compose.{ue,edge,infra,gnb}.yml
   deploy.sh        rsync + build + up, per role
   ran-check.sh     on the gNB host: srsRAN version, metrics transport, collector, admin view

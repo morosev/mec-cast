@@ -1,0 +1,35 @@
+# A lab role, started at boot and stopped cleanly at shutdown. The instance
+# is the role: mec-cast-role@infra, @edge, @gnb, @ue, @relay.
+#
+#   sudo cp deploy/lab/systemd/mec-cast-role@.service /etc/systemd/system/
+#   sudo mkdir -p /etc/mec-cast
+#   sudo cp deploy/lab/systemd/role.env.example /etc/mec-cast/edge.env   # then edit it
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mec-cast-role@edge
+#
+# Start brings the role's containers up from the images the last deploy built
+# (--no-build); stop stops them, giving each 30 s to flush its recorder --
+# every node leaves on SIGTERM as it does on Ctrl-C. Being ordered after
+# docker.service, this unit is stopped BEFORE Docker at shutdown, so the
+# containers stop through compose rather than being killed with the daemon.
+# See docs/operations/admin-manual.md, "Starting at boot, stopping at
+# shutdown".
+
+[Unit]
+Description=mec-cast lab role %i
+Requires=docker.service
+After=docker.service network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# MEC_CAST_DIR, COMPOSE_PROFILES and the role's variables (role.env.example).
+EnvironmentFile=/etc/mec-cast/%i.env
+ExecStart=/bin/sh -c 'cd "$${MEC_CAST_DIR}" && exec docker compose -f deploy/lab/compose.%i.yml up -d --no-build'
+ExecStop=/bin/sh -c 'cd "$${MEC_CAST_DIR}" && exec docker compose -f deploy/lab/compose.%i.yml stop --timeout 30'
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
