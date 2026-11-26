@@ -41,7 +41,7 @@ Zenoh.
 | `zenoh/tcp` | TCP to the router on 7448 | the default; measured, NAT-proof |
 | `zenoh/quic` | QUIC (UDP, TLS 1.3) to 7449 | needs TLS material: `bash scripts/gen-dev-tls.sh` for dev, real certificates in the lab |
 | `dds/udp` | RTPS over UDPv4 | Discovery Server on 11811/udp; data on the RTPS ports (7400 and up) |
-| `dds/tcp` | RTPS over TCPv4 | Discovery Server on 11811/tcp; the edge listens on 7410 (`DDS_TCP_LISTEN_PORT`) and the UE dials out |
+| `dds/tcp` | RTPS over TCPv4 | Discovery Server on 11811/tcp; the edge listens on 7410 (`DDS_TCP_LISTEN_PORT`) and the UE dials out. **Does not work:** the edge discovers the client but receives no samples (`WF_NO_FRAMES`). Not in CI; use `dds/udp` |
 
 Zenoh no longer offers UDP. Its UDP link lost declarations on this build
 (ros2/rmw_zenoh#765), so UDP is DDS's.
@@ -76,7 +76,7 @@ the participant's XML profile.
 | Local | `MIDDLEWARE=dds make up-admin`, `MIDDLEWARE=dds MIDDLEWARE_LINK=tcp make up-admin`. The Makefile sets `COMPOSE_PROFILES`, which starts the matching centre |
 | Lab | `MIDDLEWARE=dds deploy.sh <role> …` on every role; `deploy.sh` forwards both variables and the profile. Set `DDS_INTERFACES` per host |
 | Local-5G | `MIDDLEWARE=dds make up-local-5g` |
-| Tests | `MIDDLEWARE=dds MIDDLEWARE_LINK=udp make test-e2e`; CI runs `zenoh/tcp`, `dds/udp` and `dds/tcp` |
+| Tests | `MIDDLEWARE=dds MIDDLEWARE_LINK=udp make test-e2e`; CI runs `zenoh/tcp` and `dds/udp` |
 
 The middleware is fixed when a node process starts: changing it means
 **recreating** the containers, not restarting a run.
@@ -97,7 +97,7 @@ The middleware is fixed when a node process starts: changing it means
 
 ## Experiments and introspection
 
-- **An explicit `ZENOH_CONFIG_OVERRIDE` or `FASTDDS_DEFAULT_PROFILES_FILE`**
+- **An explicit `ZENOH_CONFIG_OVERRIDE` or `FASTRTPS_DEFAULT_PROFILES_FILE`**
   in a node's environment wins over the generated config. The node then
   reports the link it can read from it, or `override`.
 - **ROS CLI on DDS:** a CLIENT does not see the whole graph. From a container
@@ -118,6 +118,14 @@ the same on every host like the rest of the middleware:
 | `DDS_MAX_MESSAGE_SIZE` | 65500 | The UDP transport's largest message. The default is sent as datagrams the kernel splits into ~45 IP fragments, one lost fragment losing the datagram; below the MTU (1400) RTPS fragments instead |
 | `DDS_HEARTBEAT_MS` | 3000 | How often a reliable writer announces what it holds, which drives repair |
 
+**Not a measurement of the knobs.** The figures below were taken while the
+entrypoint exported the profile under Fast DDS 3's variable name,
+`FASTDDS_DEFAULT_PROFILES_FILE`, which Jazzy's Fast DDS 2.14 does not read. No
+run used the generated profile: every column ran on Fast DDS's built-in
+transports and multicast discovery, so the knob columns differ by run-to-run
+variation alone. They stay here as a record of what local loss does to these
+frames, and are to be measured again.
+
 Measured on recorded Ford sweeps (`PATTERN=dataset`, ~230 kB G-PCC coded at
 10 Hz, the render topology on one Mac), share of frames reaching the edge:
 
@@ -128,19 +136,17 @@ Measured on recorded Ford sweeps (`PATTERN=dataset`, ~230 kB G-PCC coded at
 | 20 +- 5 ms, 0.5% loss (the local topologies' default) | 7.9% | 0.4% | 4.8% |
 | 20 ms, 0.5% loss, no jitter | 2.9% | 13.1% | 0.2% |
 
-Without loss neither knob changes delivery (the smaller messages and faster
-heartbeat only shorten the tail). At 0.5% loss nothing carries these frames,
-and the faster heartbeat makes it worse under netem's jitter -- which
-reorders packets, as a 5G link, delivering in order after its own
-retransmission, does not -- by repairing fragments that were only late. So
-the defaults stay. Best-effort delivers far less than independent 0.5% loss
-over ~165 packets a frame predicts (~44%); the gap is unexplained, so treat
-local loss figures for large samples with care.
+At 0.5% loss almost nothing carries these frames. Best-effort delivers far
+less than independent 0.5% loss over ~165 packets a frame predicts (~44%);
+the gap is unexplained, so treat local loss figures for large samples with
+care. The knobs stay at Fast DDS's defaults until they are measured with the
+profile in effect.
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | A node exits at start: `mec-cast middleware: MIDDLEWARE_LINK=udp is not a link of zenoh` | an invalid pair | Zenoh takes tcp or quic; DDS takes udp or tcp |
 | `WF_TRANSPORT_MISMATCH` | one host deployed with other variables | the same `MIDDLEWARE` and `MIDDLEWARE_LINK` everywhere; recreate the odd container |
+| DDS: `WF_NO_PEER`, and the UE sends nothing to 11811 (`tcpdump udp port 11811`); its participant binds UDP 7400 | the generated profile is not read, so the participant uses multicast discovery, which does not cross the hosts' networks | the image's entrypoint must export `FASTRTPS_DEFAULT_PROFILES_FILE` (Fast DDS 2.x); rebuild an image older than that |
 | DDS: the edge receives nothing, discovery looks fine | firewall on the RTPS data ports, or the UE not routable from the edge | open UDP 7400+ (or TCP 7410); check `ping <UE address>` from the edge |
 | DDS: data flows, but over the management LAN | `DDS_INTERFACES` unset on a multi-homed host | set it to the 5G interface (UE) and the N6 address (edge) |
 | Zenoh QUIC: the router dies at start | TLS material missing | `bash scripts/gen-dev-tls.sh`, or lab certificates in `deploy/docker/zenoh/tls/` |

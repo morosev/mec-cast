@@ -21,7 +21,7 @@
 # It exports RMW_IMPLEMENTATION plus the middleware's own config, and
 # MIDDLEWARE_EFFECTIVE / MIDDLEWARE_LINK_EFFECTIVE, which the nodes report to
 # the admin (mec_cast_admin_client.node_base). An explicit ZENOH_CONFIG_OVERRIDE
-# or FASTDDS_DEFAULT_PROFILES_FILE in the environment wins, for experiments;
+# or FASTRTPS_DEFAULT_PROFILES_FILE in the environment wins, for experiments;
 # the effective link is then read from it.
 #
 # An invalid pair stops the container with the allowed values: a node never
@@ -78,7 +78,7 @@ if [ "$MIDDLEWARE" = zenoh ]; then
   fi
 else
   export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-  if [ -n "${FASTDDS_DEFAULT_PROFILES_FILE:-}" ]; then
+  if [ -n "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
     MIDDLEWARE_LINK_EFFECTIVE=override
   elif [ -n "${MIDDLEWARE_HOST:-}" ]; then
     server=$(mec_cast_resolve "$MIDDLEWARE_HOST")
@@ -154,7 +154,12 @@ else
   </profiles>
 </dds>
 XML
-    export FASTDDS_DEFAULT_PROFILES_FILE=$profile
+    # FASTRTPS_, not FASTDDS_: Jazzy's Fast DDS 2.14 reads only this name
+    # (FASTDDS_DEFAULT_PROFILES_FILE is Fast DDS 3's). Under the other name
+    # the profile is silently ignored and every participant falls back to
+    # multicast discovery -- which connects containers on one Docker network
+    # and nothing across lab hosts.
+    export FASTRTPS_DEFAULT_PROFILES_FILE=$profile
     MIDDLEWARE_LINK_EFFECTIVE=$MIDDLEWARE_LINK
     unset server profile ports transport server_locator allow itf
   fi

@@ -3,6 +3,22 @@
 - **Status:** Accepted
 - **Date:** 2026-10-21
 
+## Amendment, 2026-11-26 — the profile variable is Fast DDS 2's
+
+Until this date the entrypoint exported the generated profile as
+`FASTDDS_DEFAULT_PROFILES_FILE`, the name Fast DDS 3 reads. ROS 2 Jazzy ships
+Fast DDS 2.14, which reads only `FASTRTPS_DEFAULT_PROFILES_FILE`. So no DDS node
+used the profile: none was a Discovery Server client, and every one ran on the
+built-in transports with multicast discovery. That works between containers on
+one Docker network, which is why local DDS runs connected, but not between lab
+hosts, where the UE sent nothing to 11811 and the edge never saw it
+(`WF_NO_PEER`). `DDS_INTERFACES`, `MIDDLEWARE_LINK=tcp`, `DDS_MAX_MESSAGE_SIZE`
+and `DDS_HEARTBEAT_MS` took no effect either. The entrypoint now exports
+`FASTRTPS_DEFAULT_PROFILES_FILE`, and it is the variable an experiment sets to
+override the generated profile. The statement below that names
+`FASTDDS_DEFAULT_PROFILES_FILE` mean it. DDS runs recorded before this date are
+not runs of the configuration this ADR describes.
+
 ## Context
 
 ADR-0001 chose `rmw_zenoh` for the data plane, because DDS's multicast
